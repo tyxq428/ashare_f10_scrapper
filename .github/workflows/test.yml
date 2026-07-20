@@ -21,7 +21,7 @@ jobs:
           node --check src/ashare_f10/web/research-grid.js
           node --check src/ashare_f10/web/static-search-worker.js
           node --check src/ashare_f10/web/app.js
-          node --check src/ashare_f10/web/job-center.js
+          node --check src/ashare_f10/web/job-center-v2.js
           node tests/static-search-worker-smoke.cjs
       - name: Run Ruff
         run: |
