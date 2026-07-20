@@ -37,6 +37,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # The large original parts 2 and 5 are transported as double-base64 chunks.
           cat .bootstrap/part_001.txt > /tmp/project.b64
           cat .bootstrap/part_002b_*.txt | base64 --decode >> /tmp/project.b64
           cat \
