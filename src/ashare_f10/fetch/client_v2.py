@@ -17,6 +17,7 @@ from ashare_f10.models import RequestSpec
 QUOTE_HOST = "push2.eastmoney.com"
 QUOTE_PATH = "/api/qt/stock/get"
 QUOTE_STABLE_UT = "bd1d9ddb04089700cf9c27f6f7426281"
+QUOTE_IDENTITY_FIELDS = ("f57", "f58")
 QUOTE_CORE_FIELDS = (
     "f57",
     "f58",
@@ -54,14 +55,21 @@ def _page_security_code(params: dict[str, Any]) -> str:
 def build_quote_headers(spec: RequestSpec) -> dict[str, str]:
     """Build stable browser-like headers without copying expiring browser tokens.
 
-    The F10 browser request can contain ``ct`` and a second ``ut`` header.  Those
-    values are session-specific anti-bot tokens and must not be persisted in the
-    manifest.  The stable query-string ``ut`` value is retained separately.
+    Browser requests may include ``ct`` and a second ``ut`` header. Those values
+    are session-specific anti-bot tokens and must not be persisted in the
+    manifest. The stable query-string ``ut`` value is retained separately.
     """
 
     headers = {str(key): str(value) for key, value in spec.headers.items()}
     for key in list(headers):
-        if key.lower() in {"ct", "ut", "cookie", "sec-ch-ua", "sec-ch-ua-mobile", "sec-ch-ua-platform"}:
+        if key.lower() in {
+            "ct",
+            "ut",
+            "cookie",
+            "sec-ch-ua",
+            "sec-ch-ua-mobile",
+            "sec-ch-ua-platform",
+        }:
             headers.pop(key, None)
     headers.update(
         {
@@ -101,6 +109,11 @@ def _quote_delay(attempt: int) -> float:
     return min(5.0, 0.55 * (2 ** max(0, attempt - 1))) + random.uniform(0.15, 0.65)
 
 
+def _with_identity_fields(fields: list[str]) -> list[str]:
+    extras = [field for field in fields if field not in QUOTE_IDENTITY_FIELDS]
+    return list(dict.fromkeys([*QUOTE_IDENTITY_FIELDS, *extras]))
+
+
 class HttpClient(BaseHttpClient):
     """Base client plus a resilient transport for Eastmoney's realtime quote API."""
 
@@ -136,8 +149,12 @@ class HttpClient(BaseHttpClient):
                 data = payload.get("data")
                 if not isinstance(data, dict) or not data:
                     raise ValueError("行情接口data为空")
-                if str(data.get("f57", "")) != str(spec.params.get("secid", "")).split(".")[-1]:
+                requested_code = str(spec.params.get("secid", "")).split(".")[-1]
+                if "f57" in data and str(data.get("f57", "")) != requested_code:
                     raise ValueError("行情接口返回的证券代码与请求不一致")
+                if fields is None or "f57" in fields:
+                    if str(data.get("f57", "")) != requested_code:
+                        raise ValueError("行情接口未返回可校验的证券代码")
                 return response, payload, raw, attempt, errors
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"attempt {attempt}: {type(exc).__name__}: {exc}")
@@ -152,32 +169,34 @@ class HttpClient(BaseHttpClient):
         remaining = [field for field in fields if field not in core]
         batches: list[list[str]] = []
         if core:
-            batches.append(core)
+            batches.append(_with_identity_fields(core))
         for start in range(0, len(remaining), 10):
-            batch = remaining[start : start + 10]
-            if batch:
-                batches.append(batch)
-        return batches or [fields]
+            extra_fields = remaining[start : start + 10]
+            if extra_fields:
+                batches.append(_with_identity_fields(extra_fields))
+        return batches or [_with_identity_fields(fields)]
 
     def _quote_batch_recursive(
         self,
         spec: RequestSpec,
         fields: list[str],
     ) -> list[tuple[requests.Response, dict[str, Any], bytes, int, list[str], list[str]]]:
+        requested_fields = _with_identity_fields(fields)
         try:
             response, payload, raw, attempt, errors = self._quote_once(
                 spec,
-                fields,
+                requested_fields,
                 max(3, self.settings.retries),
             )
-            return [(response, payload, raw, attempt, errors, fields)]
+            return [(response, payload, raw, attempt, errors, requested_fields)]
         except Exception:
-            if len(fields) <= 1:
+            extras = [field for field in requested_fields if field not in QUOTE_IDENTITY_FIELDS]
+            if len(extras) <= 1:
                 raise
-            midpoint = max(1, len(fields) // 2)
-            return self._quote_batch_recursive(spec, fields[:midpoint]) + self._quote_batch_recursive(
+            midpoint = max(1, len(extras) // 2)
+            return self._quote_batch_recursive(spec, extras[:midpoint]) + self._quote_batch_recursive(
                 spec,
-                fields[midpoint:],
+                extras[midpoint:],
             )
 
     def _write_quote_cache(self, cache_path: Path, result: PageResponse) -> PageResponse:
