@@ -47,9 +47,7 @@ jobs:
           test -f .bootstrap/part_005b_01.txt
           test -f .bootstrap/part_005b_02.txt
           test -f .bootstrap/part_006.txt
-          test -f .bootstrap/patch_00.txt
-          test -f .bootstrap/patch_01.txt
-          test -f .bootstrap/patch_02.txt
+          for part in .bootstrap/patch_{00..07}.txt; do test -f "$part"; done
 
           cat .bootstrap/part_001.txt > /tmp/project.b64
           cat \
@@ -67,7 +65,7 @@ jobs:
           echo "0d03e7c23e1d1a2c8d264b1b29a9f805dad8442d98bdefc8c4521722c9465bab  /tmp/project.tar.xz" | sha256sum --check --strict
           tar -xJf /tmp/project.tar.xz -C .
 
-          cat .bootstrap/patch_*.txt > /tmp/f10_patch.b64
+          cat .bootstrap/patch_{00..07}.txt > /tmp/f10_patch.b64
           base64 --decode /tmp/f10_patch.b64 > /tmp/f10_patch.tar.xz
           echo "474ef40dcba1ea4ec41494ed17425ddfa5e375a8ff0b22b071107bd5aeed2199  /tmp/f10_patch.tar.xz" | sha256sum --check --strict
           tar -xJf /tmp/f10_patch.tar.xz -C .
