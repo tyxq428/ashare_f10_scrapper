@@ -16,10 +16,11 @@ jobs:
       - run: python -m pip install --upgrade pip
       - run: pip install -e ".[dev]"
       - run: python -m compileall -q src
-      - name: Validate browser JavaScript syntax
+      - name: Validate browser JavaScript and static search worker
         run: |
           node --check src/ashare_f10/web/research-grid.js
           node --check src/ashare_f10/web/static-search-worker.js
           node --check src/ashare_f10/web/app.js
+          node tests/static-search-worker-smoke.cjs
       - run: ruff check src tests
       - run: pytest --cov=ashare_f10 --cov-report=term-missing
