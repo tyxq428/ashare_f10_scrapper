@@ -55,9 +55,12 @@ for path in "${required[@]}"; do
   fi
 done
 
+# Always materialize the cryptographically verified patch files. This salvages
+# valid work even when an obsolete legacy transport archive is incomplete.
+tar -C /tmp/f10-patch-only -cf - . | tar -C "$TARGET_DIR" -xf -
+
 if (( ${#missing[@]} == 0 )); then
   echo "Patch archive is a complete self-contained project; bypassing corrupted legacy base archive."
-  tar -C /tmp/f10-patch-only -cf - . | tar -C "$TARGET_DIR" -xf -
   python3 -m compileall -q src
   node --check src/ashare_f10/web/app.js
   rm -rf .bootstrap
@@ -68,5 +71,5 @@ fi
 
 echo "Patch archive is incremental; missing ${#missing[@]} complete-project files:"
 printf '  %s\n' "${missing[@]}"
-echo "Falling back to structural recovery of the legacy base archive."
+echo "Verified patch files were materialized; falling back to structural recovery of the legacy base archive."
 exec bash "${SCRIPT_DIR}/bootstrap-structural-solver.sh" "$TARGET_DIR"
