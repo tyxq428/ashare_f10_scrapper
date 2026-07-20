@@ -5,13 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>A股 F10 投研平台</title>
   <link rel="stylesheet" href="./app.css" />
+  <link rel="stylesheet" href="./research-grid.css" />
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js"></script>
 </head>
 <body>
   <header class="topbar">
     <div>
       <h1>A股 F10 投研平台</h1>
-      <p>全量拉取 · 模糊搜索 · TTM · 自定义公式 · 来源追溯</p>
+      <p>全量拉取 · Excel式逐列筛选 · 二次搜索 · TTM · 自定义公式 · 来源追溯</p>
     </div>
     <div id="modeBadge" class="badge">检测服务中</div>
   </header>
@@ -63,19 +64,81 @@
     <section id="tab-search" class="tab-panel">
       <div class="panel controls search-controls">
         <label>股票代码 <input id="searchCode" maxlength="6" value="688521" /></label>
-        <label>模糊搜索 <input id="searchQuery" placeholder="应收账款 / ACCOUNTS_RECE / 研发" /></label>
+        <label>初始搜索 <input id="searchQuery" placeholder="应收账款 / ACCOUNTS_RECE / 研发" /></label>
+        <label>匹配方式
+          <select id="baseMatchType">
+            <option value="fuzzy">模糊匹配</option>
+            <option value="contains">包含文本</option>
+            <option value="exact">精确匹配</option>
+            <option value="prefix">前缀匹配</option>
+          </select>
+        </label>
+        <label>模糊阈值 <input id="baseThreshold" type="number" min="0" max="100" value="60" /></label>
         <label>开始日期 <input id="startDate" type="date" /></label>
         <label>结束日期 <input id="endDate" type="date" /></label>
         <label>最小值 <input id="numericMin" type="number" /></label>
         <label>最大值 <input id="numericMax" type="number" /></label>
         <button id="runSearch" class="primary">搜索</button>
       </div>
+
+      <div id="searchChainPanel" class="search-chain-panel">
+        <div class="search-result-actions">
+          <div>
+            <strong>在当前完整结果集中继续搜索</strong>
+            <div class="muted">二次搜索针对全部命中记录，不只针对当前页。</div>
+          </div>
+          <div>
+            <button id="undoSearchStep" type="button">撤销</button>
+            <button id="redoSearchStep" type="button">重做</button>
+            <button id="clearSecondarySearch" type="button">清除二次搜索</button>
+            <button id="resetAllSearch" type="button" class="danger">重置全部</button>
+          </div>
+        </div>
+        <div class="search-chain-row">
+          <label class="grow">搜索词 <input id="secondaryQuery" placeholder="例如：现金；排除同比；限定原始Key" /></label>
+          <label>关系
+            <select id="secondaryOperation">
+              <option value="include">包含（AND）</option>
+              <option value="exclude">排除（NOT）</option>
+              <option value="or">任一满足（OR）</option>
+            </select>
+          </label>
+          <label>匹配方式
+            <select id="secondaryMatchType">
+              <option value="fuzzy">模糊匹配</option>
+              <option value="contains">包含文本</option>
+              <option value="exact">精确匹配</option>
+              <option value="prefix">前缀匹配</option>
+              <option value="regex">正则表达式</option>
+              <option value="empty">为空</option>
+              <option value="not_empty">非空</option>
+            </select>
+          </label>
+          <label>模糊阈值 <input id="secondaryThreshold" type="number" min="0" max="100" value="60" /></label>
+          <button id="addSecondarySearch" class="primary" type="button">添加步骤</button>
+        </div>
+        <div class="search-column-checks">
+          <strong>搜索列：</strong>
+          <label><input type="checkbox" data-secondary-column value="field_name_cn" checked />项目名称</label>
+          <label><input type="checkbox" data-secondary-column value="field_key" checked />原始Key</label>
+          <label><input type="checkbox" data-secondary-column value="theme" checked />区块</label>
+          <label><input type="checkbox" data-secondary-column value="family" checked />接口</label>
+          <label><input type="checkbox" data-secondary-column value="dataset" />数据集</label>
+          <label><input type="checkbox" data-secondary-column value="value_text" />文本值</label>
+        </div>
+        <div id="searchStepList" class="search-step-list"></div>
+        <div id="searchStageCounts" class="search-stage-list"></div>
+      </div>
+
       <div class="panel">
         <div class="panel-header">
-          <h3>搜索结果</h3>
+          <div>
+            <h3>搜索结果</h3>
+            <div class="muted">点击每个表头的 ▼ 可像Excel一样进行列筛选；点击列名可排序。</div>
+          </div>
           <span id="searchCount" class="muted"></span>
         </div>
-        <div id="searchResults" class="table-wrap"></div>
+        <div id="searchResults"></div>
       </div>
     </section>
 
@@ -132,17 +195,51 @@
     <section id="tab-static" class="tab-panel">
       <div class="panel">
         <h2>GitHub Pages 静态查看模式</h2>
-        <p>Pages 无法直接运行 Python。可上传由本地或 GitHub Actions 生成的完整 JSON，在浏览器中查看和搜索。</p>
+        <p>上传 <code>exports/&lt;股票代码&gt;_F10_full.json</code>。JSON将在Web Worker中解析，支持逐列筛选、分页和结果集内二次搜索。</p>
         <input id="jsonUpload" type="file" accept="application/json,.json" />
+        <div id="staticIndexProgress" class="static-index-progress muted">等待上传JSON</div>
         <div id="staticSummary" class="metric-grid"></div>
-        <label>静态搜索 <input id="staticQuery" placeholder="字段Key、中文名、区块或文本" /></label>
-        <button id="staticSearch" class="primary">搜索已上传JSON</button>
-        <div id="staticResults" class="table-wrap"></div>
+        <div class="controls">
+          <label>初始搜索 <input id="staticQuery" placeholder="字段Key、中文名、区块或文本" /></label>
+          <label>匹配方式
+            <select id="staticBaseMatchType">
+              <option value="fuzzy">模糊匹配</option>
+              <option value="contains">包含文本</option>
+              <option value="exact">精确匹配</option>
+              <option value="prefix">前缀匹配</option>
+            </select>
+          </label>
+          <button id="staticSearch" class="primary">搜索已上传JSON</button>
+        </div>
+        <div class="search-chain-row" style="margin-top:12px">
+          <label class="grow">在结果中继续搜索 <input id="staticSecondaryQuery" placeholder="输入二次搜索词" /></label>
+          <label>关系
+            <select id="staticSecondaryOperation">
+              <option value="include">包含（AND）</option>
+              <option value="exclude">排除（NOT）</option>
+              <option value="or">任一满足（OR）</option>
+            </select>
+          </label>
+          <label>匹配方式
+            <select id="staticSecondaryMatchType">
+              <option value="fuzzy">模糊匹配</option>
+              <option value="contains">包含文本</option>
+              <option value="exact">精确匹配</option>
+              <option value="prefix">前缀匹配</option>
+            </select>
+          </label>
+          <button id="addStaticSecondary" class="primary">添加步骤</button>
+          <button id="clearStaticSecondary">清除二次搜索</button>
+        </div>
+        <div id="staticStepList" class="search-step-list"></div>
+        <div id="staticStageCounts" class="search-stage-list"></div>
+        <div id="staticResults" style="margin-top:12px"></div>
       </div>
     </section>
   </main>
 
   <div id="toast" class="toast"></div>
+  <script src="./research-grid.js"></script>
   <script src="./app.js"></script>
 </body>
 </html>
