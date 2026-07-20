@@ -19,11 +19,19 @@ def load_manifest() -> dict[str, Any]:
 
 def load_field_mapping() -> dict[str, Any]:
     mapping = _load_compressed_json("field_mapping_cn")
-    # Corrections remain a small, reviewable resource layered over the large
-    # generated mapping. This avoids regenerating the full compressed mapping
-    # whenever units or technical metadata labels are refined.
-    patch_resource = files("ashare_f10.resources").joinpath("field_mapping_patch_v1.json")
-    if patch_resource.is_file():
+    # Corrections remain small, reviewable resources layered over the large
+    # generated mapping. Apply every versioned patch in lexical order so later
+    # patches can refine earlier labels without regenerating the compressed base.
+    resources = files("ashare_f10.resources")
+    patch_resources = sorted(
+        (
+            item
+            for item in resources.iterdir()
+            if item.name.startswith("field_mapping_patch_v") and item.name.endswith(".json")
+        ),
+        key=lambda item: item.name,
+    )
+    for patch_resource in patch_resources:
         patch = json.loads(patch_resource.read_text(encoding="utf-8"))
         mapping.setdefault("global", {}).update(patch.get("global", {}))
         mapping.setdefault("context", {}).update(patch.get("context", {}))
