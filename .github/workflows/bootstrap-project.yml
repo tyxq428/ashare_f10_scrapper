@@ -37,7 +37,7 @@ jobs:
           fetch-depth: 0
           show-progress: false
 
-      - name: Prefer complete validated patch, then diagnose legacy archive
+      - name: Recover structurally valid archive and apply validated patch
         shell: bash
         run: bash dispatcher/.github/scripts/bootstrap-diagnostic-wrapper.sh target
 
@@ -49,6 +49,8 @@ jobs:
           path: |
             target/bootstrap-diagnostic.log
             target/bootstrap-diagnostic.json
+            target/bootstrap-structural-candidates.json
+            target/bootstrap-selected-candidate.json
           if-no-files-found: warn
           retention-days: 7
 
@@ -61,6 +63,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -f bootstrap-diagnostic.log bootstrap-diagnostic.json
+          test ! -f bootstrap-structural-candidates.json || git add -f bootstrap-structural-candidates.json
+          test ! -f bootstrap-selected-candidate.json || git add -f bootstrap-selected-candidate.json
           git commit -m "Record bootstrap diagnostic"
           git push origin HEAD:feature/f10-research-platform-v1
 
