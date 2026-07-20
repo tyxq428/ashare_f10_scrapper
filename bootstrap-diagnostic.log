@@ -13,65 +13,6 @@ Patch archive is incremental; missing 12 complete-project files:
   scripts/start.sh
   scripts/start.ps1
   scripts/start.bat
-Falling back to legacy base-archive reconstruction solver.
-Bootstrap input sizes:
- 19000 .bootstrap/part_001.txt
-  9000 .bootstrap/part_002b_00.txt
-  9000 .bootstrap/part_002b_01.txt
-  7336 .bootstrap/part_002b_02.txt
-  3000 .bootstrap/part_002c_00.txt
-  3000 .bootstrap/part_002c_01.txt
-  3000 .bootstrap/part_002c_02.txt
- 22684 .bootstrap/part_003.txt
- 19000 .bootstrap/part_004.txt
-  9000 .bootstrap/part_005b_00.txt
-  9000 .bootstrap/part_005b_01.txt
-  7336 .bootstrap/part_005b_02.txt
- 15960 .bootstrap/part_006.txt
-  4000 .bootstrap/patch_00.txt
-  4000 .bootstrap/patch_01.txt
-  4000 .bootstrap/patch_02.txt
-  4000 .bootstrap/patch_03.txt
-  4000 .bootstrap/patch_04.txt
-  4000 .bootstrap/patch_05.txt
-  4000 .bootstrap/patch_06.txt
-  1612 .bootstrap/patch_07.txt
-165928 total
-part2 candidates: [('decode(c0+c1+c2+b1+b2)', 19000), ('decode(c0+c1+c2)+b1+b2', 23086), ('raw(c0+c1+c2+b1+b2)', 25336), ('raw(b0+b1+b2)', 25336), ('decode(b0+b1+b2)', 19000)]
-part5 candidates: [('decode(b0+b1+b2)', 19000), ('raw(b0+b1+b2)', 25336)]
-attempt 2: part2=decode(c0+c1+c2+b1+b2); part5=raw(b0+b1+b2); b64_bytes=120980; archive_bytes=78763; sha=c7847d7419176fd3b71f4a65583e2ef1d6342f1dbdffa5fce9eceddd90088285
-attempt 4: part2=decode(c0+c1+c2)+b1+b2; part5=raw(b0+b1+b2); b64_bytes=125066; archive_bytes=81826; sha=5d6021d11f58a345acf1469df14b356a685ef8652eb89ab714be8ab88d35aeae
-attempt 5: part2=raw(c0+c1+c2+b1+b2); part5=decode(b0+b1+b2); b64_bytes=120980; archive_bytes=33250; sha=d7df8bf543d53e9f17274a86d4e81c67f45731b2f0d3d6af42907a0971beb08b
-attempt 6: part2=raw(c0+c1+c2+b1+b2); part5=raw(b0+b1+b2); b64_bytes=127316; archive_bytes=33250; sha=d7df8bf543d53e9f17274a86d4e81c67f45731b2f0d3d6af42907a0971beb08b
-attempt 7: part2=raw(b0+b1+b2); part5=decode(b0+b1+b2); b64_bytes=120980; archive_bytes=33250; sha=0044c63f5a38720cfbfb783b3c36848d457f3eaddf051f852abceb75889fa935
-attempt 8: part2=raw(b0+b1+b2); part5=raw(b0+b1+b2); b64_bytes=127316; archive_bytes=33250; sha=0044c63f5a38720cfbfb783b3c36848d457f3eaddf051f852abceb75889fa935
-attempt 10: part2=decode(b0+b1+b2); part5=raw(b0+b1+b2); b64_bytes=120980; archive_bytes=78763; sha=297fff7b995c0009fe761d4341fbd6bf31055cdc734aaa8106c649dcff9f1080
-No reconstruction candidate matched expected SHA-256 0d03e7c23e1d1a2c8d264b1b29a9f805dad8442d98bdefc8c4521722c9465bab
-::error::Bootstrap failed in step: solve and verify base archive reconstruction (exit 1)
-Repository bootstrap files:
-part_001.txt 19000 bytes
-part_002b_00.txt 9000 bytes
-part_002b_01.txt 9000 bytes
-part_002b_02.txt 7336 bytes
-part_002c_00.txt 3000 bytes
-part_002c_01.txt 3000 bytes
-part_002c_02.txt 3000 bytes
-part_003.txt 22684 bytes
-part_003c_00.txt 3000 bytes
-part_003c_01.txt 3000 bytes
-part_003c_02.txt 7249 bytes
-part_003c_04.txt 4324 bytes
-part_003c_05.txt 2844 bytes
-part_004.txt 19000 bytes
-part_005b_00.txt 9000 bytes
-part_005b_01.txt 9000 bytes
-part_005b_02.txt 7336 bytes
-part_006.txt 15960 bytes
-patch_00.txt 4000 bytes
-patch_01.txt 4000 bytes
-patch_02.txt 4000 bytes
-patch_03.txt 4000 bytes
-patch_04.txt 4000 bytes
-patch_05.txt 4000 bytes
-patch_06.txt 4000 bytes
-patch_07.txt 1612 bytes
+Falling back to structural recovery of the legacy base archive.
+Evaluated 62 decodable candidates; structurally valid archives: 0
+No candidate is a valid xz-compressed tar archive
