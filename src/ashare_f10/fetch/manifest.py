@@ -18,4 +18,13 @@ def load_manifest() -> dict[str, Any]:
 
 
 def load_field_mapping() -> dict[str, Any]:
-    return _load_compressed_json("field_mapping_cn")
+    mapping = _load_compressed_json("field_mapping_cn")
+    # Corrections remain a small, reviewable resource layered over the large
+    # generated mapping. This avoids regenerating the full compressed mapping
+    # whenever units or technical metadata labels are refined.
+    patch_resource = files("ashare_f10.resources").joinpath("field_mapping_patch_v1.json")
+    if patch_resource.is_file():
+        patch = json.loads(patch_resource.read_text(encoding="utf-8"))
+        mapping.setdefault("global", {}).update(patch.get("global", {}))
+        mapping.setdefault("context", {}).update(patch.get("context", {}))
+    return mapping
