@@ -52,7 +52,20 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+      - name: Commit diagnostics on failure
+        if: failure()
+        working-directory: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f bootstrap-diagnostic.log bootstrap-diagnostic.json
+          git commit -m "Record bootstrap diagnostic"
+          git push origin HEAD:feature/f10-research-platform-v1
+
       - name: Commit generated project
+        if: success()
         working-directory: target
         shell: bash
         run: |
