@@ -21,6 +21,18 @@ jobs:
           node --check src/ashare_f10/web/research-grid.js
           node --check src/ashare_f10/web/static-search-worker.js
           node --check src/ashare_f10/web/app.js
+          node --check src/ashare_f10/web/job-center.js
           node tests/static-search-worker-smoke.cjs
-      - run: ruff check src tests
+      - name: Run Ruff
+        run: |
+          set -o pipefail
+          ruff check src tests --output-format=concise 2>&1 | tee ruff-output.txt
+      - name: Upload lint diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-diagnostics-${{ github.run_id }}
+          path: ruff-output.txt
+          if-no-files-found: warn
+          retention-days: 7
       - run: pytest --cov=ashare_f10 --cov-report=term-missing
