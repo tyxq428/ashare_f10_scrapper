@@ -1,0 +1,105 @@
+{
+  "schema_version": "2.0.0",
+  "global": {
+    "NETCASH_OPERATE": {
+      "label": "经营活动产生的现金流量净额",
+      "unit": "元",
+      "category": "PAGE_DISPLAY_FIELD"
+    },
+    "NETCASH_OPERATENOTE": {
+      "label": "经营活动产生的现金流量净额（补充资料）",
+      "unit": "元",
+      "category": "PAGE_DISPLAY_FIELD"
+    },
+    "OPERATE_NETCASH_OTHERNOTE": {
+      "label": "经营活动产生的现金流量净额其他项目（补充资料）",
+      "unit": "元",
+      "category": "PAGE_DISPLAY_FIELD"
+    },
+    "OPERATE_NETCASH_BALANCENOTE": {
+      "label": "经营活动产生的现金流量净额平衡项目（补充资料）",
+      "unit": "元",
+      "category": "PAGE_DISPLAY_FIELD"
+    },
+    "NETCASH_OPERATENOTE_YOY": {
+      "label": "经营活动产生的现金流量净额（补充资料）同比变化",
+      "unit": "%",
+      "category": "PAGE_DISPLAY_FIELD"
+    },
+    "NETCASH_OPERATENOTE_QOQ": {
+      "label": "经营活动产生的现金流量净额（补充资料）环比变化",
+      "unit": "%",
+      "category": "PAGE_DISPLAY_FIELD"
+    },
+    "NETCASH_INVEST": {
+      "label": "投资活动产生的现金流量净额",
+      "unit": "元",
+      "category": "PAGE_DISPLAY_FIELD"
+    },
+    "NETCASH_FINANCE": {
+      "label": "筹资活动产生的现金流量净额",
+      "unit": "元",
+      "category": "PAGE_DISPLAY_FIELD"
+    },
+    "CCE_ADD": {
+      "label": "现金及现金等价物净增加额",
+      "unit": "元",
+      "category": "PAGE_DISPLAY_FIELD"
+    },
+    "BEGIN_CCE": {
+      "label": "期初现金及现金等价物余额",
+      "unit": "元",
+      "category": "PAGE_DISPLAY_FIELD"
+    },
+    "END_CCE": {
+      "label": "期末现金及现金等价物余额",
+      "unit": "元",
+      "category": "PAGE_DISPLAY_FIELD"
+    },
+    "END_CASH": {
+      "label": "现金的期末余额（补充资料）",
+      "unit": "元",
+      "category": "PAGE_DISPLAY_FIELD"
+    },
+    "BEGIN_CASH": {
+      "label": "现金的期初余额（补充资料）",
+      "unit": "元",
+      "category": "PAGE_DISPLAY_FIELD"
+    },
+    "END_CASH_EQUIVALENTS": {
+      "label": "现金等价物的期末余额（补充资料）",
+      "unit": "元",
+      "category": "PAGE_DISPLAY_FIELD"
+    },
+    "BEGIN_CASH_EQUIVALENTS": {
+      "label": "现金等价物的期初余额（补充资料）",
+      "unit": "元",
+      "category": "PAGE_DISPLAY_FIELD"
+    },
+    "CCE_ADD_OTHERNOTE": {
+      "label": "现金及现金等价物净增加额其他项目（补充资料）",
+      "unit": "元",
+      "category": "PAGE_DISPLAY_FIELD"
+    },
+    "CCE_ADD_BALANCENOTE": {
+      "label": "现金及现金等价物净增加额平衡项目（补充资料）",
+      "unit": "元",
+      "category": "PAGE_DISPLAY_FIELD"
+    },
+    "CCE_ADDNOTE": {
+      "label": "现金及现金等价物的净增加额（补充资料）",
+      "unit": "元",
+      "category": "PAGE_DISPLAY_FIELD"
+    },
+    "CCE_ADDNOTE_YOY": {
+      "label": "现金及现金等价物的净增加额（补充资料）同比变化",
+      "unit": "%",
+      "category": "PAGE_DISPLAY_FIELD"
+    },
+    "CCE_ADDNOTE_QOQ": {
+      "label": "现金及现金等价物的净增加额（补充资料）环比变化",
+      "unit": "%",
+      "category": "PAGE_DISPLAY_FIELD"
+    }
+  }
+}
