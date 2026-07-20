@@ -37,7 +37,7 @@ jobs:
           fetch-depth: 0
           show-progress: false
 
-      - name: Reconstruct, diagnose and verify project
+      - name: Prefer complete validated patch, then diagnose legacy archive
         shell: bash
         run: bash dispatcher/.github/scripts/bootstrap-diagnostic-wrapper.sh target
 
