@@ -68,5 +68,5 @@ fi
 
 echo "Patch archive is incremental; missing ${#missing[@]} complete-project files:"
 printf '  %s\n' "${missing[@]}"
-echo "Falling back to legacy base-archive reconstruction solver."
-exec bash "${SCRIPT_DIR}/bootstrap-f10.sh" "$TARGET_DIR"
+echo "Falling back to structural recovery of the legacy base archive."
+exec bash "${SCRIPT_DIR}/bootstrap-structural-solver.sh" "$TARGET_DIR"
