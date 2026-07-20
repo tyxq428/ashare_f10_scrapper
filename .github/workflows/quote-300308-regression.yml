@@ -1,0 +1,101 @@
+name: Quote 300308 Regression
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/ashare_f10/fetch/client_v2.py"
+      - "src/ashare_f10/fetch/pipeline.py"
+      - "src/ashare_f10/api/jobs_v2.py"
+      - "src/ashare_f10/api/app.py"
+      - "src/ashare_f10/web/job-center-v2.js"
+      - "src/ashare_f10/web/index.html"
+      - "tests/test_runtime_regressions.py"
+      - ".github/workflows/quote-300308-regression.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quote-and-name:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install project
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Validate stable task-center JavaScript
+        run: node --check src/ashare_f10/web/job-center-v2.js
+      - name: Request the realtime quote repeatedly and validate the name
+        env:
+          ASHARE_F10_TIMEOUT: "30"
+          ASHARE_F10_RETRIES: "2"
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          import json
+          from pathlib import Path
+
+          from ashare_f10.api.jobs_v2 import extract_security_name
+          from ashare_f10.config import Settings
+          from ashare_f10.fetch.pipeline import FetchPipeline
+
+          root = Path("quote-300308-regression")
+          root.mkdir(parents=True, exist_ok=True)
+          diagnostics = []
+          for index in range(3):
+              pipeline = FetchPipeline(
+                  "300308",
+                  root / f"run-{index + 1}",
+                  settings=Settings(timeout=30, retries=2, max_workers=1, page_workers=1),
+              )
+              group = next(item for item in pipeline.manifest["groups"] if item["family"] == "/api/qt/stock/get")
+              result = pipeline._execute_standard_group(group)
+              assert result.success, result.errors
+              assert result.payloads
+              data = result.payloads[0].get("data", {})
+              assert str(data.get("f57")) == "300308", data
+              assert data.get("f58") == "中际旭创", data
+              assert extract_security_name(result.payloads, "300308") == "中际旭创"
+              request = result.requests[0]
+              diagnostics.append(
+                  {
+                      "run": index + 1,
+                      "name": data.get("f58"),
+                      "price": data.get("f43"),
+                      "url": request["request"].get("url"),
+                      "transport_profile": request["response"].get("transport_profile"),
+                      "split_fields": request["response"].get("split_fields"),
+                      "attempt": request["response"].get("attempt"),
+                  }
+              )
+
+          mixed = {
+              "items": [
+                  {"SECURITY_CODE": "300795", "SECURITY_NAME_ABBR": "米奥会展"},
+                  {"SECURITY_CODE": "300308", "SECURITY_NAME_ABBR": "中际旭创"},
+              ]
+          }
+          assert extract_security_name(mixed, "300308") == "中际旭创"
+          assert extract_security_name(mixed, "688041") == ""
+          (root / "diagnostic.json").write_text(
+              json.dumps(diagnostics, ensure_ascii=False, indent=2),
+              encoding="utf-8",
+          )
+          print(json.dumps(diagnostics, ensure_ascii=False, indent=2))
+          PY
+      - name: Upload quote diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: quote-300308-regression-${{ github.run_id }}
+          path: quote-300308-regression/
+          if-no-files-found: error
+          retention-days: 30
