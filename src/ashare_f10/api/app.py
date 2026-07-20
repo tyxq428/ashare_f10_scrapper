@@ -5,16 +5,30 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from ashare_f10.api.jobs import JobManager
-from ashare_f10.api.search import list_fields, list_periods, overview, search_facts
+from ashare_f10.api.search import (
+    export_search_rows,
+    facet_facts,
+    list_fields,
+    list_periods,
+    overview,
+    query_facts,
+    search_facts,
+)
 from ashare_f10.calculate.formula import FormulaError, evaluate_formula
 from ashare_f10.calculate.ttm import compute_ttm
 from ashare_f10.config import settings
-from ashare_f10.models import FormulaRequest, TTMRequest
+from ashare_f10.models import (
+    FormulaRequest,
+    SearchExportRequest,
+    SearchFacetRequest,
+    SearchQueryRequest,
+    TTMRequest,
+)
 
 
 class CreateJobRequest(BaseModel):
@@ -24,8 +38,8 @@ class CreateJobRequest(BaseModel):
 
 app = FastAPI(
     title="A股F10投研平台",
-    version="0.1.0",
-    description="A-share F10 collection, search, TTM and formula research platform",
+    version="0.2.0",
+    description="A-share F10 collection, Excel-style filtering, chained search, TTM and formula platform",
 )
 manager = JobManager(settings)
 
@@ -93,17 +107,61 @@ def search_stock(
     numeric_max: float | None = None,
     limit: int = Query(200, ge=1, le=1000),
 ) -> list[dict[str, Any]]:
+    """Backward-compatible simple search endpoint."""
     _, db_path = latest_paths(stock_code)
-    return search_facts(
-        db_path,
-        query=q,
-        start_date=start_date,
-        end_date=end_date,
-        theme=theme,
-        family=family,
-        numeric_min=numeric_min,
-        numeric_max=numeric_max,
-        limit=limit,
+    try:
+        return search_facts(
+            db_path,
+            query=q,
+            start_date=start_date,
+            end_date=end_date,
+            theme=theme,
+            family=family,
+            numeric_min=numeric_min,
+            numeric_max=numeric_max,
+            limit=limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/stocks/{stock_code}/search/query")
+def structured_search(stock_code: str, request: SearchQueryRequest) -> dict[str, Any]:
+    """Excel-style column filters, chained secondary search, sorting and pagination."""
+    _, db_path = latest_paths(stock_code)
+    try:
+        return query_facts(db_path, request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/stocks/{stock_code}/search/facets")
+def search_facets(stock_code: str, request: SearchFacetRequest) -> dict[str, Any]:
+    """Return unique values/counts for one filter column under the other active conditions."""
+    _, db_path = latest_paths(stock_code)
+    try:
+        return facet_facts(db_path, request.query, request.column, request.term, request.limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/stocks/{stock_code}/search/export")
+def export_search(stock_code: str, request: SearchExportRequest) -> Response:
+    """Export the complete currently filtered result set rather than only the visible page."""
+    _, db_path = latest_paths(stock_code)
+    try:
+        content, media_type, filename = export_search_rows(
+            db_path,
+            request.query,
+            output_format=request.format,
+            max_rows=request.max_rows,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
