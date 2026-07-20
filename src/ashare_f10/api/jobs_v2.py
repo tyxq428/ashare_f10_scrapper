@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from collections import Counter
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 from ashare_f10.api.jobs import ACTIVE_STATUSES
 from ashare_f10.api.jobs import JobManager as BaseJobManager
-from ashare_f10.api.jobs import utc_now
 from ashare_f10.models import GroupResult, JobState
 
 NAME_KEYS = (
