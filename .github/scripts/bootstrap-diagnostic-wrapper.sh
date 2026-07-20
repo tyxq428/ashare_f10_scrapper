@@ -8,7 +8,7 @@ JSON_FILE="${TARGET_DIR}/bootstrap-diagnostic.json"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 set +e
-bash "${SCRIPT_DIR}/bootstrap-f10.sh" "${TARGET_DIR}" >"${LOG_FILE}" 2>&1
+bash "${SCRIPT_DIR}/bootstrap-patch-first.sh" "${TARGET_DIR}" >"${LOG_FILE}" 2>&1
 status=$?
 set -e
 
