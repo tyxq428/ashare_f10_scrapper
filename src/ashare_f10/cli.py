@@ -40,6 +40,20 @@ def fetch(
 
         pipeline = FetchPipeline(stock_code, run_dir, settings=settings, progress=on_progress)
         combined = pipeline.run(resume=not force)
+
+        # A single public endpoint can occasionally return a transient 502/503
+        # while the other 112 groups succeed. Reuse the completed checkpoints
+        # and retry only failed groups before exporting the final package.
+        for retry_index in range(1, 3):
+            failed_count = int(combined.get("metadata", {}).get("failed_group_count", 0))
+            if failed_count == 0:
+                break
+            console.print(
+                f"[yellow]检测到{failed_count}个失败请求组，正在进行第{retry_index}次增量重试[/yellow]"
+            )
+            pipeline = FetchPipeline(stock_code, run_dir, settings=settings, progress=on_progress)
+            combined = pipeline.run(resume=True)
+
     artifacts = build_exports(combined, run_dir)
     console.print("[bold green]完成[/bold green]")
     console.print_json(json.dumps(artifacts, ensure_ascii=False))
