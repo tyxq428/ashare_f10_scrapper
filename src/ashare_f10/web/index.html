@@ -12,7 +12,7 @@
   <header class="topbar">
     <div>
       <h1>A股 F10 投研平台</h1>
-      <p>全量拉取 · Excel式逐列筛选 · 二次搜索 · TTM · 自定义公式 · 来源追溯</p>
+      <p>全量拉取 · 子任务重试 · 版本管理 · Excel式逐列筛选 · 二次搜索 · TTM · 自定义公式</p>
     </div>
     <div id="modeBadge" class="badge">检测服务中</div>
   </header>
@@ -31,7 +31,7 @@
       <div class="panel hero-panel">
         <div>
           <h2>输入股票代码，生成完整研究数据包</h2>
-          <p>本地后端或 GitHub Actions 使用同一套固定接口清单和数据内核。</p>
+          <p>每次执行保留独立版本；只有失败0的完整任务会自动成为默认搜索版本。</p>
         </div>
         <div class="input-row">
           <input id="stockCode" maxlength="6" placeholder="例如：688521" />
@@ -40,8 +40,46 @@
         </div>
       </div>
       <div class="panel">
-        <h3>任务列表</h3>
-        <div id="jobList" class="job-list empty">暂无任务</div>
+        <div class="panel-header job-list-heading">
+          <div>
+            <h3>任务列表</h3>
+            <div id="jobListMeta" class="muted"></div>
+          </div>
+          <div class="job-toolbar">
+            <label>代码、名称或任务ID
+              <input id="jobFilter" placeholder="300308 / 中际旭创" />
+            </label>
+            <label>状态
+              <select id="jobStatusFilter">
+                <option value="">全部</option>
+                <option value="PENDING">等待</option>
+                <option value="RUNNING">运行中</option>
+                <option value="RETRYING">重试中</option>
+                <option value="PARTIAL">部分成功</option>
+                <option value="COMPLETED">完整完成</option>
+                <option value="FAILED">失败</option>
+                <option value="CANCELLED">已取消</option>
+                <option value="DELETE_FAILED">删除失败</option>
+              </select>
+            </label>
+            <label>排序
+              <select id="jobSort">
+                <option value="created_at_utc:desc">创建时间：最新</option>
+                <option value="created_at_utc:asc">创建时间：最早</option>
+                <option value="stock_code:asc">标的代码：升序</option>
+                <option value="stock_code:desc">标的代码：降序</option>
+                <option value="stock_name:asc">标的名称：升序</option>
+                <option value="stock_name:desc">标的名称：降序</option>
+                <option value="failed_groups:desc">失败数量：降序</option>
+                <option value="status:asc">状态</option>
+              </select>
+            </label>
+            <button id="expandAllJobs" type="button">展开全部</button>
+            <button id="collapseAllJobs" type="button">收起全部</button>
+          </div>
+        </div>
+        <div id="managedJobList" class="job-list empty">暂无任务</div>
+        <div id="jobList" hidden></div>
       </div>
     </section>
 
@@ -79,6 +117,7 @@
         <label>最小值 <input id="numericMin" type="number" /></label>
         <label>最大值 <input id="numericMax" type="number" /></label>
         <button id="runSearch" class="primary">搜索</button>
+        <div id="searchVersionInfo" class="version-info muted">尚未选择当前数据版本</div>
       </div>
 
       <div id="searchChainPanel" class="search-chain-panel">
@@ -241,5 +280,6 @@
   <div id="toast" class="toast"></div>
   <script src="./research-grid.js"></script>
   <script src="./app.js"></script>
+  <script src="./job-center.js"></script>
 </body>
 </html>
