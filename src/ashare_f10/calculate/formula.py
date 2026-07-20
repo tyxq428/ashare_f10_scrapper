@@ -15,6 +15,27 @@ class FormulaError(ValueError):
     pass
 
 
+# Multiple endpoints can expose the same raw key. Prefer the authoritative
+# statement for direct values, keep derived/summary endpoints as fallbacks,
+# and use the same precedence consistently across VALUE/QOQ/AVG/CAGR.
+FAMILY_PRIORITY_SQL = """
+CASE family
+    WHEN 'RPT_F10_FINANCE_GBALANCE' THEN 0
+    WHEN 'RPT_F10_FINANCE_GINCOME' THEN 1
+    WHEN 'RPT_F10_FINANCE_GCASHFLOW' THEN 2
+    WHEN 'RPT_F10_FINANCE_MAINFINADATA' THEN 3
+    WHEN 'RPT_F10_FINANCE_GRATIO' THEN 4
+    WHEN 'RPT_F10_QTR_MAINFINADATA' THEN 5
+    WHEN 'RPT_F10_FINANCE_QGRATIO' THEN 6
+    WHEN 'RPT_F10_FINANCE_GINCOMEQC' THEN 7
+    WHEN 'RPT_F10_FINANCE_GCASHFLOWQC' THEN 8
+    WHEN 'RPT_F10_FINANCE_DUPONT' THEN 90
+    WHEN 'PageAjax' THEN 99
+    ELSE 50
+END
+"""
+
+
 class FormulaEngine:
     def __init__(self, db_path: Path | str, end_period: str | None = None):
         self.db_path = Path(db_path)
@@ -41,7 +62,10 @@ class FormulaEngine:
               AND value_num IS NOT NULL
               {date_filter}
             ORDER BY CASE WHEN lower(field_key) = lower(?) THEN 0 ELSE 1 END,
-                     report_date DESC NULLS LAST
+                     report_date DESC NULLS LAST,
+                     {FAMILY_PRIORITY_SQL},
+                     family,
+                     dataset
             LIMIT 1
             """,
             params,
@@ -105,10 +129,10 @@ class FormulaEngine:
         previous = self.connection.execute(
             """
             SELECT report_date, value_num FROM facts
-            WHERE field_key = ? AND value_num IS NOT NULL AND report_date < ?
+            WHERE field_key = ? AND family = ? AND value_num IS NOT NULL AND report_date < ?
             ORDER BY report_date DESC LIMIT 1
             """,
-            [row[0], current_date],
+            [row[0], row[5], current_date],
         ).fetchone()
         if not previous or float(previous[1]) == 0:
             raise FormulaError("缺少可用上一期数据或上一期值为0")
@@ -127,11 +151,13 @@ class FormulaEngine:
     def average(self, field: str, periods: int = 4) -> float:
         selected_period = self.end_period or "9999-12-31"
         rows = self.connection.execute(
-            """
+            f"""
             SELECT report_date, value_num FROM facts
             WHERE (lower(field_key) = lower(?) OR field_name_cn = ?)
               AND value_num IS NOT NULL AND report_date <= ?
-            QUALIFY row_number() OVER (PARTITION BY report_date ORDER BY family) = 1
+            QUALIFY row_number() OVER (
+                PARTITION BY report_date ORDER BY {FAMILY_PRIORITY_SQL}, family, dataset
+            ) = 1
             ORDER BY report_date DESC LIMIT ?
             """,
             [field, field, selected_period, int(periods)],
@@ -145,11 +171,13 @@ class FormulaEngine:
     def cagr(self, field: str, years: int = 3) -> float:
         selected_period = self.end_period or "9999-12-31"
         rows = self.connection.execute(
-            """
+            f"""
             SELECT report_date, value_num FROM facts
             WHERE (lower(field_key) = lower(?) OR field_name_cn = ?)
               AND value_num IS NOT NULL AND report_date <= ? AND right(report_date, 5) = '12-31'
-            QUALIFY row_number() OVER (PARTITION BY report_date ORDER BY family) = 1
+            QUALIFY row_number() OVER (
+                PARTITION BY report_date ORDER BY {FAMILY_PRIORITY_SQL}, family, dataset
+            ) = 1
             ORDER BY report_date DESC LIMIT ?
             """,
             [field, field, selected_period, int(years) + 1],
