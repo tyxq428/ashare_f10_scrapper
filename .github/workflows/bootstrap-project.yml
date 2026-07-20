@@ -37,13 +37,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          cat .bootstrap/part_001.txt > /tmp/project.b64
+          cat .bootstrap/part_002b_*.txt | base64 --decode >> /tmp/project.b64
           cat \
-            .bootstrap/part_001.txt \
-            .bootstrap/part_002.txt \
             .bootstrap/part_003.txt \
             .bootstrap/part_004.txt \
-            > /tmp/project.b64
-
+            >> /tmp/project.b64
           cat .bootstrap/part_005b_*.txt | base64 --decode >> /tmp/project.b64
           cat .bootstrap/part_006.txt >> /tmp/project.b64
 
