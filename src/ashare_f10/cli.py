@@ -47,18 +47,59 @@ def fetch(
 
 @app.command()
 def validate(path: Path) -> None:
-    """验证一个运行目录的核心交付文件。"""
-    combined = path / "combined.json"
-    artifacts = path / "artifacts.json"
+    """验证一个运行目录的完整性、请求组状态和核心交付文件。"""
+    combined_path = path / "combined.json"
+    artifacts_path = path / "artifacts.json"
     failures: list[str] = []
-    for item in (combined, artifacts):
+    combined_payload: dict | None = None
+    artifacts_payload: dict | None = None
+
+    for item in (combined_path, artifacts_path):
         if not item.exists():
             failures.append(f"缺少文件：{item}")
-        else:
-            try:
-                json.loads(item.read_text(encoding="utf-8"))
-            except Exception as exc:  # noqa: BLE001
-                failures.append(f"JSON不可解析：{item}: {exc}")
+            continue
+        try:
+            payload = json.loads(item.read_text(encoding="utf-8"))
+            if item == combined_path:
+                combined_payload = payload
+            else:
+                artifacts_payload = payload
+        except Exception as exc:  # noqa: BLE001
+            failures.append(f"JSON不可解析：{item}: {exc}")
+
+    if combined_payload is not None:
+        metadata = combined_payload.get("metadata", {})
+        failed_group_count = int(metadata.get("failed_group_count", 0))
+        if failed_group_count:
+            failed_groups = [
+                f"{group.get('family')}({group.get('group_id')})"
+                for group in combined_payload.get("groups", [])
+                if not group.get("success")
+            ]
+            failures.append(
+                f"存在{failed_group_count}个失败请求组：{', '.join(failed_groups[:10])}"
+            )
+        for group in combined_payload.get("groups", []):
+            records = group.get("records", [])
+            reported = int(group.get("record_count", len(records)))
+            if reported != len(records):
+                failures.append(
+                    f"请求组{group.get('group_id')}记录数不一致："
+                    f"record_count={reported}, records={len(records)}"
+                )
+
+    if artifacts_payload is not None:
+        for key in ("json", "excel", "parquet", "duckdb"):
+            value = artifacts_payload.get(key)
+            if not value:
+                failures.append(f"artifacts.json缺少{key}路径")
+                continue
+            artifact_path = Path(value)
+            if not artifact_path.is_absolute():
+                artifact_path = Path.cwd() / artifact_path
+            if not artifact_path.exists() or artifact_path.stat().st_size == 0:
+                failures.append(f"交付文件不存在或为空：{key} -> {artifact_path}")
+
     if failures:
         for failure in failures:
             console.print(f"[red]{failure}[/red]")
