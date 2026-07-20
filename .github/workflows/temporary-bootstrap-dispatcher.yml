@@ -1,0 +1,100 @@
+name: Temporary bootstrap dispatcher
+
+on:
+  pull_request:
+    branches: [main]
+    types: [ready_for_review, synchronize, reopened]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: temporary-bootstrap-f10-platform
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'feature/f10-research-platform-v1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/f10-research-platform-v1
+          fetch-depth: 0
+
+      - name: Reconstruct base project and validated patch
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -f pyproject.toml && ! -d .bootstrap ]]; then
+            echo "Project is already expanded; dispatcher is idempotently complete."
+            exit 0
+          fi
+
+          test -f .bootstrap/part_001.txt
+          test -f .bootstrap/part_002c_00.txt
+          test -f .bootstrap/part_002c_01.txt
+          test -f .bootstrap/part_002c_02.txt
+          test -f .bootstrap/part_002b_01.txt
+          test -f .bootstrap/part_002b_02.txt
+          test -f .bootstrap/part_003.txt
+          test -f .bootstrap/part_004.txt
+          test -f .bootstrap/part_005b_00.txt
+          test -f .bootstrap/part_005b_01.txt
+          test -f .bootstrap/part_005b_02.txt
+          test -f .bootstrap/part_006.txt
+          test -f .bootstrap/patch_00.txt
+          test -f .bootstrap/patch_01.txt
+          test -f .bootstrap/patch_02.txt
+
+          cat .bootstrap/part_001.txt > /tmp/project.b64
+          cat \
+            .bootstrap/part_002c_00.txt \
+            .bootstrap/part_002c_01.txt \
+            .bootstrap/part_002c_02.txt \
+            .bootstrap/part_002b_01.txt \
+            .bootstrap/part_002b_02.txt \
+            | base64 --decode >> /tmp/project.b64
+          cat .bootstrap/part_003.txt .bootstrap/part_004.txt >> /tmp/project.b64
+          cat .bootstrap/part_005b_*.txt | base64 --decode >> /tmp/project.b64
+          cat .bootstrap/part_006.txt >> /tmp/project.b64
+
+          base64 --decode /tmp/project.b64 > /tmp/project.tar.xz
+          echo "0d03e7c23e1d1a2c8d264b1b29a9f805dad8442d98bdefc8c4521722c9465bab  /tmp/project.tar.xz" | sha256sum --check --strict
+          tar -xJf /tmp/project.tar.xz -C .
+
+          cat .bootstrap/patch_*.txt > /tmp/f10_patch.b64
+          base64 --decode /tmp/f10_patch.b64 > /tmp/f10_patch.tar.xz
+          echo "474ef40dcba1ea4ec41494ed17425ddfa5e375a8ff0b22b071107bd5aeed2199  /tmp/f10_patch.tar.xz" | sha256sum --check --strict
+          tar -xJf /tmp/f10_patch.tar.xz -C .
+
+          test -f pyproject.toml
+          test -f src/ashare_f10/api/app.py
+          test -f .github/workflows/fetch-stock.yml
+          test -f .github/workflows/e2e-688521.yml
+          test -f src/ashare_f10/web/index.html
+          test -f Dockerfile
+          test -f scripts/start.sh
+          test -f scripts/start.ps1
+          test -f scripts/start.bat
+
+          rm -rf .bootstrap
+          rm -f .github/workflows/bootstrap-project.yml
+
+      - name: Commit expanded project to feature branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Nothing to commit"
+          else
+            git commit -m "Build F10 research platform v1"
+            git push origin HEAD:feature/f10-research-platform-v1
+          fi
