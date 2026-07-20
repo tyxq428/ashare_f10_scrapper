@@ -39,6 +39,16 @@ class GroupResult(BaseModel):
     started_at_utc: str
     completed_at_utc: str
 
+    @model_validator(mode="after")
+    def validate_record_count(self) -> GroupResult:
+        actual = len(self.records)
+        if self.record_count != actual:
+            raise ValueError(
+                f"请求组 {self.group_id} 的record_count={self.record_count}，"
+                f"但records实际包含{actual}条；该缓存或导出不可复用"
+            )
+        return self
+
 
 class JobState(BaseModel):
     job_id: str
