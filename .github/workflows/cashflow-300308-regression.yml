@@ -22,7 +22,7 @@ concurrency:
 jobs:
   cashflow-regression:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -75,22 +75,21 @@ jobs:
                   "st": "REPORT_DATE",
               },
           )
-          pages, records = client.request_all_pages(
-              spec,
-              "cashflow-300308",
-              "result.data",
-          )
+          pages, records = client.request_all_pages(spec, "cashflow-300308", "result.data")
           assert len(records) >= 60, len(records)
           by_date = {str(record["REPORT_DATE"])[:10]: record for record in records}
 
-          # The F10 page's main cash-flow row is NETCASH_OPERATE.  It is present
-          # in Q1 and Q3.  NETCASH_OPERATENOTE belongs to the separate 补充资料
+          # The F10 page's main cash-flow row is NETCASH_OPERATE. It is present
+          # in Q1 and Q3. NETCASH_OPERATENOTE belongs to the separate 补充资料
           # reconciliation section and is legitimately blank in those periods.
           for date in ("2026-03-31", "2025-09-30", "2025-03-31", "2024-09-30"):
               record = by_date[date]
               assert record.get("NETCASH_OPERATE") not in (None, ""), (date, record)
               assert record.get("CONSTRUCT_LONG_ASSET") not in (None, ""), (date, record)
-              assert record.get("NETCASH_OPERATENOTE") in (None, ""), (date, record.get("NETCASH_OPERATENOTE"))
+              assert record.get("NETCASH_OPERATENOTE") in (None, ""), (
+                  date,
+                  record.get("NETCASH_OPERATENOTE"),
+              )
 
           for date in ("2025-12-31", "2025-06-30", "2024-12-31", "2024-06-30"):
               assert by_date[date].get("NETCASH_OPERATENOTE") not in (None, ""), date
@@ -151,7 +150,10 @@ jobs:
           note = book["现金流补充资料"]
           main_row = find_row(main, "NETCASH_OPERATE")
           note_row = find_row(note, "NETCASH_OPERATENOTE")
-          assert all(main.cell(main_row, find_col(main, date)).value is not None for date in ("2026-03-31", "2025-09-30"))
+          assert all(
+              main.cell(main_row, find_col(main, date)).value is not None
+              for date in ("2026-03-31", "2025-09-30")
+          )
           assert note.cell(note_row, 1).value.endswith("（补充资料）")
           assert note.cell(note_row, find_col(note, "2026-03-31")).value is None
           assert note.cell(note_row, find_col(note, "2025-12-31")).value is not None
@@ -177,10 +179,51 @@ jobs:
           print(json.dumps(diagnostic, ensure_ascii=False, indent=2))
           PY
 
-      - name: Upload regression evidence
+      - name: Generate and validate complete fixed 300308 data package
+        env:
+          ASHARE_F10_TIMEOUT: "60"
+          ASHARE_F10_RETRIES: "3"
+          ASHARE_F10_MAX_WORKERS: "4"
+          ASHARE_F10_PAGE_WORKERS: "3"
+        run: |
+          ashare-f10 fetch 300308 --output cashflow-300308-full --workers 4 --force
+          ashare-f10 validate cashflow-300308-full
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          from openpyxl import load_workbook
+
+          root = Path("cashflow-300308-full")
+          payload = json.loads((root / "exports/300308_F10_full.json").read_text(encoding="utf-8"))
+          cashflow = next(
+              group
+              for group in payload["groups"]
+              if group["family"] == "RPT_F10_FINANCE_GCASHFLOW"
+          )
+          assert cashflow["record_count"] == len(cashflow["records"]) >= 60
+          by_date = {str(record["REPORT_DATE"])[:10]: record for record in cashflow["records"]}
+          assert by_date["2026-03-31"]["NETCASH_OPERATE"] is not None
+          assert by_date["2025-09-30"]["NETCASH_OPERATE"] is not None
+
+          workbook = load_workbook(root / "exports/300308_F10_full.xlsx", data_only=True)
+          for name in ("现金流量表", "现金流补充资料", "现金流量表同比"):
+              assert name in workbook.sheetnames
+          main = workbook["现金流量表"]
+          note = workbook["现金流补充资料"]
+          main_keys = {main.cell(row, 2).value for row in range(3, main.max_row + 1)}
+          note_keys = {note.cell(row, 2).value for row in range(3, note.max_row + 1)}
+          assert "NETCASH_OPERATE" in main_keys
+          assert "NETCASH_OPERATENOTE" not in main_keys
+          assert "NETCASH_OPERATENOTE" in note_keys
+          PY
+
+      - name: Upload fixed 300308 evidence and complete package
         uses: actions/upload-artifact@v4
         with:
           name: cashflow-300308-regression-${{ github.run_id }}
-          path: cashflow-300308-regression/
+          path: |
+            cashflow-300308-regression/
+            cashflow-300308-full/
           if-no-files-found: error
           retention-days: 30
