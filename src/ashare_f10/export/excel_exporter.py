@@ -30,10 +30,34 @@ FINANCIAL_FAMILIES = {
     "RPT_F10_FINANCE_DUPONT": "杜邦分析",
 }
 
+CASHFLOW_FAMILIES = {
+    "RPT_F10_FINANCE_GCASHFLOW",
+    "RPT_F10_FINANCE_GCASHFLOWQC",
+}
+
 META_KEYS = {
     "SECUCODE", "SECURITY_CODE", "SECURITY_NAME_ABBR", "ORG_CODE", "ORG_TYPE",
     "REPORT_DATE", "REPORT_TYPE", "REPORT_DATE_NAME", "SECURITY_TYPE_CODE",
     "NOTICE_DATE", "UPDATE_DATE", "CURRENCY", "REPORT_YEAR", "OPINION_TYPE",
+}
+
+# The Eastmoney cash-flow payload contains the primary statement, followed by a
+# separate "补充资料" reconciliation section.  The latter legitimately has no
+# Q1/Q3 values for many companies.  Keep it separate so a sparse note row is
+# never mistaken for the primary quarterly cash-flow field.
+CASHFLOW_SUPPLEMENT_FALLBACK_KEYS = {
+    "NETPROFIT", "MINORITY_INTEREST", "ASSET_IMPAIRMENT", "FA_IR_DEPR",
+    "OILGAS_BIOLOGY_DEPR", "IR_DEPR", "IA_AMORTIZE", "LPE_AMORTIZE",
+    "DEFER_INCOME_AMORTIZE", "PREPAID_EXPENSE_REDUCE", "ACCRUED_EXPENSE_ADD",
+    "DISPOSAL_LONGASSET_LOSS", "FA_SCRAP_LOSS", "FAIRVALUE_CHANGE_LOSS",
+    "FINANCE_EXPENSE", "INVEST_LOSS", "DEFER_TAX", "DT_ASSET_REDUCE",
+    "DT_LIAB_ADD", "PREDICT_LIAB_ADD", "INVENTORY_REDUCE",
+    "OPERATE_RECE_REDUCE", "OPERATE_PAYABLE_ADD", "OTHER",
+    "OPERATE_NETCASH_OTHERNOTE", "OPERATE_NETCASH_BALANCENOTE",
+    "NETCASH_OPERATENOTE", "DEBT_TRANSFER_CAPITAL", "CONVERT_BOND_1YEAR",
+    "FINLEASE_OBTAIN_FA", "UNINVOLVE_INVESTFIN_OTHER", "END_CASH", "BEGIN_CASH",
+    "END_CASH_EQUIVALENTS", "BEGIN_CASH_EQUIVALENTS", "CCE_ADD_OTHERNOTE",
+    "CCE_ADD_BALANCENOTE", "CCE_ADDNOTE", "USERIGHT_ASSET_AMORTIZE",
 }
 
 
@@ -98,6 +122,43 @@ def ordered_keys(records: list[dict[str, Any]]) -> list[str]:
     return keys
 
 
+def validate_group_records(combined: dict[str, Any]) -> None:
+    for group in combined.get("groups", []):
+        records = group.get("records", [])
+        reported = int(group.get("record_count", len(records)))
+        if reported != len(records):
+            raise ValueError(
+                f"请求组 {group.get('group_id')} 的record_count={reported}，"
+                f"但records实际包含{len(records)}条，拒绝生成不一致的Excel"
+            )
+
+
+def cashflow_key_sections(records: list[dict[str, Any]]) -> dict[str, list[str]]:
+    all_keys = [key for key in ordered_keys(records) if key not in META_KEYS]
+    value_keys = [key for key in all_keys if not key.endswith(("_YOY", "_QOQ"))]
+
+    supplement: list[str] = []
+    if "NETPROFIT" in value_keys and "CCE_ADDNOTE" in value_keys:
+        start = value_keys.index("NETPROFIT")
+        end = value_keys.index("CCE_ADDNOTE")
+        if start <= end:
+            supplement = value_keys[start : end + 1]
+    if not supplement:
+        supplement = [
+            key
+            for key in value_keys
+            if key in CASHFLOW_SUPPLEMENT_FALLBACK_KEYS or "NOTE" in key
+        ]
+
+    supplement_set = set(supplement)
+    return {
+        "primary": [key for key in value_keys if key not in supplement_set],
+        "supplement": supplement,
+        "yoy": [key for key in all_keys if key.endswith("_YOY")],
+        "qoq": [key for key in all_keys if key.endswith("_QOQ")],
+    }
+
+
 def write_record_block(ws, row: int, title: str, records: list[dict[str, Any]], mapping: Mapping) -> int:
     keys = ordered_keys(records)
     width = max(8, len(keys))
@@ -124,8 +185,14 @@ def write_record_block(ws, row: int, title: str, records: list[dict[str, Any]], 
     return row + len(records) + 5
 
 
-def write_financial_matrix(ws, records: list[dict[str, Any]], mapping: Mapping, title: str) -> None:
-    keys = [key for key in ordered_keys(records) if key not in META_KEYS]
+def write_financial_matrix(
+    ws,
+    records: list[dict[str, Any]],
+    mapping: Mapping,
+    title: str,
+    keys: list[str] | None = None,
+) -> None:
+    selected_keys = keys if keys is not None else [key for key in ordered_keys(records) if key not in META_KEYS]
     periods = []
     for record in records:
         date = str(record.get("REPORT_DATE", ""))[:10]
@@ -138,21 +205,36 @@ def write_financial_matrix(ws, records: list[dict[str, Any]], mapping: Mapping, 
         ws.cell(2, col, header)
     style_header(ws, 2, len(headers))
 
-    for row, key in enumerate(keys, 3):
+    for row, key in enumerate(selected_keys, 3):
         ws.cell(row, 1, mapping.label(key))
         ws.cell(row, 2, key)
         ws.cell(row, 3, mapping.unit(key))
         for col, record in enumerate(records, 4):
             ws.cell(row, col, cell_value(record.get(key)))
     ws.freeze_panes = "D3"
-    ws.column_dimensions["A"].width = 36
+    ws.column_dimensions["A"].width = 42
     ws.column_dimensions["B"].width = 38
     ws.column_dimensions["C"].width = 12
     for col in range(4, len(headers) + 1):
         ws.column_dimensions[get_column_letter(col)].width = 17
 
 
+def create_financial_sheet(
+    workbook: Workbook,
+    used: set[str],
+    name: str,
+    records: list[dict[str, Any]],
+    mapping: Mapping,
+    keys: list[str],
+) -> None:
+    if not keys:
+        return
+    ws = workbook.create_sheet(safe_title(name, used))
+    write_financial_matrix(ws, records, mapping, name, keys)
+
+
 def export_excel(combined: dict[str, Any], output_dir: Path) -> Path:
+    validate_group_records(combined)
     mapping = Mapping()
     exports_dir = output_dir / "exports"
     exports_dir.mkdir(parents=True, exist_ok=True)
@@ -173,14 +255,14 @@ def export_excel(combined: dict[str, Any], output_dir: Path) -> Path:
         ("完成请求组", metadata["completed_group_count"]),
         ("失败请求组", metadata["failed_group_count"]),
         ("数据来源", metadata["source"]),
-        ("说明", "所有原始Key均保留；中文项目名称来自版本化字段字典。"),
+        ("说明", "所有原始Key均保留；现金流量表主表、补充资料及同比/环比已分表展示。"),
     ]
     for row, values in enumerate(summary_rows, 1):
         summary.cell(row, 1, values[0])
         summary.cell(row, 2, values[1])
     style_header(summary, 1, 2)
     summary.column_dimensions["A"].width = 28
-    summary.column_dimensions["B"].width = 72
+    summary.column_dimensions["B"].width = 80
 
     by_family: dict[str, list[dict[str, Any]]] = defaultdict(list)
     by_theme: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -190,7 +272,18 @@ def export_excel(combined: dict[str, Any], output_dir: Path) -> Path:
 
     for family, sheet_label in FINANCIAL_FAMILIES.items():
         records = by_family.get(family, [])
-        if records:
+        if not records:
+            continue
+        if family in CASHFLOW_FAMILIES:
+            sections = cashflow_key_sections(records)
+            create_financial_sheet(workbook, used, sheet_label, records, mapping, sections["primary"])
+            supplement_name = "现金流补充资料" if family == "RPT_F10_FINANCE_GCASHFLOW" else "单季度现金流补充资料"
+            create_financial_sheet(workbook, used, supplement_name, records, mapping, sections["supplement"])
+            yoy_name = "现金流量表同比" if family == "RPT_F10_FINANCE_GCASHFLOW" else "单季度现金流同比"
+            qoq_name = "现金流量表环比" if family == "RPT_F10_FINANCE_GCASHFLOW" else "单季度现金流环比"
+            create_financial_sheet(workbook, used, yoy_name, records, mapping, sections["yoy"])
+            create_financial_sheet(workbook, used, qoq_name, records, mapping, sections["qoq"])
+        else:
             ws = workbook.create_sheet(safe_title(sheet_label, used))
             write_financial_matrix(ws, records, mapping, sheet_label)
 
@@ -222,7 +315,7 @@ def export_excel(combined: dict[str, Any], output_dir: Path) -> Path:
         field_ws.cell(row, 2, key)
         field_ws.cell(row, 3, item.get("unit", ""))
         field_ws.cell(row, 4, item.get("category", "PAGE_DISPLAY_FIELD"))
-    field_ws.column_dimensions["A"].width = 38
+    field_ws.column_dimensions["A"].width = 44
     field_ws.column_dimensions["B"].width = 38
     field_ws.column_dimensions["C"].width = 15
     field_ws.column_dimensions["D"].width = 24
@@ -233,15 +326,17 @@ def export_excel(combined: dict[str, Any], output_dir: Path) -> Path:
         ("检查项", "结果", "值"),
         ("请求组完成", "PASS" if not metadata["failed_group_count"] else "CHECK", metadata["completed_group_count"]),
         ("失败请求组", "PASS" if not metadata["failed_group_count"] else "FAIL", metadata["failed_group_count"]),
+        ("记录数与records一致", "PASS", "全部请求组"),
+        ("现金流主表与补充资料分离", "PASS", "避免将补充资料稀疏值误判为主表缺失"),
         ("原始Key保留", "PASS", "100%"),
     ]
     for row, values in enumerate(quality_rows, 1):
         for col, value in enumerate(values, 1):
             quality.cell(row, col, value)
     style_header(quality, 1, 3)
-    quality.column_dimensions["A"].width = 32
+    quality.column_dimensions["A"].width = 38
     quality.column_dimensions["B"].width = 14
-    quality.column_dimensions["C"].width = 30
+    quality.column_dimensions["C"].width = 56
 
     workbook.save(path)
     return path
