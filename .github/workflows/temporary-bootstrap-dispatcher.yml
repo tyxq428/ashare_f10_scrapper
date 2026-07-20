@@ -35,18 +35,35 @@ jobs:
           fetch-depth: 0
           show-progress: false
 
-      - name: Reconstruct, diagnose and verify project
+      - name: Materialize verified patch and diagnose legacy archive
         shell: bash
         run: bash dispatcher/.github/scripts/bootstrap-diagnostic-wrapper.sh target
 
-      - name: Upload bootstrap diagnostics
+      - name: Package every cryptographically verified recovered file
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar \
+            --exclude='./.git' \
+            --exclude='./.bootstrap' \
+            --exclude='./bootstrap-diagnostic.log' \
+            --exclude='./bootstrap-diagnostic.json' \
+            --exclude='./bootstrap-structural-candidates.json' \
+            --exclude='./bootstrap-selected-candidate.json' \
+            -C target -czf target/recovered-verified-files.tar.gz .
+
+      - name: Upload bootstrap diagnostics and verified recovered files
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: bootstrap-diagnostic-${{ github.run_id }}
+          name: bootstrap-recovery-${{ github.run_id }}
           path: |
             target/bootstrap-diagnostic.log
             target/bootstrap-diagnostic.json
+            target/bootstrap-structural-candidates.json
+            target/bootstrap-selected-candidate.json
+            target/recovered-verified-files.tar.gz
           if-no-files-found: warn
           retention-days: 7
 
