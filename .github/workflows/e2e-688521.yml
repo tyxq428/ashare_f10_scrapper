@@ -45,26 +45,31 @@ jobs:
           from __future__ import annotations
 
           import json
+          import os
           import zipfile
           from pathlib import Path
 
           import duckdb
           import pandas as pd
-          from fastapi.testclient import TestClient
 
-          from ashare_f10.api.app import app
-          from ashare_f10.calculate.formula import FormulaEngine
-          from ashare_f10.calculate.ttm import TTMEngine
+          from ashare_f10.api.search import search_facts
+          from ashare_f10.calculate.formula import evaluate_formula
+          from ashare_f10.calculate.ttm import compute_ttm
 
-          root = Path("e2e-output")
+          root = Path("e2e-output").resolve()
           artifacts = json.loads((root / "artifacts.json").read_text(encoding="utf-8"))
+          artifacts = {
+              key: str(Path(value).resolve()) if key in {"json", "excel", "parquet", "duckdb"} else value
+              for key, value in artifacts.items()
+          }
           required = ["json", "excel", "parquet", "duckdb"]
           for key in required:
               path = Path(artifacts[key])
               assert path.exists() and path.stat().st_size > 0, (key, path)
 
           payload = json.loads(Path(artifacts["json"]).read_text(encoding="utf-8"))
-          assert payload.get("metadata", {}).get("security_code") == "688521"
+          security = payload.get("metadata", {}).get("security", {})
+          assert security.get("security_code") == "688521", security
 
           with zipfile.ZipFile(artifacts["excel"]) as book:
               assert book.testzip() is None
@@ -82,30 +87,97 @@ jobs:
           finally:
               con.close()
 
-          ttm = TTMEngine(facts)
+          search_results = search_facts(artifacts["duckdb"], query="资产", limit=10)
+          assert search_results
+
           periods = sorted(
               {str(value)[:10] for value in facts.loc[facts["field_key"] == "TOTAL_OPERATE_INCOME", "report_date"].dropna()},
               reverse=True,
           )
           assert periods
-          ttm_result = ttm.calculate("TOTAL_OPERATE_INCOME", periods[0])
-          assert ttm_result.status in {"OK", "UNRESOLVED"}
 
-          formula = FormulaEngine(facts)
-          formula_result = formula.evaluate("CIP / TOTAL_ASSETS", periods[0])
-          assert formula_result.status in {"OK", "UNRESOLVED"}
+          ttm_result = None
+          ttm_errors = []
+          for period in periods:
+              try:
+                  ttm_result = compute_ttm(artifacts["duckdb"], "TOTAL_OPERATE_INCOME", period)
+                  break
+              except ValueError as exc:
+                  ttm_errors.append({"period": period, "error": str(exc)})
+          assert ttm_result is not None, ttm_errors[:5]
+
+          formula_result = None
+          formula_used = None
+          formula_errors = []
+          for formula in (
+              "CIP / TOTAL_ASSETS",
+              "MONETARYFUNDS / TOTAL_ASSETS",
+              "ACCOUNTS_RECE / TOTAL_ASSETS",
+          ):
+              try:
+                  formula_result = evaluate_formula(artifacts["duckdb"], formula, periods[0])
+                  formula_used = formula
+                  break
+              except ValueError as exc:
+                  formula_errors.append({"formula": formula, "error": str(exc)})
+          assert formula_result is not None, formula_errors
+
+          data_dir = Path("api-data").resolve()
+          stock_dir = data_dir / "688521"
+          stock_dir.mkdir(parents=True, exist_ok=True)
+          (stock_dir / "latest.json").write_text(
+              json.dumps(
+                  {
+                      "job_id": "e2e-688521",
+                      "output_dir": str(root),
+                      "artifacts": artifacts,
+                  },
+                  ensure_ascii=False,
+                  indent=2,
+              ),
+              encoding="utf-8",
+          )
+          os.environ["ASHARE_F10_DATA_DIR"] = str(data_dir)
+
+          from fastapi.testclient import TestClient
+          from ashare_f10.api.app import app
 
           client = TestClient(app)
-          response = client.get("/api/health")
-          assert response.status_code == 200
-          assert response.json().get("status") == "ok"
+          health = client.get("/api/health")
+          assert health.status_code == 200 and health.json().get("status") == "ok"
+
+          overview = client.get("/api/stocks/688521/latest")
+          assert overview.status_code == 200, overview.text
+
+          api_search = client.get("/api/stocks/688521/search", params={"q": "资产", "limit": 5})
+          assert api_search.status_code == 200 and api_search.json(), api_search.text
+
+          api_ttm = client.post(
+              "/api/stocks/688521/ttm",
+              json={"field": "TOTAL_OPERATE_INCOME", "end_period": ttm_result.end_period},
+          )
+          assert api_ttm.status_code == 200, api_ttm.text
+
+          api_formula = client.post(
+              "/api/stocks/688521/formula",
+              json={"formula": formula_used, "end_period": periods[0]},
+          )
+          assert api_formula.status_code == 200, api_formula.text
+
+          for kind in ("json", "xlsx", "parquet", "duckdb"):
+              response = client.get(f"/api/stocks/688521/download/{kind}")
+              assert response.status_code == 200 and response.content, (kind, response.status_code)
 
           summary = {
               "security_code": "688521",
               "fact_count": fact_count,
+              "search_result_count": len(search_results),
               "latest_period": periods[0],
-              "ttm_status": ttm_result.status,
-              "formula_status": formula_result.status,
+              "ttm_end_period": ttm_result.end_period,
+              "ttm_method": ttm_result.method,
+              "ttm_value": ttm_result.value,
+              "formula": formula_used,
+              "formula_value": formula_result["value"],
               "artifacts": artifacts,
           }
           (root / "e2e-summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
