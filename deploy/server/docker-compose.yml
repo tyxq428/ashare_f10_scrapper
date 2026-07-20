@@ -1,0 +1,11 @@
+services:
+  f10:
+    image: ghcr.io/OWNER/ashare_f10_scrapper:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      ASHARE_F10_DATA_DIR: /app/data
+      ASHARE_F10_MAX_WORKERS: 8
+    restart: always

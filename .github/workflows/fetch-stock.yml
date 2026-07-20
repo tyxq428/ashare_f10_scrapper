@@ -1,0 +1,54 @@
+name: Fetch A-share F10
+
+on:
+  workflow_dispatch:
+    inputs:
+      stock_code:
+        description: Six-digit A-share stock code
+        required: true
+        default: "688521"
+      workers:
+        description: Concurrent endpoint groups
+        required: false
+        default: "8"
+      force:
+        description: Ignore successful checkpoints
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  ASHARE_F10_DATA_DIR: ${{ github.workspace }}/data
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install .
+      - name: Fetch all fixed F10 endpoints
+        run: |
+          FORCE=""
+          if [ "${{ inputs.force }}" = "true" ]; then FORCE="--force"; fi
+          ashare-f10 fetch "${{ inputs.stock_code }}" \
+            --output "data/${{ inputs.stock_code }}/${{ github.run_id }}" \
+            --workers "${{ inputs.workers }}" $FORCE
+      - name: Upload JSON Excel Parquet DuckDB and raw cache
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ashare-f10-${{ inputs.stock_code }}-${{ github.run_id }}
+          path: data/${{ inputs.stock_code }}/${{ github.run_id }}/
+          if-no-files-found: error
+          retention-days: 30

@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>A股 F10 投研平台</title>
+  <link rel="stylesheet" href="./app.css" />
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>A股 F10 投研平台</h1>
+      <p>全量拉取 · 模糊搜索 · TTM · 自定义公式 · 来源追溯</p>
+    </div>
+    <div id="modeBadge" class="badge">检测服务中</div>
+  </header>
+
+  <nav class="tabs" id="tabs">
+    <button data-tab="jobs" class="active">任务中心</button>
+    <button data-tab="overview">公司总览</button>
+    <button data-tab="search">数据搜索</button>
+    <button data-tab="calc">TTM / 公式</button>
+    <button data-tab="quality">来源与下载</button>
+    <button data-tab="static">静态文件查看</button>
+  </nav>
+
+  <main>
+    <section id="tab-jobs" class="tab-panel active">
+      <div class="panel hero-panel">
+        <div>
+          <h2>输入股票代码，生成完整研究数据包</h2>
+          <p>本地后端或 GitHub Actions 使用同一套固定接口清单和数据内核。</p>
+        </div>
+        <div class="input-row">
+          <input id="stockCode" maxlength="6" placeholder="例如：688521" />
+          <button id="startJob" class="primary">开始拉取</button>
+          <button id="refreshJobs">刷新任务</button>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>任务列表</h3>
+        <div id="jobList" class="job-list empty">暂无任务</div>
+      </div>
+    </section>
+
+    <section id="tab-overview" class="tab-panel">
+      <div class="panel controls">
+        <label>股票代码 <input id="overviewCode" maxlength="6" value="688521" /></label>
+        <button id="loadOverview" class="primary">加载总览</button>
+      </div>
+      <div id="overviewStats" class="metric-grid"></div>
+      <div class="panel">
+        <h3>关键指标</h3>
+        <div id="overviewTable" class="table-wrap"></div>
+      </div>
+      <div class="panel">
+        <h3>趋势预览</h3>
+        <div id="overviewChart" class="chart"></div>
+      </div>
+    </section>
+
+    <section id="tab-search" class="tab-panel">
+      <div class="panel controls search-controls">
+        <label>股票代码 <input id="searchCode" maxlength="6" value="688521" /></label>
+        <label>模糊搜索 <input id="searchQuery" placeholder="应收账款 / ACCOUNTS_RECE / 研发" /></label>
+        <label>开始日期 <input id="startDate" type="date" /></label>
+        <label>结束日期 <input id="endDate" type="date" /></label>
+        <label>最小值 <input id="numericMin" type="number" /></label>
+        <label>最大值 <input id="numericMax" type="number" /></label>
+        <button id="runSearch" class="primary">搜索</button>
+      </div>
+      <div class="panel">
+        <div class="panel-header">
+          <h3>搜索结果</h3>
+          <span id="searchCount" class="muted"></span>
+        </div>
+        <div id="searchResults" class="table-wrap"></div>
+      </div>
+    </section>
+
+    <section id="tab-calc" class="tab-panel">
+      <div class="two-columns">
+        <div class="panel">
+          <h3>TTM 计算</h3>
+          <label>股票代码 <input id="ttmCode" maxlength="6" value="688521" /></label>
+          <label>字段 <input id="ttmField" placeholder="TOTAL_OPERATE_INCOME 或 营业总收入" /></label>
+          <label>结束报告期 <select id="ttmPeriod"></select></label>
+          <button id="runTTM" class="primary">计算 TTM</button>
+          <pre id="ttmResult" class="result-box">等待计算</pre>
+        </div>
+        <div class="panel">
+          <h3>公式实验室</h3>
+          <label>股票代码 <input id="formulaCode" maxlength="6" value="688521" /></label>
+          <label>结束报告期 <select id="formulaPeriod"></select></label>
+          <label>公式
+            <textarea id="formulaText" rows="5" placeholder='CIP / TOTAL_ASSETS\nTTM("TOTAL_OPERATE_INCOME") / AVG("TOTAL_ASSETS", 2)\nF("在建工程") / F("资产总计")'></textarea>
+          </label>
+          <div class="formula-help">
+            支持：字段Key、F("中文名")、TTM、YOY、QOQ、AVG、CAGR、+ - * / ** 和括号。
+          </div>
+          <button id="runFormula" class="primary">执行公式</button>
+          <pre id="formulaResult" class="result-box">等待计算</pre>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-header">
+          <h3>字段选择器</h3>
+          <input id="fieldQuery" placeholder="搜索字段名称或Key" />
+        </div>
+        <div id="fieldList" class="field-grid"></div>
+      </div>
+    </section>
+
+    <section id="tab-quality" class="tab-panel">
+      <div class="panel controls">
+        <label>股票代码 <input id="qualityCode" maxlength="6" value="688521" /></label>
+        <button id="loadQuality" class="primary">加载文件</button>
+      </div>
+      <div id="downloadCards" class="download-grid"></div>
+      <div class="panel">
+        <h3>使用说明</h3>
+        <ul>
+          <li>所有结果保留原始字段 Key、中文名称、来源接口和报告期。</li>
+          <li>TTM 优先使用四个独立季度；缺失时使用“上年年报－上年同期累计＋本期累计”。</li>
+          <li>资产负债表属于时点数据，不适用 TTM。</li>
+          <li>公式引擎只支持白名单运算，不执行任意 Python 或 JavaScript。</li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="tab-static" class="tab-panel">
+      <div class="panel">
+        <h2>GitHub Pages 静态查看模式</h2>
+        <p>Pages 无法直接运行 Python。可上传由本地或 GitHub Actions 生成的完整 JSON，在浏览器中查看和搜索。</p>
+        <input id="jsonUpload" type="file" accept="application/json,.json" />
+        <div id="staticSummary" class="metric-grid"></div>
+        <label>静态搜索 <input id="staticQuery" placeholder="字段Key、中文名、区块或文本" /></label>
+        <button id="staticSearch" class="primary">搜索已上传JSON</button>
+        <div id="staticResults" class="table-wrap"></div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast"></div>
+  <script src="./app.js"></script>
+</body>
+</html>
