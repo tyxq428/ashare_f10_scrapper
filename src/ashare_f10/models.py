@@ -50,13 +50,51 @@ class GroupResult(BaseModel):
         return self
 
 
+JobStatus = Literal[
+    "PENDING",
+    "RUNNING",
+    "RETRYING",
+    "PARTIAL",
+    "COMPLETED",
+    "FAILED",
+    "CANCELLED",
+    "DELETING",
+    "DELETE_FAILED",
+]
+JobGroupStatus = Literal["PENDING", "RUNNING", "RETRYING", "SUCCESS", "FAILED", "CANCELLED"]
+
+
+class JobGroupState(BaseModel):
+    job_id: str
+    group_id: str
+    definition_index: int = 0
+    theme: str = ""
+    family: str = ""
+    strategy: str = ""
+    status: JobGroupStatus = "PENDING"
+    record_count: int = 0
+    attempt_count: int = 0
+    used_fallback: bool = False
+    started_at_utc: str | None = None
+    completed_at_utc: str | None = None
+    duration_seconds: float | None = None
+    errors: list[str] = Field(default_factory=list)
+    source_urls: list[str] = Field(default_factory=list)
+    updated_at_utc: str = ""
+
+
 class JobState(BaseModel):
     job_id: str
     stock_code: str
-    status: Literal["PENDING", "RUNNING", "COMPLETED", "FAILED", "CANCELLED"]
+    stock_name: str = ""
+    status: JobStatus
     created_at_utc: str
     updated_at_utc: str
+    started_at_utc: str | None = None
+    completed_at_utc: str | None = None
+    duration_seconds: float | None = None
     completed_groups: int = 0
+    successful_groups: int = 0
     total_groups: int = 0
     failed_groups: int = 0
     current_group: str = ""
@@ -64,6 +102,9 @@ class JobState(BaseModel):
     output_dir: str = ""
     artifacts: dict[str, str] = Field(default_factory=dict)
     errors: list[str] = Field(default_factory=list)
+    is_current: bool = False
+    retry_count: int = 0
+    last_retry_at_utc: str | None = None
 
 
 class SearchResult(BaseModel):
