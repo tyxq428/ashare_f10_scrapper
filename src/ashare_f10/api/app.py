@@ -36,10 +36,14 @@ class CreateJobRequest(BaseModel):
     resume: bool = True
 
 
+class SetCurrentRequest(BaseModel):
+    allow_partial: bool = False
+
+
 app = FastAPI(
     title="A股F10投研平台",
-    version="0.2.0",
-    description="A-share F10 collection, Excel-style filtering, chained search, TTM and formula platform",
+    version="0.3.0",
+    description="A-share F10 collection, task recovery, Excel-style filtering, chained search, TTM and formula platform",
 )
 manager = JobManager(settings)
 
@@ -47,12 +51,20 @@ manager = JobManager(settings)
 def latest_paths(stock_code: str) -> tuple[dict[str, Any], Path]:
     pointer = manager.latest(stock_code)
     if not pointer:
-        raise HTTPException(status_code=404, detail="尚未找到该股票的已完成任务")
+        raise HTTPException(status_code=404, detail="尚未找到该股票的完整当前数据版本")
     output_dir = Path(pointer["output_dir"])
     db_path = Path(pointer["artifacts"].get("duckdb", output_dir / "normalized/f10.duckdb"))
     if not db_path.exists():
         raise HTTPException(status_code=404, detail="DuckDB数据文件不存在")
     return pointer, db_path
+
+
+def job_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, (LookupError, FileNotFoundError)):
+        return HTTPException(status_code=404, detail=str(exc))
+    if isinstance(exc, RuntimeError):
+        return HTTPException(status_code=409, detail=str(exc))
+    return HTTPException(status_code=400, detail=str(exc))
 
 
 @app.get("/api/health")
@@ -70,8 +82,28 @@ def create_job(request: CreateJobRequest) -> dict[str, Any]:
 
 
 @app.get("/api/jobs")
-def list_jobs(limit: int = Query(50, ge=1, le=200)) -> list[dict[str, Any]]:
-    return [state.model_dump() for state in manager.list(limit)]
+def list_jobs(
+    q: str = "",
+    status: str | None = None,
+    sort_by: str = "created_at_utc",
+    sort_direction: str = "desc",
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=500),
+) -> dict[str, Any]:
+    items, total = manager.query_jobs(
+        q=q,
+        status=status,
+        sort_by=sort_by,
+        sort_direction=sort_direction,
+        offset=offset,
+        limit=limit,
+    )
+    return {
+        "items": [state.model_dump() for state in items],
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+    }
 
 
 @app.get("/api/jobs/{job_id}")
@@ -82,11 +114,81 @@ def get_job(job_id: str) -> dict[str, Any]:
     return state.model_dump()
 
 
+@app.get("/api/jobs/{job_id}/groups")
+def get_job_groups(
+    job_id: str,
+    status: str | None = None,
+    q: str = "",
+    theme: str | None = None,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(200, ge=1, le=500),
+) -> dict[str, Any]:
+    try:
+        items, total = manager.list_groups(job_id, status=status, q=q, theme=theme, offset=offset, limit=limit)
+    except Exception as exc:  # noqa: BLE001
+        raise job_error(exc) from exc
+    return {
+        "items": [item.model_dump() for item in items],
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+    }
+
+
+@app.post("/api/jobs/{job_id}/groups/{group_id}/retry")
+def retry_job_group(job_id: str, group_id: str) -> dict[str, Any]:
+    try:
+        return manager.retry_group(job_id, group_id).model_dump()
+    except Exception as exc:  # noqa: BLE001
+        raise job_error(exc) from exc
+
+
+@app.post("/api/jobs/{job_id}/retry-failed")
+def retry_failed_job_groups(job_id: str) -> dict[str, Any]:
+    try:
+        return manager.retry_failed(job_id).model_dump()
+    except Exception as exc:  # noqa: BLE001
+        raise job_error(exc) from exc
+
+
+@app.post("/api/jobs/{job_id}/rerun")
+def rerun_job(job_id: str) -> dict[str, Any]:
+    try:
+        return manager.rerun(job_id).model_dump()
+    except Exception as exc:  # noqa: BLE001
+        raise job_error(exc) from exc
+
+
+@app.post("/api/jobs/{job_id}/set-current")
+def set_current_job(job_id: str, request: SetCurrentRequest) -> dict[str, Any]:
+    try:
+        return manager.set_current(job_id, allow_partial=request.allow_partial).model_dump()
+    except Exception as exc:  # noqa: BLE001
+        raise job_error(exc) from exc
+
+
 @app.post("/api/jobs/{job_id}/cancel")
 def cancel_job(job_id: str) -> dict[str, Any]:
     if not manager.cancel(job_id):
         raise HTTPException(status_code=404, detail="任务不存在或已结束")
     return {"job_id": job_id, "cancel_requested": True}
+
+
+@app.delete("/api/jobs/{job_id}")
+def delete_job(job_id: str, confirm: str = Query(..., min_length=6)) -> dict[str, Any]:
+    try:
+        return manager.delete(job_id, confirm=confirm)
+    except Exception as exc:  # noqa: BLE001
+        raise job_error(exc) from exc
+
+
+@app.get("/api/jobs/{job_id}/download/{kind}")
+def download_job_artifact(job_id: str, kind: str) -> FileResponse:
+    try:
+        path = manager.artifact_path(job_id, kind)
+    except Exception as exc:  # noqa: BLE001
+        raise job_error(exc) from exc
+    return FileResponse(path, filename=path.name)
 
 
 @app.get("/api/stocks/{stock_code}/latest")
