@@ -1,0 +1,57 @@
+name: Apply Runtime Reliability Fixes
+
+on:
+  push:
+    branches: [feature/f10-research-platform-v1]
+    paths:
+      - ".github/workflows/apply-runtime-hotfixes.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/f10-research-platform-v1
+          fetch-depth: 0
+      - name: Activate resilient runtime modules
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          replacements = {
+              Path("src/ashare_f10/fetch/pipeline.py"): (
+                  "from ashare_f10.fetch.client import HttpClient",
+                  "from ashare_f10.fetch.client_v2 import HttpClient",
+              ),
+              Path("src/ashare_f10/api/app.py"): (
+                  "from ashare_f10.api.jobs import JobManager",
+                  "from ashare_f10.api.jobs_v2 import JobManager",
+              ),
+              Path("src/ashare_f10/web/index.html"): (
+                  '<script src="./job-center.js"></script>',
+                  '<script src="./job-center-v2.js"></script>',
+              ),
+          }
+          for path, (old, new) in replacements.items():
+              text = path.read_text(encoding="utf-8")
+              if new in text:
+                  continue
+              if old not in text:
+                  raise SystemExit(f"Expected text not found in {path}: {old}")
+              path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
+      - name: Commit activated modules
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/ashare_f10/fetch/pipeline.py src/ashare_f10/api/app.py src/ashare_f10/web/index.html
+          if git diff --cached --quiet; then
+            echo "Runtime modules were already active."
+          else
+            git commit -m "Activate resilient quote, secure names, and stable task UI"
+            git push origin HEAD:feature/f10-research-platform-v1
+          fi
