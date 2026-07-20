@@ -8,12 +8,6 @@ on:
     paths:
       - ".bootstrap/**"
       - ".github/workflows/bootstrap-project.yml"
-  pull_request:
-    branches:
-      - main
-    paths:
-      - ".bootstrap/**"
-      - ".github/workflows/bootstrap-project.yml"
 
 permissions:
   contents: write
@@ -25,54 +19,37 @@ concurrency:
 jobs:
   bootstrap:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
+      - name: Checkout bootstrap helper from main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: dispatcher
+          fetch-depth: 1
+
       - name: Checkout feature branch
         uses: actions/checkout@v4
         with:
           ref: feature/f10-research-platform-v1
+          path: target
           fetch-depth: 0
 
-      - name: Reconstruct and verify project archive
+      - name: Reconstruct, diagnose and verify project
         shell: bash
-        run: |
-          set -euo pipefail
-          # The large original parts 2 and 5 are transported as encoded chunks.
-          cat .bootstrap/part_001.txt > /tmp/project.b64
-          cat \
-            .bootstrap/part_002c_00.txt \
-            .bootstrap/part_002c_01.txt \
-            .bootstrap/part_002c_02.txt \
-            .bootstrap/part_002b_01.txt \
-            .bootstrap/part_002b_02.txt \
-            | base64 --decode >> /tmp/project.b64
-          cat \
-            .bootstrap/part_003.txt \
-            .bootstrap/part_004.txt \
-            >> /tmp/project.b64
-          cat .bootstrap/part_005b_*.txt | base64 --decode >> /tmp/project.b64
-          cat .bootstrap/part_006.txt >> /tmp/project.b64
-
-          base64 --decode /tmp/project.b64 > /tmp/project.tar.xz
-          echo "0d03e7c23e1d1a2c8d264b1b29a9f805dad8442d98bdefc8c4521722c9465bab  /tmp/project.tar.xz" | sha256sum --check --strict
-
-          tar -xJf /tmp/project.tar.xz -C .
-          test -f pyproject.toml
-          test -f src/ashare_f10/api/app.py
-          test -f .github/workflows/fetch-stock.yml
-
-      - name: Remove bootstrap transport files
-        shell: bash
-        run: |
-          rm -rf .bootstrap
-          rm -f .github/workflows/bootstrap-project.yml
+        run: bash dispatcher/.github/scripts/bootstrap-f10.sh target
 
       - name: Commit generated project
+        working-directory: target
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "Build F10 research platform v1"
-          git push origin HEAD:feature/f10-research-platform-v1
+          if git diff --cached --quiet; then
+            echo "Nothing to commit"
+          else
+            git commit -m "Build F10 research platform v1"
+            git push origin HEAD:feature/f10-research-platform-v1
+          fi
