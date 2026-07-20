@@ -1,0 +1,150 @@
+{
+  "schema_version": "1.0.0",
+  "global": {
+    "ACCOUNTS_PAYABLE_TR": {
+      "category": "PAGE_DISPLAY_FIELD",
+      "label": "应付账款周转率",
+      "unit": "次"
+    },
+    "CURRENT_ASSET_TR": {
+      "category": "PAGE_DISPLAY_FIELD",
+      "label": "流动资产周转率",
+      "unit": "次"
+    },
+    "FIXED_ASSET_TR": {
+      "category": "PAGE_DISPLAY_FIELD",
+      "label": "固定资产周转率",
+      "unit": "次"
+    },
+    "NETPROFITRPHBZC": {
+      "category": "PAGE_DISPLAY_FIELD",
+      "label": "净利润滚动环比增长",
+      "unit": "%"
+    },
+    "NETPROFITRPHBZC_LAST": {
+      "category": "PAGE_DISPLAY_FIELD",
+      "label": "上期净利润滚动环比增长",
+      "unit": "%"
+    },
+    "NET_ASSETS_LIABILITIES": {
+      "category": "PAGE_DISPLAY_FIELD",
+      "label": "净资产负债率",
+      "unit": "%"
+    },
+    "NET_CAPITAL_LIABILITIES": {
+      "category": "PAGE_DISPLAY_FIELD",
+      "label": "净资本负债率",
+      "unit": "%"
+    },
+    "NEWCAPITALADER": {
+      "category": "PAGE_DISPLAY_FIELD",
+      "label": "资本充足率",
+      "unit": "%"
+    },
+    "NONPERLOAN": {
+      "category": "PAGE_DISPLAY_FIELD",
+      "label": "不良贷款率",
+      "unit": "%"
+    },
+    "OPERATEDEPT_NAME": {
+      "category": "PAGE_DISPLAY_FIELD",
+      "label": "营业部名称",
+      "unit": "文本"
+    },
+    "OPERATE_CYCLE": {
+      "category": "PAGE_DISPLAY_FIELD",
+      "label": "营业周期",
+      "unit": "天"
+    },
+    "OPERATE_PROFIT": {
+      "category": "PAGE_DISPLAY_FIELD",
+      "label": "营业利润",
+      "unit": "元"
+    },
+    "PB_MRQ_REALTIME": {
+      "category": "PAGE_DISPLAY_FIELD",
+      "label": "市净率（MRQ）",
+      "unit": "倍"
+    },
+    "PREFERRED_SHARES_PAYBALE_YOY": {
+      "category": "PAGE_DISPLAY_FIELD",
+      "label": "应付优先股同比（%）",
+      "unit": "%"
+    },
+    "PREFERRED_SHARES_YOY": {
+      "category": "PAGE_DISPLAY_FIELD",
+      "label": "优先股同比（%）",
+      "unit": "%"
+    },
+    "TOTALOPERATEREVE": {
+      "category": "PAGE_DISPLAY_FIELD",
+      "label": "营业总收入",
+      "unit": "元"
+    },
+    "TOTAL_OPERATEINCOME": {
+      "category": "PAGE_DISPLAY_FIELD",
+      "label": "营业总收入",
+      "unit": "元"
+    },
+    "TOTAL_OPERATEINCOME_LAST": {
+      "category": "PAGE_DISPLAY_FIELD",
+      "label": "上期营业总收入",
+      "unit": "元"
+    },
+    "TOTAL_OPERATE_INCOME": {
+      "category": "PAGE_DISPLAY_FIELD",
+      "label": "营业总收入",
+      "unit": "元"
+    },
+    "TREASURY_SHARES_YOY": {
+      "category": "PAGE_DISPLAY_FIELD",
+      "label": "库存股同比（%）",
+      "unit": "%"
+    },
+    "X-Swift-CacheTime": {
+      "category": "HTTP_METADATA",
+      "label": "阿里云缓存时长",
+      "unit": "秒"
+    },
+    "x-oss-server-time": {
+      "category": "HTTP_METADATA",
+      "label": "对象存储服务器耗时",
+      "unit": "毫秒"
+    },
+    "costTime": {
+      "label": "请求耗时",
+      "unit": "毫秒",
+      "category": "API_METADATA"
+    },
+    "message": {
+      "label": "响应提示信息",
+      "unit": "文本",
+      "category": "API_METADATA"
+    },
+    "CacheTime": {
+      "label": "缓存时间",
+      "unit": "日期/时间",
+      "category": "API_METADATA"
+    },
+    "reserve": {
+      "label": "预留字段",
+      "unit": "文本",
+      "category": "API_METADATA"
+    },
+    "ApiStatus": {
+      "label": "API状态码",
+      "unit": "",
+      "category": "API_METADATA"
+    },
+    "OStr": {
+      "label": "原始输出字符串",
+      "unit": "文本",
+      "category": "API_METADATA"
+    },
+    "ApiMessage": {
+      "label": "API提示信息",
+      "unit": "文本",
+      "category": "API_METADATA"
+    }
+  }
+}
