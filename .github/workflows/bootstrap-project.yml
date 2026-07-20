@@ -1,0 +1,66 @@
+name: Bootstrap F10 research platform
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/f10-research-platform-v1
+    paths:
+      - ".bootstrap/**"
+      - ".github/workflows/bootstrap-project.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bootstrap-f10-research-platform-v1
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/f10-research-platform-v1
+          fetch-depth: 0
+
+      - name: Reconstruct and verify project archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat \
+            .bootstrap/part_001.txt \
+            .bootstrap/part_002.txt \
+            .bootstrap/part_003.txt \
+            .bootstrap/part_004.txt \
+            > /tmp/project.b64
+
+          cat .bootstrap/part_005b_*.txt | base64 --decode >> /tmp/project.b64
+          cat .bootstrap/part_006.txt >> /tmp/project.b64
+
+          base64 --decode /tmp/project.b64 > /tmp/project.tar.xz
+          echo "0d03e7c23e1d1a2c8d264b1b29a9f805dad8442d98bdefc8c4521722c9465bab  /tmp/project.tar.xz" | sha256sum --check --strict
+
+          tar -xJf /tmp/project.tar.xz -C .
+          test -f pyproject.toml
+          test -f src/ashare_f10/api/app.py
+          test -f .github/workflows/fetch-stock.yml
+
+      - name: Remove bootstrap transport files
+        shell: bash
+        run: |
+          rm -rf .bootstrap
+          rm -f .github/workflows/bootstrap-project.yml
+
+      - name: Commit generated project
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Build F10 research platform v1"
+          git push origin HEAD:feature/f10-research-platform-v1
