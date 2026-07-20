@@ -32,6 +32,10 @@ def make_db(path: Path):
         insert_fact(con, "REVENUE_Q", "单季度收入", period, value, "RPT_F10_FINANCE_GINCOMEQC")
     insert_fact(con, "CIP", "在建工程", "2026-03-31", 25.0, "RPT_F10_FINANCE_GBALANCE", "point_in_time")
     insert_fact(con, "TOTAL_ASSETS", "资产总计", "2026-03-31", 100.0, "RPT_F10_FINANCE_GBALANCE", "point_in_time")
+    # Derived endpoints can expose the same raw keys. Direct formulas must prefer
+    # the authoritative financial statement instead of alphabetical family order.
+    insert_fact(con, "CIP", "在建工程", "2026-03-31", 999.0, "RPT_F10_FINANCE_DUPONT", "point_in_time")
+    insert_fact(con, "TOTAL_ASSETS", "资产总计", "2026-03-31", 1000.0, "RPT_F10_FINANCE_DUPONT", "point_in_time")
     con.close()
 
 
@@ -50,3 +54,7 @@ def test_formula_fields_and_chinese_names(tmp_path):
     result = evaluate_formula(db, 'F("在建工程") / F("资产总计")', "2026-03-31")
     assert result["value"] == 0.25
     assert len(result["trace"]) == 2
+    assert [item["family"] for item in result["trace"]] == [
+        "RPT_F10_FINANCE_GBALANCE",
+        "RPT_F10_FINANCE_GBALANCE",
+    ]
