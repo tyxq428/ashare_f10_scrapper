@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from ashare_f10.api.jobs import JobManager
+from ashare_f10.api.jobs_v2 import JobManager
 from ashare_f10.api.search import (
     export_search_rows,
     facet_facts,

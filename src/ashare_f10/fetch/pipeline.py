@@ -12,7 +12,7 @@ from typing import Any
 
 from ashare_f10.config import Settings
 from ashare_f10.config import settings as default_settings
-from ashare_f10.fetch.client import HttpClient
+from ashare_f10.fetch.client_v2 import HttpClient
 from ashare_f10.fetch.manifest import load_manifest
 from ashare_f10.fetch.security import parse_security, replace_security_tokens
 from ashare_f10.models import GroupResult, RequestSpec, SecurityIdentity
