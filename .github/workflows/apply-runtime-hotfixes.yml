@@ -17,7 +17,7 @@ jobs:
         with:
           ref: feature/f10-research-platform-v1
           fetch-depth: 0
-      - name: Activate resilient runtime modules
+      - name: Activate and normalize resilient runtime modules
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -38,20 +38,36 @@ jobs:
           }
           for path, (old, new) in replacements.items():
               text = path.read_text(encoding="utf-8")
-              if new in text:
-                  continue
-              if old not in text:
-                  raise SystemExit(f"Expected text not found in {path}: {old}")
-              path.write_text(text.replace(old, new, 1), encoding="utf-8")
+              if new not in text:
+                  if old not in text:
+                      raise SystemExit(f"Expected text not found in {path}: {old}")
+                  text = text.replace(old, new, 1)
+                  path.write_text(text, encoding="utf-8")
+
+          jobs = Path("src/ashare_f10/api/jobs_v2.py")
+          text = jobs.read_text(encoding="utf-8")
+          text = text.replace("import sqlite3\n", "")
+          text = text.replace(
+              "from collections import Counter\n",
+              "from collections import Counter\nfrom collections.abc import Iterator\n",
+              1,
+          )
+          text = text.replace("from typing import Any, Iterator\n", "from typing import Any\n")
+          text = text.replace("from ashare_f10.api.jobs import utc_now\n", "")
+          jobs.write_text(text, encoding="utf-8")
           PY
       - name: Commit activated modules
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/ashare_f10/fetch/pipeline.py src/ashare_f10/api/app.py src/ashare_f10/web/index.html
+          git add \
+            src/ashare_f10/fetch/pipeline.py \
+            src/ashare_f10/api/app.py \
+            src/ashare_f10/api/jobs_v2.py \
+            src/ashare_f10/web/index.html
           if git diff --cached --quiet; then
-            echo "Runtime modules were already active."
+            echo "Runtime modules were already active and normalized."
           else
-            git commit -m "Activate resilient quote, secure names, and stable task UI"
+            git commit -m "Normalize resilient runtime modules"
             git push origin HEAD:feature/f10-research-platform-v1
           fi
