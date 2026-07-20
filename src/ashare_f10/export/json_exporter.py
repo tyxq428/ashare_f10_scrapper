@@ -12,9 +12,17 @@ def export_json(combined: dict[str, Any], output_dir: Path, data_store: dict[str
     exports_dir = output_dir / "exports"
     exports_dir.mkdir(parents=True, exist_ok=True)
     path = exports_dir / f"{combined['metadata']['security']['code']}_F10_full.json"
+    metadata = dict(combined["metadata"])
+    security = dict(metadata.get("security", {}))
+    # Keep the compact internal key while also exposing the stable public alias
+    # used by the original research JSON and downstream integrations.
+    if security.get("code"):
+        security.setdefault("security_code", security["code"])
+    metadata["security"] = security
+
     payload = {
         "metadata": {
-            **combined["metadata"],
+            **metadata,
             "data_store": data_store,
             "source_policy": "All values are fetched from the fixed live Eastmoney endpoint manifest.",
         },
