@@ -38,7 +38,7 @@ jobs:
         run: |
           ashare-f10 fetch 688521 --output e2e-output --workers 4 --force
 
-      - name: Validate generated artifacts and research functions
+      - name: Validate generated artifacts, chained search and research functions
         run: |
           ashare-f10 validate e2e-output
           python - <<'PY'
@@ -152,6 +152,56 @@ jobs:
           api_search = client.get("/api/stocks/688521/search", params={"q": "资产", "limit": 5})
           assert api_search.status_code == 200 and api_search.json(), api_search.text
 
+          structured_query = {
+              "base_query": "资产",
+              "base_match_type": "contains",
+              "base_columns": ["field_name_cn", "field_key"],
+              "base_threshold": 60,
+              "search_steps": [
+                  {
+                      "query": "同比",
+                      "operation": "exclude",
+                      "match_type": "contains",
+                      "columns": ["field_name_cn", "field_key"],
+                      "threshold": 60,
+                      "enabled": True,
+                  }
+              ],
+              "filters": [
+                  {
+                      "column": "effective_date",
+                      "operator": "between",
+                      "lower": "2024-01-01",
+                      "upper": "2026-12-31",
+                      "enabled": True,
+                  }
+              ],
+              "sort": [{"column": "report_date", "direction": "desc"}],
+              "page": 1,
+              "page_size": 50,
+          }
+          structured = client.post("/api/stocks/688521/search/query", json=structured_query)
+          assert structured.status_code == 200, structured.text
+          structured_payload = structured.json()
+          assert structured_payload["total"] > 0
+          assert len(structured_payload["rows"]) <= 50
+          assert len(structured_payload["stage_counts"]) >= 3
+          assert all("同比" not in row["field_name_cn"] for row in structured_payload["rows"])
+
+          facets = client.post(
+              "/api/stocks/688521/search/facets",
+              json={"query": structured_query, "column": "family", "term": "", "limit": 50},
+          )
+          assert facets.status_code == 200, facets.text
+          assert facets.json().get("values")
+
+          search_export = client.post(
+              "/api/stocks/688521/search/export",
+              json={"query": structured_query, "format": "csv", "max_rows": 1000},
+          )
+          assert search_export.status_code == 200
+          assert search_export.content.startswith(b"\xef\xbb\xbf")
+
           api_ttm = client.post(
               "/api/stocks/688521/ttm",
               json={"field": "TOTAL_OPERATE_INCOME", "end_period": ttm_result.end_period},
@@ -171,7 +221,9 @@ jobs:
           summary = {
               "security_code": "688521",
               "fact_count": fact_count,
-              "search_result_count": len(search_results),
+              "simple_search_result_count": len(search_results),
+              "structured_search_total": structured_payload["total"],
+              "structured_stage_counts": structured_payload["stage_counts"],
               "latest_period": periods[0],
               "ttm_end_period": ttm_result.end_period,
               "ttm_method": ttm_result.method,
