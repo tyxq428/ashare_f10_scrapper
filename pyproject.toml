@@ -46,7 +46,7 @@ include-package-data = true
 where = ["src"]
 
 [tool.setuptools.package-data]
-ashare_f10 = ["resources/*.json.gz.b64", "web/*"]
+ashare_f10 = ["resources/*.json.gz.b64", "resources/*.json", "web/*"]
 
 [tool.ruff]
 line-length = 110
