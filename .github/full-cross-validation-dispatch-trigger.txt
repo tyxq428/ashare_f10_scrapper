@@ -1,2 +1,2 @@
 trigger full cross-validation materialization and 688521 E2E
-revision: 4 missing archive parts restored
+revision: 5 run lint diagnostic after restoring archive parts
