@@ -496,7 +496,7 @@ class PdfStatementParser:
                     is_cashflow_supplement = (
                         target.statement_type == "cash_flow"
                         and target.field_key == "FINANCE_EXPENSE"
-                        and any(_compact(alias) in compact_text for alias in target.aliases)
+                        and _compact("财务费用（收益以“－”号填列）") in compact_text
                     )
                     allowed_text = (
                         target.statement_type == "summary"
@@ -620,6 +620,7 @@ class PdfStatementParser:
                     or (
                         target.statement_type == "cash_flow"
                         and target.field_key == "FINANCE_EXPENSE"
+                        and name == "财务费用（收益以“－”号填列）"
                         and normalized_line.startswith(_normalized_label(name))
                     )
                 ),

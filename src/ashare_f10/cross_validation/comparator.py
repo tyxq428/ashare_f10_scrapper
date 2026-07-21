@@ -231,6 +231,14 @@ class CrossSourceComparator:
             if lookup[0] == code and lookup[1] == date and lookup[2] == period_type and lookup[4] == field_key
             for row in rows
         ]
+        if field_key == "FINANCE_EXPENSE" and entry.validation_mode == "OFFICIAL_DERIVED" and same_period_key:
+            income_candidates = [
+                row for row in same_period_key if str(row.get("statement_type") or "") == "income_statement"
+            ]
+            if income_candidates:
+                preferred = [row for row in income_candidates if str(row.get("scope") or "") != "parent"]
+                return (preferred or income_candidates)[0], None
+
         if same_period_key:
             preferred = [row for row in same_period_key if str(row.get("scope") or "") != "parent"]
             if entry.scope == "consolidated" and not preferred:
