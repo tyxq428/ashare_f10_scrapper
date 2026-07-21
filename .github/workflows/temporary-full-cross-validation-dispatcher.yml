@@ -32,13 +32,16 @@ jobs:
       - name: Inventory bootstrap parts
         run: |
           set -euo pipefail
-          find .full-cross-validation-bootstrap -maxdepth 1 -type f -printf '%f %s bytes\n' | sort
-          sha1sum .full-cross-validation-bootstrap/part_*.txt
+          {
+            find .full-cross-validation-bootstrap -maxdepth 1 -type f -printf '%f %s bytes\n' | sort
+            sha1sum .full-cross-validation-bootstrap/part_*.txt
+          } | tee bootstrap-part-inventory.txt
       - name: Reconstruct and verify patch archive
         run: |
           set -euo pipefail
           cat .full-cross-validation-bootstrap/part_*.txt > /tmp/full-cross-patch.b64
           base64 --decode /tmp/full-cross-patch.b64 > /tmp/full-cross-patch.tar.gz
+          sha256sum /tmp/full-cross-patch.tar.gz | tee bootstrap-archive-sha256.txt
           echo "a8b204da67440193d9de0a57325fa2faf1edb50222db74ca7a8029a81c3daa3e  /tmp/full-cross-patch.tar.gz" | sha256sum --check --strict
           rm -rf /tmp/full-cross-patch
           mkdir -p /tmp/full-cross-patch
@@ -86,6 +89,8 @@ jobs:
         with:
           name: bootstrap-full-cross-validation-688521-${{ github.run_id }}
           path: |
+            bootstrap-part-inventory.txt
+            bootstrap-archive-sha256.txt
             full-cross-validation-run/
             full-cross-validation.log
           if-no-files-found: warn
