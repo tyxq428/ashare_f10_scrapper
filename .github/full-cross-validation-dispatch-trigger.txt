@@ -1,2 +1,2 @@
 trigger full cross-validation materialization and 688521 E2E
-revision: 10 corrected generated patch indentation
+revision: 11 cash-flow supplement and fallback fix
