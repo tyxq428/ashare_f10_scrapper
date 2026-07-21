@@ -55,25 +55,25 @@ jobs:
               marker = "        if same_period_key:\n"
               if marker not in text:
                   raise SystemExit("Same-period official fallback block was not found")
-              preference = '''        if (
-                          field_key == "FINANCE_EXPENSE"
-                          and entry.validation_mode == "OFFICIAL_DERIVED"
-                          and same_period_key
-                      ):
-                          income_candidates = [
-                              row
-                              for row in same_period_key
-                              if str(row.get("statement_type") or "") == "income_statement"
-                          ]
-                          if income_candidates:
-                              preferred = [
-                                  row
-                                  for row in income_candidates
-                                  if str(row.get("scope") or "") != "parent"
-                              ]
-                              return (preferred or income_candidates)[0], None
-
-              '''
+              preference = (
+                  "        if (\n"
+                  '            field_key == "FINANCE_EXPENSE"\n'
+                  '            and entry.validation_mode == "OFFICIAL_DERIVED"\n'
+                  "            and same_period_key\n"
+                  "        ):\n"
+                  "            income_candidates = [\n"
+                  "                row\n"
+                  "                for row in same_period_key\n"
+                  '                if str(row.get("statement_type") or "") == "income_statement"\n'
+                  "            ]\n"
+                  "            if income_candidates:\n"
+                  "                preferred = [\n"
+                  "                    row\n"
+                  "                    for row in income_candidates\n"
+                  '                    if str(row.get("scope") or "") != "parent"\n'
+                  "                ]\n"
+                  "                return (preferred or income_candidates)[0], None\n\n"
+              )
               text = text.replace(marker, preference + marker, 1)
           comparator_path.write_text(text, encoding="utf-8")
 
