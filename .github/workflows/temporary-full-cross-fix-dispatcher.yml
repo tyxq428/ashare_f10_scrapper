@@ -13,7 +13,7 @@ env:
   PYTHONUNBUFFERED: "1"
 
 jobs:
-  materialize-fix-and-validate:
+  fix-test-and-validate:
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
@@ -25,44 +25,220 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - name: Reconstruct and verify patch archive
-        run: |
-          set -euo pipefail
-          cat .full-cross-validation-bootstrap/part_*.txt | base64 --decode > /tmp/full-cross-patch.tar.gz
-          echo "a8b204da67440193d9de0a57325fa2faf1edb50222db74ca7a8029a81c3daa3e  /tmp/full-cross-patch.tar.gz" | sha256sum --check --strict
-          mkdir -p /tmp/full-cross-patch
-          tar -xzf /tmp/full-cross-patch.tar.gz -C /tmp/full-cross-patch
-      - name: Apply deterministic platform patch
-        run: python /tmp/full-cross-patch/scripts/apply_full_cross_validation_patch.py "$GITHUB_WORKSPACE" /tmp/full-cross-patch
       - run: python -m pip install --upgrade pip
       - run: pip install -e ".[dev]"
-      - name: Apply safe formatting and lint fixes
+      - name: Isolate same-key facts by official statement and correct units
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          parser_path = Path("src/ashare_f10/validation/documents/pdf_parser.py")
+          text = parser_path.read_text(encoding="utf-8")
+          old_init = '''    def __init__(self, targets: Iterable[TargetField] = DEFAULT_TARGETS) -> None:
+                  self.targets = tuple(targets)
+                  self.summary_targets = tuple(target for target in self.targets if target.statement_type == "summary")
+          '''
+          new_init = '''    def __init__(self, targets: Iterable[TargetField] = DEFAULT_TARGETS) -> None:
+                  merged: dict[tuple[str, str], TargetField] = {}
+                  for target in targets:
+                      identity = (target.statement_type, target.field_key)
+                      aliases = target.aliases
+                      if identity == ("income_statement", "OTHER_COMPRE_INCOME"):
+                          aliases = tuple(
+                              dict.fromkeys(("其他综合收益的税后净额", *aliases))
+                          )
+                      existing = merged.get(identity)
+                      if existing is None:
+                          merged[identity] = TargetField(
+                              target.field_key,
+                              target.field_name_cn,
+                              target.statement_type,
+                              aliases,
+                              target.eastmoney_keys,
+                              target.eastmoney_families,
+                              target.semantics,
+                          )
+                      else:
+                          merged[identity] = TargetField(
+                              existing.field_key,
+                              existing.field_name_cn,
+                              existing.statement_type,
+                              tuple(dict.fromkeys((*existing.aliases, *aliases))),
+                              tuple(
+                                  dict.fromkeys(
+                                      (*existing.eastmoney_keys, *target.eastmoney_keys)
+                                  )
+                              ),
+                              tuple(
+                                  dict.fromkeys(
+                                      (
+                                          *existing.eastmoney_families,
+                                          *target.eastmoney_families,
+                                      )
+                                  )
+                              ),
+                              existing.semantics,
+                          )
+                  self.targets = tuple(merged.values())
+                  self.summary_targets = tuple(
+                      target
+                      for target in self.targets
+                      if target.statement_type == "summary"
+                  )
+          '''
+          if old_init not in text:
+              raise SystemExit("Expected PdfStatementParser.__init__ block was not found")
+          text = text.replace(old_init, new_init, 1)
+          old_candidates = '''        candidates: dict[str, list[tuple[int, OfficialFact]]] = {
+                  target.field_key: [] for target in self.targets
+              }
+          '''
+          new_candidates = '''        candidates: dict[tuple[str, str], list[tuple[int, OfficialFact]]] = {
+                  (target.statement_type, target.field_key): [] for target in self.targets
+              }
+          '''
+          if old_candidates not in text:
+              raise SystemExit("Expected parser candidate dictionary was not found")
+          text = text.replace(old_candidates, new_candidates, 1)
+          text = text.replace(
+              "candidates[target.field_key].append((score, extracted))",
+              "candidates[(target.statement_type, target.field_key)].append((score, extracted))",
+          )
+          text = text.replace(
+              "found = candidates[target.field_key]",
+              "found = candidates[(target.statement_type, target.field_key)]",
+              1,
+          )
+          parser_path.write_text(text, encoding="utf-8")
+
+          adapters_path = Path("src/ashare_f10/cross_validation/adapters.py")
+          text = adapters_path.read_text(encoding="utf-8")
+          old_units = '''    frame["normalized_unit"] = frame["unit"].fillna("")
+              frame["source_document"] = frame["family"]
+          '''
+          new_units = '''    frame["normalized_unit"] = frame["unit"].fillna("")
+              monetary_override = (
+                  (frame["family"] == "RPT_F10_FINANCE_GBALANCE")
+                  & frame["field_key"].isin({"TREASURY_SHARES"})
+              )
+              frame.loc[monetary_override, "unit"] = "元"
+              frame.loc[monetary_override, "normalized_unit"] = "元"
+              frame["source_document"] = frame["family"]
+          '''
+          if old_units not in text:
+              raise SystemExit("Expected Eastmoney unit block was not found")
+          adapters_path.write_text(text.replace(old_units, new_units, 1), encoding="utf-8")
+
+          runner_path = Path("src/ashare_f10/cross_validation/runner.py")
+          text = runner_path.read_text(encoding="utf-8")
+          if 'PARSER_CACHE_VERSION = "1.1.0"' in text:
+              text = text.replace(
+                  'PARSER_CACHE_VERSION = "1.1.0"',
+                  'PARSER_CACHE_VERSION = "1.2.0"',
+                  1,
+              )
+          runner_path.write_text(text, encoding="utf-8")
+
+          test_path = Path("tests/test_cross_validation_statement_identity.py")
+          test_path.write_text(
+              '''from __future__ import annotations
+
+          import duckdb
+          import pandas as pd
+
+          from ashare_f10.cross_validation.adapters import load_eastmoney_facts
+          from ashare_f10.validation.documents.pdf_parser import PdfStatementParser
+          from ashare_f10.validation.models import TargetField
+
+
+          def test_parser_keeps_same_key_separate_by_statement() -> None:
+              targets = (
+                  TargetField(
+                      "OTHER_COMPRE_INCOME",
+                      "其他综合收益",
+                      "balance_sheet",
+                      ("其他综合收益",),
+                      ("OTHER_COMPRE_INCOME",),
+                      ("RPT_F10_FINANCE_GBALANCE",),
+                      "point_in_time",
+                  ),
+                  TargetField(
+                      "OTHER_COMPRE_INCOME",
+                      "其他综合收益",
+                      "income_statement",
+                      ("其他综合收益",),
+                      ("OTHER_COMPRE_INCOME",),
+                      ("RPT_F10_FINANCE_GINCOME",),
+                  ),
+              )
+              parser = PdfStatementParser(targets)
+              assert len(parser.targets) == 2
+              income = next(
+                  target
+                  for target in parser.targets
+                  if target.statement_type == "income_statement"
+              )
+              assert "其他综合收益的税后净额" in income.aliases
+
+
+          def test_treasury_shares_is_a_monetary_balance_sheet_item(tmp_path) -> None:
+              database = tmp_path / "facts.duckdb"
+              frame = pd.DataFrame(
+                  [
+                      {
+                          "security_code": "688521",
+                          "theme": "财务报表与指标",
+                          "family": "RPT_F10_FINANCE_GBALANCE",
+                          "dataset": "资产负债表",
+                          "record_key": "688521|2025-12-31",
+                          "report_date": "2025-12-31",
+                          "event_date": "2025-12-31",
+                          "period_type": "FY",
+                          "data_semantics": "point_in_time",
+                          "field_key": "TREASURY_SHARES",
+                          "field_name_cn": "库存股",
+                          "field_category": "PAGE_DISPLAY_FIELD",
+                          "value_text": "24836121.01",
+                          "value_num": 24836121.01,
+                          "unit": "股",
+                          "source_url": "",
+                          "source_status": "FACT_DIRECT",
+                      }
+                  ]
+              )
+              connection = duckdb.connect(str(database))
+              connection.register("input_frame", frame)
+              connection.execute("CREATE TABLE facts AS SELECT * FROM input_frame")
+              connection.close()
+              result = load_eastmoney_facts(database)
+              assert result.iloc[0]["unit"] == "元"
+              assert result.iloc[0]["normalized_unit"] == "元"
+          ''',
+              encoding="utf-8",
+          )
+          PY
+      - name: Format, lint and test
         run: |
           set -euo pipefail
-          TARGETS="src/ashare_f10/cross_validation src/ashare_f10/validation/documents/pdf_parser.py src/ashare_f10/cli.py src/ashare_f10/api/app.py tests/test_cross_validation_registry.py tests/test_cross_validation_comparator.py tests/test_cross_validation_derived.py scripts/verify_full_cross_validation.py"
-          ruff format $TARGETS
-          ruff check --fix --unsafe-fixes $TARGETS
+          ruff format src/ashare_f10/validation/documents/pdf_parser.py src/ashare_f10/cross_validation/adapters.py src/ashare_f10/cross_validation/runner.py tests/test_cross_validation_statement_identity.py
+          ruff check --fix --unsafe-fixes src/ashare_f10/validation/documents/pdf_parser.py src/ashare_f10/cross_validation/adapters.py src/ashare_f10/cross_validation/runner.py tests/test_cross_validation_statement_identity.py
           ruff check src tests scripts/verify_full_cross_validation.py
-      - name: Static and unit tests
-        run: |
           python -m compileall -q src
           node --check src/ashare_f10/web/app.js
           node --check src/ashare_f10/web/cross-validation.js
           pytest --cov=ashare_f10 --cov-report=term-missing
-      - name: Remove bootstrap transport
-        run: |
-          rm -rf .full-cross-validation-bootstrap
-          rm -f .github/workflows/bootstrap-full-cross-validation.yml
-      - name: Commit materialized platform without workflow files
+      - name: Commit conflict-resolution code
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git reset -- .github/workflows
+          git add src/ashare_f10/validation/documents/pdf_parser.py
+          git add src/ashare_f10/cross_validation/adapters.py
+          git add src/ashare_f10/cross_validation/runner.py
+          git add tests/test_cross_validation_statement_identity.py
           if git diff --cached --quiet; then
-            echo "Full cross-validation platform is already materialized."
+            echo "Conflict-resolution code already present."
           else
-            git commit -m "Build full dual-source cross-validation platform"
+            git commit -m "Disambiguate official facts across financial statements"
             git push origin HEAD:feature/full-cross-validation-v1
           fi
       - name: Real 688521 one-input dual-source E2E
