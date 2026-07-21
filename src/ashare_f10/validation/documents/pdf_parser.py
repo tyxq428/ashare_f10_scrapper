@@ -377,9 +377,7 @@ def _label_matches(label: Any, alias: str) -> bool:
 class PdfStatementParser:
     def __init__(self, targets: Iterable[TargetField] = DEFAULT_TARGETS) -> None:
         self.targets = tuple(targets)
-        self.summary_targets = tuple(
-            target for target in self.targets if target.statement_type == "summary"
-        )
+        self.summary_targets = tuple(target for target in self.targets if target.statement_type == "summary")
 
     def extract(self, pdf_path: Path | str, document: OfficialDocument) -> list[OfficialFact]:
         pdf_path = Path(pdf_path)
@@ -410,24 +408,20 @@ class PdfStatementParser:
                     page_section, page_scope = events[0][1], events[0][2]
 
                 unit = _unit_info(text)
-                if unit[1] == 1.0 and previous_unit[1] != 1.0 and page_section:
+                explicit_unit = bool(re.search(r"单位[：:](?:亿元|万元|千元|元)", _compact(text)))
+                if not explicit_unit and unit[1] == 1.0 and previous_unit[1] != 1.0 and page_section:
                     unit = previous_unit
-                elif unit[1] != 1.0 or page_section:
+                elif explicit_unit or unit[1] != 1.0 or page_section:
                     previous_unit = unit
 
                 compact_text = _compact(text)
-                has_summary_alias = (
-                    "扣除非经常性损益" in compact_text
-                    or any(
-                        _compact(alias) in compact_text
-                        for target in self.summary_targets
-                        for alias in target.aliases
-                    )
+                has_summary_alias = "扣除非经常性损益" in compact_text or any(
+                    _compact(alias) in compact_text
+                    for target in self.summary_targets
+                    for alias in target.aliases
                 )
                 should_find_tables = bool(page_section or events or has_summary_alias)
-                table_contexts: list[
-                    tuple[list[list[Any]], str | None, str | None]
-                ] = []
+                table_contexts: list[tuple[list[list[Any]], str | None, str | None]] = []
                 if should_find_tables:
                     try:
                         found_tables = page.find_tables() or []
@@ -441,9 +435,7 @@ class PdfStatementParser:
                                 table_section, table_scope = event_section, event_scope
                             else:
                                 break
-                        table_contexts.append(
-                            (found_table.extract() or [], table_section, table_scope)
-                        )
+                        table_contexts.append((found_table.extract() or [], table_section, table_scope))
 
                 for target in self.targets:
                     extracted = self._extract_from_table_contexts(
@@ -497,9 +489,7 @@ class PdfStatementParser:
         unit: tuple[str, float],
     ) -> OfficialFact | None:
         for table, section, scope in table_contexts:
-            if target.statement_type != "summary" and (
-                section != target.statement_type or scope == "parent"
-            ):
+            if target.statement_type != "summary" and (section != target.statement_type or scope == "parent"):
                 continue
             extracted = self._extract_from_table(
                 table,
@@ -579,9 +569,7 @@ class PdfStatementParser:
             compact_context = _compact(context)
             position = compact_context.find(_compact(alias))
             after_alias = (
-                compact_context[position + len(_compact(alias)) :]
-                if position >= 0
-                else compact_context
+                compact_context[position + len(_compact(alias)) :] if position >= 0 else compact_context
             )
             amounts = _choose_amounts(_numeric_candidates([after_alias]))
             if not amounts:

@@ -102,9 +102,10 @@ $("startJob").addEventListener("click", async () => {
   const stockCode = $("stockCode").value.trim();
   if (!/^\d{6}$/.test(stockCode)) return toast("请输入6位股票代码", true);
   try {
-    const job = await api("/api/jobs", { method: "POST", body: JSON.stringify({ stock_code: stockCode, resume: true }) });
-    toast(`任务已创建：${job.job_id}`);
-    refreshJobs();
+    if (typeof window.startFullCrossValidation !== "function") throw new Error("双源验证模块尚未加载");
+    const task = await window.startFullCrossValidation(stockCode);
+    toast(`双源任务已创建：${task.task_id}`);
+    document.querySelector('#tabs button[data-tab="validation"]')?.click();
   } catch (error) { toast(error.message, true); }
 });
 

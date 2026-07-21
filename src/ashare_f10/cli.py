@@ -10,6 +10,7 @@ from rich.console import Console
 from rich.progress import Progress
 
 from ashare_f10.config import settings
+from ashare_f10.cross_validation.runner import run_full_cross_validation
 from ashare_f10.export.bundle import build_exports
 from ashare_f10.fetch.pipeline import FetchPipeline
 from ashare_f10.validation.runner import run_official_validation
@@ -45,7 +46,9 @@ def fetch(
             failed_count = int(combined.get("metadata", {}).get("failed_group_count", 0))
             if failed_count == 0:
                 break
-            console.print(f"[yellow]检测到{failed_count}个失败请求组，正在进行第{retry_index}次增量重试[/yellow]")
+            console.print(
+                f"[yellow]检测到{failed_count}个失败请求组，正在进行第{retry_index}次增量重试[/yellow]"
+            )
             pipeline = FetchPipeline(stock_code, run_dir, settings=settings, progress=on_progress)
             combined = pipeline.run(resume=True)
 
@@ -69,6 +72,42 @@ def validate_official(
     console.print(f"[{color}]官方交叉验证状态：{status}[/{color}]")
     console.print_json(json.dumps(result, ensure_ascii=False))
     if status.startswith("FAIL"):
+        raise typer.Exit(1)
+
+
+@app.command("run-and-validate")
+def run_and_validate(
+    stock_code: Annotated[str, typer.Argument(help="六位A股代码")],
+    output: Annotated[Path | None, typer.Option("--output", "-o", help="任务输出目录")] = None,
+    workers: Annotated[int | None, typer.Option("--workers", help="东方财富接口并发数")] = None,
+    max_periods: Annotated[
+        int | None, typer.Option("--max-periods", help="最多验证最近N个报告期；默认全部")
+    ] = None,
+    force: Annotated[bool, typer.Option("--force", help="忽略东方财富检查点重新执行")] = False,
+) -> None:
+    """一次输入股票代码，生成东方财富、官方披露和双源比较数据包。"""
+    if workers:
+        settings.max_workers = workers
+    run_dir = output or settings.data_dir / stock_code / "manual-full-validation"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    pipeline = FetchPipeline(stock_code, run_dir, settings=settings)
+    combined = pipeline.run(resume=not force)
+    for _retry_index in range(2):
+        if int(combined.get("metadata", {}).get("failed_group_count", 0)) == 0:
+            break
+        pipeline = FetchPipeline(stock_code, run_dir, settings=settings)
+        combined = pipeline.run(resume=True)
+    if int(combined.get("metadata", {}).get("failed_group_count", 0)):
+        raise typer.Exit(1)
+    build_exports(combined, run_dir)
+    result = run_full_cross_validation(
+        stock_code,
+        run_dir,
+        run_dir / "cross_validation",
+        max_periods=max_periods,
+    )
+    console.print_json(json.dumps(result, ensure_ascii=False))
+    if str(result.get("acceptance_status", "")).startswith("FAIL"):
         raise typer.Exit(1)
 
 
@@ -108,7 +147,9 @@ def validate(path: Path) -> None:
             records = group.get("records", [])
             reported = int(group.get("record_count", len(records)))
             if reported != len(records):
-                failures.append(f"请求组{group.get('group_id')}记录数不一致：record_count={reported}, records={len(records)}")
+                failures.append(
+                    f"请求组{group.get('group_id')}记录数不一致：record_count={reported}, records={len(records)}"
+                )
 
     if artifacts_payload is not None:
         for key in ("json", "excel", "parquet", "duckdb"):

@@ -22,6 +22,7 @@ from ashare_f10.api.search import (
 from ashare_f10.calculate.formula import FormulaError, evaluate_formula
 from ashare_f10.calculate.ttm import compute_ttm
 from ashare_f10.config import settings
+from ashare_f10.cross_validation.api import router as cross_validation_router
 from ashare_f10.models import (
     FormulaRequest,
     SearchExportRequest,
@@ -46,6 +47,7 @@ app = FastAPI(
     description="A-share F10 collection, task recovery, Excel-style filtering, chained search, TTM and formula platform",
 )
 manager = JobManager(settings)
+app.include_router(cross_validation_router)
 
 
 def latest_paths(stock_code: str) -> tuple[dict[str, Any], Path]:
@@ -124,7 +126,9 @@ def get_job_groups(
     limit: int = Query(200, ge=1, le=500),
 ) -> dict[str, Any]:
     try:
-        items, total = manager.list_groups(job_id, status=status, q=q, theme=theme, offset=offset, limit=limit)
+        items, total = manager.list_groups(
+            job_id, status=status, q=q, theme=theme, offset=offset, limit=limit
+        )
     except Exception as exc:  # noqa: BLE001
         raise job_error(exc) from exc
     return {

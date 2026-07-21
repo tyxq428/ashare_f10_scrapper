@@ -22,6 +22,7 @@ dependencies = [
   "pandas>=2.2,<3",
   "pyarrow>=19,<22",
   "openpyxl>=3.1,<4",
+  "xlsxwriter>=3.2,<4",
   "rapidfuzz>=3.10,<4",
   "python-multipart>=0.0.20,<1",
   "pdfplumber>=0.11,<1",
@@ -48,7 +49,7 @@ include-package-data = true
 where = ["src"]
 
 [tool.setuptools.package-data]
-ashare_f10 = ["resources/*.json.gz.b64", "resources/*.json", "web/*"]
+ashare_f10 = ["resources/*.json.gz.b64", "resources/*.json", "resources/*.md", "web/*"]
 
 [tool.ruff]
 line-length = 110
