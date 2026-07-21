@@ -51,14 +51,12 @@ jobs:
               compact = "".join(path.read_text(encoding="utf-8").split())
               expected = 1324 if index == 9 else 6000
               lengths.append(f"{path.name}: raw={len(compact)} selected={expected}")
-              if len(compact) < expected:
-                  raise SystemExit(f"{path} is too short: {len(compact)} < {expected}")
               chunks.append(compact[:expected])
           payload = "".join(chunks)
-          if len(payload) != 55324:
-              raise SystemExit(f"unexpected base64 length: {len(payload)}")
           Path("work/raw-pack-batches-1-4.b64").write_text(payload, encoding="ascii")
-          Path("work/part-lengths.txt").write_text("\n".join(lengths) + "\n", encoding="utf-8")
+          Path("work/part-lengths.txt").write_text("\n".join(lengths) + f"\ntotal={len(payload)}\n", encoding="utf-8")
+          print("\n".join(lengths))
+          print(f"total={len(payload)}")
           PYCODE
           base64 --decode work/raw-pack-batches-1-4.b64 > work/raw-pack-batches-1-4.tar.gz
           echo '7280ae2b6826b909360ec76ba6a5b471205dc6b7dac1e9d0dae167b61a90c373  work/raw-pack-batches-1-4.tar.gz' | sha256sum --check -
