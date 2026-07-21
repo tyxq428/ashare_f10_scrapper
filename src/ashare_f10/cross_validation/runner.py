@@ -34,7 +34,7 @@ from ashare_f10.validation.models import OfficialFact
 from ashare_f10.validation.reconcile.engine import build_logic_checks, build_ttm_checks
 from ashare_f10.validation.sources.sse import SSEOfficialSource
 
-PARSER_CACHE_VERSION = "1.1.0"
+PARSER_CACHE_VERSION = "1.2.0"
 
 
 def _sha256_file(path: Path) -> str:

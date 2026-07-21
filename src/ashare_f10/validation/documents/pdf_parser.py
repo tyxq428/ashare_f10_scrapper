@@ -376,13 +376,47 @@ def _label_matches(label: Any, alias: str) -> bool:
 
 class PdfStatementParser:
     def __init__(self, targets: Iterable[TargetField] = DEFAULT_TARGETS) -> None:
-        self.targets = tuple(targets)
+        merged: dict[tuple[str, str], TargetField] = {}
+        for target in targets:
+            identity = (target.statement_type, target.field_key)
+            aliases = target.aliases
+            if identity == ("income_statement", "OTHER_COMPRE_INCOME"):
+                aliases = tuple(dict.fromkeys(("其他综合收益的税后净额", *aliases)))
+            existing = merged.get(identity)
+            if existing is None:
+                merged[identity] = TargetField(
+                    target.field_key,
+                    target.field_name_cn,
+                    target.statement_type,
+                    aliases,
+                    target.eastmoney_keys,
+                    target.eastmoney_families,
+                    target.semantics,
+                )
+            else:
+                merged[identity] = TargetField(
+                    existing.field_key,
+                    existing.field_name_cn,
+                    existing.statement_type,
+                    tuple(dict.fromkeys((*existing.aliases, *aliases))),
+                    tuple(dict.fromkeys((*existing.eastmoney_keys, *target.eastmoney_keys))),
+                    tuple(
+                        dict.fromkeys(
+                            (
+                                *existing.eastmoney_families,
+                                *target.eastmoney_families,
+                            )
+                        )
+                    ),
+                    existing.semantics,
+                )
+        self.targets = tuple(merged.values())
         self.summary_targets = tuple(target for target in self.targets if target.statement_type == "summary")
 
     def extract(self, pdf_path: Path | str, document: OfficialDocument) -> list[OfficialFact]:
         pdf_path = Path(pdf_path)
-        candidates: dict[str, list[tuple[int, OfficialFact]]] = {
-            target.field_key: [] for target in self.targets
+        candidates: dict[tuple[str, str], list[tuple[int, OfficialFact]]] = {
+            (target.statement_type, target.field_key): [] for target in self.targets
         }
         active_section: str | None = None
         active_scope: str | None = None
@@ -447,7 +481,7 @@ class PdfStatementParser:
                     )
                     if extracted:
                         score = 100 + (15 if extracted.scope == "consolidated" else 0)
-                        candidates[target.field_key].append((score, extracted))
+                        candidates[(target.statement_type, target.field_key)].append((score, extracted))
                         continue
 
                     allowed_text = target.statement_type == "summary" or (
@@ -465,7 +499,7 @@ class PdfStatementParser:
                     )
                     if extracted:
                         score = 60 + (15 if page_scope == "consolidated" else 0)
-                        candidates[target.field_key].append((score, extracted))
+                        candidates[(target.statement_type, target.field_key)].append((score, extracted))
 
                 if events:
                     active_section, active_scope = events[-1][1], events[-1][2]
@@ -473,7 +507,7 @@ class PdfStatementParser:
 
         facts: list[OfficialFact] = []
         for target in self.targets:
-            found = candidates[target.field_key]
+            found = candidates[(target.statement_type, target.field_key)]
             if not found:
                 continue
             found.sort(key=lambda item: (-item[0], item[1].source_page))

@@ -67,6 +67,12 @@ def load_eastmoney_facts(db_path: Path | str) -> pd.DataFrame:
     frame["statement_type"] = frame["family"].map(FINANCIAL_STATEMENT_FAMILY_MAP).fillna("")
     frame["scope"] = frame["statement_type"].map(lambda value: "consolidated" if value else "entity")
     frame["normalized_unit"] = frame["unit"].fillna("")
+
+    monetary_override = (frame["family"] == "RPT_F10_FINANCE_GBALANCE") & frame["field_key"].isin(
+        {"TREASURY_SHARES"}
+    )
+    frame.loc[monetary_override, "unit"] = "元"
+    frame.loc[monetary_override, "normalized_unit"] = "元"
     frame["source_document"] = frame["family"]
     frame["source_page"] = None
     frame["source_row"] = frame.get("record_key", "")
