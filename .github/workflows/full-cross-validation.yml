@@ -1,0 +1,78 @@
+name: Full Dual-Source Cross Validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      stock_code:
+        description: Six-digit A-share security code
+        required: true
+        default: "688521"
+        type: string
+      workers:
+        description: Eastmoney request concurrency
+        required: true
+        default: "8"
+        type: string
+      max_periods:
+        description: Latest official report periods to validate; use 0 for all available periods
+        required: true
+        default: "2"
+        type: string
+      force:
+        description: Ignore Eastmoney checkpoints and refetch completed groups
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+env:
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  run-and-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e ".[dev]"
+      - name: Static and unit checks
+        run: |
+          set -euo pipefail
+          ruff check src tests scripts/verify_full_cross_validation.py
+          python -m compileall -q src
+          node --check src/ashare_f10/web/app.js
+          node --check src/ashare_f10/web/cross-validation.js
+          pytest --cov=ashare_f10 --cov-report=term-missing
+      - name: Run one-input dual-source pipeline
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUTPUT="full-cross-validation-${{ inputs.stock_code }}-${{ github.run_id }}"
+          ARGS=(run-and-validate "${{ inputs.stock_code }}" --output "$OUTPUT" --workers "${{ inputs.workers }}")
+          if [[ "${{ inputs.max_periods }}" != "0" ]]; then
+            ARGS+=(--max-periods "${{ inputs.max_periods }}")
+          fi
+          if [[ "${{ inputs.force }}" == "true" ]]; then
+            ARGS+=(--force)
+          fi
+          ashare-f10 "${ARGS[@]}" 2>&1 | tee full-cross-validation.log
+          python scripts/verify_full_cross_validation.py "$OUTPUT"
+          printf '%s\n' "$OUTPUT" > full-cross-validation-output-dir.txt
+      - name: Upload source packages, comparison files and evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-cross-validation-${{ inputs.stock_code }}-${{ github.run_id }}
+          path: |
+            full-cross-validation-*/
+            full-cross-validation.log
+            full-cross-validation-output-dir.txt
+          if-no-files-found: warn
+          retention-days: 30

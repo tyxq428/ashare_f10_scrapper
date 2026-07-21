@@ -1,0 +1,48 @@
+{
+  "schema_version": "1.0.0",
+  "description": "Rule-based registry that classifies every Eastmoney field context without forcing unavailable official values.",
+  "statement_families": {
+    "RPT_F10_FINANCE_GBALANCE": {"mode": "OFFICIAL_DIRECT", "statement_type": "balance_sheet", "scope": "consolidated"},
+    "RPT_F10_FINANCE_GINCOME": {"mode": "OFFICIAL_DIRECT", "statement_type": "income_statement", "scope": "consolidated"},
+    "RPT_F10_FINANCE_GCASHFLOW": {"mode": "OFFICIAL_DIRECT", "statement_type": "cash_flow", "scope": "consolidated"},
+    "RPT_F10_FINANCE_GINCOMEQC": {"mode": "OFFICIAL_DERIVED", "statement_type": "income_statement", "scope": "consolidated", "reason": "独立季度值由官方累计口径推导"},
+    "RPT_F10_FINANCE_GCASHFLOWQC": {"mode": "OFFICIAL_DERIVED", "statement_type": "cash_flow", "scope": "consolidated", "reason": "独立季度值由官方累计口径推导"},
+    "RPT_F10_FINANCE_MAINFINADATA": {"mode": "OFFICIAL_DERIVED", "statement_type": "financial_indicator", "scope": "consolidated"},
+    "RPT_F10_QTR_MAINFINADATA": {"mode": "OFFICIAL_DERIVED", "statement_type": "financial_indicator", "scope": "consolidated"},
+    "RPT_F10_FINANCE_GRATIO": {"mode": "OFFICIAL_DERIVED", "statement_type": "financial_ratio", "scope": "consolidated"},
+    "RPT_F10_FINANCE_QGRATIO": {"mode": "OFFICIAL_DERIVED", "statement_type": "financial_ratio", "scope": "consolidated"},
+    "RPT_F10_FINANCE_DUPONT": {"mode": "OFFICIAL_DERIVED", "statement_type": "dupont", "scope": "consolidated"},
+    "RPT_PCF10_FINANCEMAINFINADATA": {"mode": "OFFICIAL_DERIVED", "statement_type": "financial_indicator", "scope": "consolidated"}
+  },
+  "official_event_family_patterns": [
+    "ORG_BASICINFO", "BASICINFO", "ORGINFO", "MANAINTRO", "STAFF", "EXECUTIVE",
+    "EH_HOLDER", "FREEHOLDER", "HOLDERNUM", "EH_EQUITY", "SHAREHOLDER",
+    "DIVIDEND", "CAPITAL", "FN_SEGMENT", "BUSINESS", "GUARANTEE", "LITIGATION",
+    "VIOLATION", "ORIG_REPORT", "ISSUEINFO", "RECAPITALIZE", "LIFTFUTURE",
+    "ACCUMDETAILS", "CUSTSUPP", "RDEXPENSE"
+  ],
+  "official_metadata_keys": [
+    "SECUCODE", "SECURITY_CODE", "SECURITY_NAME", "SECURITY_NAME_ABBR", "ORG_CODE",
+    "ORG_NAME", "ORG_NAME_ABBR", "REPORT_DATE", "REPORT_TYPE", "REPORT_DATE_NAME",
+    "NOTICE_DATE", "PUBLISH_DATE", "UPDATE_DATE", "CURRENCY", "OPINION_TYPE",
+    "OSOPINION_TYPE", "LISTING_STATE"
+  ],
+  "source_specific_family_patterns": [
+    "PageAjax", "CORETHEME", "COMPETITIVENESS", "POPULAR", "DMSK", "RELATE_RANK",
+    "INDUSTRY_GROWTH", "INDUSTRY_CVALUE", "INDUSTRY_DBFX", "MARKETPER",
+    "PREDICT", "ORGRATING", "AI", "TREND", "EXPLAIN"
+  ],
+  "not_periodic_family_patterns": [
+    "/api/qt/", "BILLBOARD", "OPERATEDEPT_TRADE", "BLOCKTRADE", "MARGIN_STATISTICS",
+    "MUTUAL_STOCK", "NORTH_ORG", "EXCHANGEHOLD", "/infoService", "/api/security/ann",
+    "/api/content/ann", "/api/content/rep"
+  ],
+  "technical_category_tokens": ["HTTP", "API_METADATA", "JSON_STRUCTURE", "TECHNICAL"],
+  "formula_overrides": {
+    "ZCFZL": "TOTAL_LIABILITIES / TOTAL_ASSETS * 100",
+    "CURRENT_RATIO": "TOTAL_CURRENT_ASSETS / TOTAL_CURRENT_LIAB",
+    "GUARD_SPEED_RATIO": "(TOTAL_CURRENT_ASSETS - INVENTORY) / TOTAL_CURRENT_LIAB",
+    "XSMLL": "(OPERATE_INCOME - OPERATE_COST) / OPERATE_INCOME * 100",
+    "XSJLL": "NETPROFIT / OPERATE_INCOME * 100"
+  }
+}

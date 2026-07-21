@@ -258,3 +258,13 @@ pytest --cov=ashare_f10
 ## Cloudflare / 服务器第二阶段
 
 `deploy/cloudflare-worker/README.md` 列出了远程网页安全触发私有 Actions 所需的 Secrets。服务器部署可直接使用 `deploy/server/docker-compose.yml`，无需重写数据内核。
+
+## 双源全字段自动交叉验证
+
+网页默认采用一次输入模式：输入六位股票代码后，系统完成东方财富固定接口拉取、免费官方报告发现、官方事实解析、字段验证分类和双源对账。
+
+```bash
+ashare-f10 run-and-validate 688521 --max-periods 2
+```
+
+输出包括东方财富、官方披露和双源比较三套 JSON、Excel、Parquet、DuckDB，以及带PDF页码和原始行的证据包。官方报告未披露的东方财富字段会标记为 `NOT_IN_OFFICIAL_SCOPE`、`SOURCE_SPECIFIC` 或 `FUTURE_FREE_SOURCE_REQUIRED`，不会误判为数值冲突。

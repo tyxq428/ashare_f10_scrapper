@@ -23,6 +23,7 @@
     <button data-tab="search">数据搜索</button>
     <button data-tab="calc">TTM / 公式</button>
     <button data-tab="quality">来源与下载</button>
+    <button data-tab="validation">官方交叉验证</button>
     <button data-tab="static">静态文件查看</button>
   </nav>
 
@@ -35,7 +36,7 @@
         </div>
         <div class="input-row">
           <input id="stockCode" maxlength="6" placeholder="例如：688521" />
-          <button id="startJob" class="primary">开始拉取</button>
+          <button id="startJob" class="primary">开始双源拉取与验证</button>
           <button id="refreshJobs">刷新任务</button>
         </div>
       </div>
@@ -231,6 +232,39 @@
       </div>
     </section>
 
+
+    <section id="tab-validation" class="tab-panel">
+      <div class="panel hero-panel">
+        <div>
+          <h2>一次输入，生成双源数据与自动对账报告</h2>
+          <p>东方财富接口和免费官方披露独立生产数据；官方未披露项目不会被判为不一致。</p>
+        </div>
+        <div class="input-row">
+          <input id="validationCode" maxlength="6" value="688521" placeholder="例如：688521" />
+          <button id="startValidation" class="primary">开始完整交叉验证</button>
+          <button id="refreshValidation">刷新状态</button>
+        </div>
+      </div>
+      <div id="validationProgress" class="panel result-box">尚未创建验证任务</div>
+      <div id="validationMetrics" class="metric-grid"></div>
+      <div class="panel controls">
+        <label>字段搜索 <input id="validationQuery" placeholder="项目名称 / Key / 接口" /></label>
+        <label>状态 <select id="validationStatus"><option value="">全部</option><option>EXACT_MATCH</option><option>WITHIN_ROUNDING</option><option>DERIVED_MATCH</option><option>MISMATCH</option><option>MISSING_OFFICIAL</option><option>MISSING_EASTMONEY</option><option>NOT_IN_OFFICIAL_SCOPE</option><option>SOURCE_SPECIFIC</option><option>FUTURE_FREE_SOURCE_REQUIRED</option></select></label>
+        <label>验证模式 <select id="validationMode"><option value="">全部</option><option>OFFICIAL_DIRECT</option><option>OFFICIAL_DERIVED</option><option>OFFICIAL_DOCUMENT_EVENT</option><option>OFFICIAL_METADATA</option><option>NOT_IN_PERIODIC_REPORT_SCOPE</option><option>EASTMONEY_SOURCE_SPECIFIC</option><option>FUTURE_FREE_SOURCE_REQUIRED</option></select></label>
+        <label>开始日期 <input id="validationStartDate" type="date" /></label>
+        <label>结束日期 <input id="validationEndDate" type="date" /></label>
+        <button id="loadValidationRows">查询对比</button>
+      </div>
+      <div class="panel">
+        <h3>字段对比</h3>
+        <div id="validationRows" class="table-wrap"></div>
+      </div>
+      <div class="panel">
+        <h3>下载</h3>
+        <div id="validationDownloads" class="download-grid"></div>
+      </div>
+    </section>
+
     <section id="tab-static" class="tab-panel">
       <div class="panel">
         <h2>GitHub Pages 静态查看模式</h2>
@@ -280,6 +314,7 @@
   <div id="toast" class="toast"></div>
   <script src="./research-grid.js"></script>
   <script src="./app.js"></script>
+  <script src="./cross-validation.js"></script>
   <script src="./job-center-v2.js"></script>
 </body>
 </html>
