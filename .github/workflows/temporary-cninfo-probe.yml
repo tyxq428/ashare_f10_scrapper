@@ -12,18 +12,17 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: pip install requests
-      - name: Inspect official CNINFO page and public endpoints
+      - name: Probe resolved CNINFO announcement contract
         run: |
           set -o pipefail
           python - <<'PY' 2>&1 | tee cninfo-probe.log
-          import re
-          from urllib.parse import urljoin
+          import json
           import requests
 
           page_url = "https://www.cninfo.com.cn/new/fulltextSearch?keyWord=002352"
@@ -32,84 +31,59 @@ jobs:
               "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36",
               "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.7",
           })
-
-          def show(label, response, limit=12000):
-              print("\n=====", label, "=====")
-              print("status", response.status_code, "url", response.url)
-              print("content-type", response.headers.get("content-type"))
-              print("cookies", session.cookies.get_dict())
-              print(response.text[:limit])
-
-          home = session.get("https://www.cninfo.com.cn/", timeout=30)
-          print("home", home.status_code, session.cookies.get_dict())
-          page = session.get(page_url, timeout=30)
-          show("fulltext-page-head", page, 4000)
-
-          scripts = re.findall(r'<script[^>]+src=["\']([^"\']+)["\']', page.text, flags=re.I)
-          styles = re.findall(r'<link[^>]+href=["\']([^"\']+)["\']', page.text, flags=re.I)
-          print("\nSCRIPTS", len(scripts))
-          for item in scripts:
-              print(urljoin(page_url, item))
-          print("\nSTYLES", len(styles))
-          for item in styles[:50]:
-              print(urljoin(page_url, item))
-
-          needles = (
-              "hisAnnouncement", "topSearch", "announcement/query", "adjunctUrl",
-              "category_ndbg", "orgId", "stock=", "fulltextSearch", "column=szse",
-          )
-          for script in scripts:
-              url = urljoin(page_url, script)
-              try:
-                  response = session.get(url, timeout=45)
-              except Exception as exc:
-                  print("SCRIPT ERROR", url, repr(exc))
-                  continue
-              text = response.text
-              hits = [needle for needle in needles if needle in text]
-              if not hits:
-                  continue
-              print("\n===== SCRIPT MATCH", url, response.status_code, len(text), hits, "=====")
-              for needle in hits:
-                  start = 0
-                  shown = 0
-                  while shown < 5:
-                      index = text.find(needle, start)
-                      if index < 0:
-                          break
-                      print("---", needle, "at", index)
-                      print(text[max(0, index-800):index+1800])
-                      start = index + len(needle)
-                      shown += 1
-
+          session.get("https://www.cninfo.com.cn/", timeout=30)
+          session.get(page_url, timeout=30)
           session.headers.update({
               "Accept": "application/json, text/javascript, */*; q=0.01",
               "Referer": page_url,
               "X-Requested-With": "XMLHttpRequest",
           })
-          candidates = [
-              ("topSearch-get", "GET", "https://www.cninfo.com.cn/new/information/topSearch/query", {"keyWord":"002352","maxNum":"10"}),
-              ("topSearch-post", "POST", "https://www.cninfo.com.cn/new/information/topSearch/query", {"keyWord":"002352","maxNum":"10"}),
-              ("suggest-get", "GET", "https://www.cninfo.com.cn/new/information/topSearch/query?keyWord=002352&maxNum=10", None),
-          ]
-          for label, method, url, payload in candidates:
-              try:
-                  response = session.request(method, url, params=payload if method == "GET" else None, data=payload if method == "POST" else None, timeout=30)
-                  show(label, response, 8000)
-              except Exception as exc:
-                  print(label, "error", repr(exc))
 
-          payloads = [
-              {"pageNum":"1","pageSize":"30","column":"szse","tabName":"fulltext","plate":"szse","stock":"002352","searchkey":"","secid":"","category":"category_ndbg_szsh;category_bndbg_szsh;category_yjdbg_szsh;category_sjdbg_szsh","trade":"","seDate":"2025-01-01~2026-07-21","sortName":"","sortType":"","isHLtitle":"true"},
-              {"pageNum":"1","pageSize":"30","column":"szse","tabName":"fulltext","plate":"szse","stock":"002352,9900001501","searchkey":"","secid":"","category":"category_ndbg_szsh;category_bndbg_szsh;category_yjdbg_szsh;category_sjdbg_szsh","trade":"","seDate":"2025-01-01~2026-07-21","sortName":"","sortType":"","isHLtitle":"true"},
-              {"pageNum":"1","pageSize":"30","column":"szse","tabName":"fulltext","plate":"szse","stock":"002352,gssz0002352","searchkey":"","secid":"","category":"category_ndbg_szsh;category_bndbg_szsh;category_yjdbg_szsh;category_sjdbg_szsh","trade":"","seDate":"2025-01-01~2026-07-21","sortName":"","sortType":"","isHLtitle":"true"},
-          ]
-          for index, data in enumerate(payloads, 1):
+          lookup = session.post(
+              "https://www.cninfo.com.cn/new/information/topSearch/query",
+              data={"keyWord": "002352", "maxNum": "10"},
+              timeout=30,
+          )
+          print("LOOKUP", lookup.status_code, lookup.text)
+          items = lookup.json()
+          org_id = items[0]["orgId"]
+          print("ORG_ID", org_id)
+
+          payloads = {
+              "minimal": {"stock": f"002352,{org_id}", "pageSize": "30", "pageNum": "1"},
+              "periodic": {
+                  "stock": f"002352,{org_id}", "pageNum": "1", "pageSize": "30",
+                  "column": "szse", "tabName": "fulltext", "plate": "szse",
+                  "searchkey": "", "secid": "",
+                  "category": "category_ndbg_szsh;category_bndbg_szsh;category_yjdbg_szsh;category_sjdbg_szsh",
+                  "trade": "", "seDate": "2025-01-01~2026-07-21",
+                  "sortName": "", "sortType": "", "isHLtitle": "true",
+              },
+              "annual": {
+                  "stock": f"002352,{org_id}", "pageNum": "1", "pageSize": "30",
+                  "column": "szse", "tabName": "fulltext", "plate": "szse",
+                  "category": "category_ndbg_szsh", "seDate": "2025-01-01~2026-07-21",
+                  "isHLtitle": "true",
+              },
+          }
+          for label, data in payloads.items():
+              response = session.post(
+                  "https://www.cninfo.com.cn/new/hisAnnouncement/query",
+                  data=data,
+                  timeout=45,
+              )
+              print("\n=====", label, response.status_code, response.headers.get("content-type"), "=====")
+              print(response.text[:30000])
               try:
-                  response = session.post("https://www.cninfo.com.cn/new/hisAnnouncement/query", data=data, timeout=45)
-                  show(f"hisAnnouncement-{index}", response, 12000)
+                  payload = response.json()
+                  print("SUMMARY", json.dumps({
+                      "total": payload.get("totalAnnouncement"),
+                      "records": payload.get("totalRecordNum"),
+                      "pages": payload.get("totalpages"),
+                      "count": len(payload.get("announcements") or []),
+                  }, ensure_ascii=False))
               except Exception as exc:
-                  print(f"hisAnnouncement-{index} error", repr(exc))
+                  print("JSON ERROR", repr(exc))
           PY
       - uses: actions/upload-artifact@v4
         if: always()
