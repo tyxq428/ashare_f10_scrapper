@@ -1,0 +1,134 @@
+name: Raw Pack staged dispatcher
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.raw-pack-bootstrap/**'
+      - '.github/workflows/raw-pack-dispatch.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: raw-pack-dispatch-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'tmp/raw-pack-dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout dispatcher payload
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: dispatcher
+
+      - name: Checkout target implementation branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/raw-pack-v1
+          path: target
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - name: Rebuild and verify implementation archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p work/payload
+          cat dispatcher/.raw-pack-bootstrap/part_* | tr -d '\r\n\t ' | base64 --decode > work/raw-pack-batches-1-4.tar.gz
+          echo '7280ae2b6826b909360ec76ba6a5b471205dc6b7dac1e9d0dae167b61a90c373  work/raw-pack-batches-1-4.tar.gz' | sha256sum --check -
+          tar -xzf work/raw-pack-batches-1-4.tar.gz -C work/payload
+          test -f work/payload/.raw-pack-batch1
+          test -f work/payload/.raw-pack-batch4
+
+      - name: Install baseline project
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e 'target[dev]'
+
+      - name: Configure Git author
+        run: |
+          git -C target config user.name 'github-actions[bot]'
+          git -C target config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+      - name: Batch 1 - schema manifest and models
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r file; do
+            test -n "$file" || continue
+            mkdir -p "target/$(dirname "$file")"
+            cp "work/payload/$file" "target/$file"
+          done < work/payload/.raw-pack-batch1
+          ruff check target/src/ashare_f10/raw_sources target/tests/test_raw_pack_models.py target/tests/test_raw_pack_manifest.py
+          pytest -q target/tests/test_raw_pack_models.py target/tests/test_raw_pack_manifest.py
+          git -C target add --all
+          git -C target commit -m 'Raw Pack: add schema manifest and models'
+          git -C target push origin HEAD:feature/raw-pack-v1
+
+      - name: Batch 2 - downloader parsers and status routing
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r file; do
+            test -n "$file" || continue
+            mkdir -p "target/$(dirname "$file")"
+            cp "work/payload/$file" "target/$file"
+          done < work/payload/.raw-pack-batch2
+          ruff check target/src/ashare_f10/raw_sources target/tests/test_raw_pack_downloader.py target/tests/test_raw_pack_parsers.py target/tests/test_raw_pack_status_router.py
+          pytest -q target/tests/test_raw_pack_downloader.py target/tests/test_raw_pack_parsers.py target/tests/test_raw_pack_status_router.py
+          git -C target add --all
+          git -C target commit -m 'Raw Pack: add downloader parsers and status routing'
+          git -C target push origin HEAD:feature/raw-pack-v1
+
+      - name: Batch 3 - SSE collection and entity matching
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r file; do
+            test -n "$file" || continue
+            mkdir -p "target/$(dirname "$file")"
+            cp "work/payload/$file" "target/$file"
+          done < work/payload/.raw-pack-batch3
+          ruff check target/src/ashare_f10/raw_sources target/tests/test_raw_pack_entity_matcher.py
+          pytest -q target/tests/test_raw_pack_entity_matcher.py
+          git -C target add --all
+          git -C target commit -m 'Raw Pack: add SSE collection and entity matching'
+          git -C target push origin HEAD:feature/raw-pack-v1
+
+      - name: Batch 4 - exporter CLI and API
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r file; do
+            test -n "$file" || continue
+            mkdir -p "target/$(dirname "$file")"
+            cp "work/payload/$file" "target/$file"
+          done < work/payload/.raw-pack-batch4
+          ruff check target/src/ashare_f10/raw_sources target/src/ashare_f10/cli.py target/src/ashare_f10/api/raw_pack.py target/src/ashare_f10/api/app_with_raw_pack.py target/tests/test_raw_pack_exporter.py target/tests/test_raw_pack_api.py
+          pytest -q target/tests/test_raw_pack_exporter.py target/tests/test_raw_pack_api.py
+          git -C target add --all
+          git -C target commit -m 'Raw Pack: add exporter CLI and API'
+          git -C target push origin HEAD:feature/raw-pack-v1
+
+      - name: Verify all staged Raw Pack tests
+        run: |
+          ruff check target/src/ashare_f10/raw_sources target/src/ashare_f10/cli.py target/src/ashare_f10/api/raw_pack.py target/src/ashare_f10/api/app_with_raw_pack.py target/tests/test_raw_pack_*.py
+          pytest -q target/tests/test_raw_pack_models.py target/tests/test_raw_pack_manifest.py target/tests/test_raw_pack_downloader.py target/tests/test_raw_pack_parsers.py target/tests/test_raw_pack_status_router.py target/tests/test_raw_pack_entity_matcher.py target/tests/test_raw_pack_exporter.py target/tests/test_raw_pack_api.py
+          git -C target log --oneline -5 > work/raw-pack-staged-commits.txt
+
+      - name: Upload dispatcher verification
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: raw-pack-dispatch-${{ github.run_id }}
+          path: |
+            work/raw-pack-staged-commits.txt
+            work/raw-pack-batches-1-4.tar.gz
+          if-no-files-found: warn
+          retention-days: 7
