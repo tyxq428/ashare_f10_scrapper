@@ -1,2 +1,2 @@
 trigger full cross-validation materialization and 688521 E2E
-revision: 14 final cash-flow semantic fix
+revision: 15 proven semantic patch without redundant alias
