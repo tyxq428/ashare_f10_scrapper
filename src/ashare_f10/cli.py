@@ -12,6 +12,7 @@ from rich.progress import Progress
 from ashare_f10.config import settings
 from ashare_f10.export.bundle import build_exports
 from ashare_f10.fetch.pipeline import FetchPipeline
+from ashare_f10.validation.runner import run_official_validation
 
 app = typer.Typer(help="A股F10投研平台命令行")
 console = Console()
@@ -40,23 +41,35 @@ def fetch(
 
         pipeline = FetchPipeline(stock_code, run_dir, settings=settings, progress=on_progress)
         combined = pipeline.run(resume=not force)
-
-        # A single public endpoint can occasionally return a transient 502/503
-        # while the other 112 groups succeed. Reuse the completed checkpoints
-        # and retry only failed groups before exporting the final package.
         for retry_index in range(1, 3):
             failed_count = int(combined.get("metadata", {}).get("failed_group_count", 0))
             if failed_count == 0:
                 break
-            console.print(
-                f"[yellow]检测到{failed_count}个失败请求组，正在进行第{retry_index}次增量重试[/yellow]"
-            )
+            console.print(f"[yellow]检测到{failed_count}个失败请求组，正在进行第{retry_index}次增量重试[/yellow]")
             pipeline = FetchPipeline(stock_code, run_dir, settings=settings, progress=on_progress)
             combined = pipeline.run(resume=True)
 
     artifacts = build_exports(combined, run_dir)
     console.print("[bold green]完成[/bold green]")
     console.print_json(json.dumps(artifacts, ensure_ascii=False))
+
+
+@app.command("validate-official")
+def validate_official(
+    stock_code: Annotated[str, typer.Argument(help="六位A股代码")],
+    run_dir: Annotated[Path, typer.Argument(help="已完成F10拉取的运行目录")],
+    output: Annotated[Path | None, typer.Option("--output", "-o", help="验证结果输出目录")] = None,
+    annual_year: Annotated[int, typer.Option("--annual-year", help="年度报告所属年度")] = 2025,
+    quarter_year: Annotated[int, typer.Option("--quarter-year", help="第一季度报告所属年度")] = 2026,
+) -> None:
+    """使用免费官方披露文件对F10财务数据进行独立薄切片验证。"""
+    result = run_official_validation(stock_code, run_dir, output, annual_year, quarter_year)
+    status = str(result.get("acceptance_status", "UNKNOWN"))
+    color = "green" if status == "PASS" else "yellow" if status.startswith("PARTIAL") else "red"
+    console.print(f"[{color}]官方交叉验证状态：{status}[/{color}]")
+    console.print_json(json.dumps(result, ensure_ascii=False))
+    if status.startswith("FAIL"):
+        raise typer.Exit(1)
 
 
 @app.command()
@@ -90,17 +103,12 @@ def validate(path: Path) -> None:
                 for group in combined_payload.get("groups", [])
                 if not group.get("success")
             ]
-            failures.append(
-                f"存在{failed_group_count}个失败请求组：{', '.join(failed_groups[:10])}"
-            )
+            failures.append(f"存在{failed_group_count}个失败请求组：{', '.join(failed_groups[:10])}")
         for group in combined_payload.get("groups", []):
             records = group.get("records", [])
             reported = int(group.get("record_count", len(records)))
             if reported != len(records):
-                failures.append(
-                    f"请求组{group.get('group_id')}记录数不一致："
-                    f"record_count={reported}, records={len(records)}"
-                )
+                failures.append(f"请求组{group.get('group_id')}记录数不一致：record_count={reported}, records={len(records)}")
 
     if artifacts_payload is not None:
         for key in ("json", "excel", "parquet", "duckdb"):
