@@ -34,24 +34,26 @@ jobs:
           rm scripts/apply_sz_cninfo_parser_fix.py
       - name: Format, lint and unit tests
         run: |
-          set -euo pipefail
-          ruff format \
-            src/ashare_f10/validation/sources/cninfo.py \
-            src/ashare_f10/validation/documents/pdf_parser.py \
-            src/ashare_f10/cross_validation/runner.py \
-            tests/test_cninfo_source.py \
-            tests/test_cninfo_pdf_variants.py
-          ruff check --fix --unsafe-fixes \
-            src/ashare_f10/validation/sources/cninfo.py \
-            src/ashare_f10/validation/documents/pdf_parser.py \
-            src/ashare_f10/cross_validation/runner.py \
-            tests/test_cninfo_source.py \
-            tests/test_cninfo_pdf_variants.py
-          ruff check src tests scripts/verify_full_cross_validation.py
-          python -m compileall -q src
-          node --check src/ashare_f10/web/app.js
-          node --check src/ashare_f10/web/cross-validation.js
-          pytest --cov=ashare_f10 --cov-report=term-missing
+          set -o pipefail
+          {
+            ruff format \
+              src/ashare_f10/validation/sources/cninfo.py \
+              src/ashare_f10/validation/documents/pdf_parser.py \
+              src/ashare_f10/cross_validation/runner.py \
+              tests/test_cninfo_source.py \
+              tests/test_cninfo_pdf_variants.py
+            ruff check --fix --unsafe-fixes \
+              src/ashare_f10/validation/sources/cninfo.py \
+              src/ashare_f10/validation/documents/pdf_parser.py \
+              src/ashare_f10/cross_validation/runner.py \
+              tests/test_cninfo_source.py \
+              tests/test_cninfo_pdf_variants.py
+            ruff check src tests scripts/verify_full_cross_validation.py
+            python -m compileall -q src
+            node --check src/ashare_f10/web/app.js
+            node --check src/ashare_f10/web/cross-validation.js
+            pytest --cov=ashare_f10 --cov-report=term-missing
+          } 2>&1 | tee sz-cninfo-parser-tests.log
       - name: Commit parser implementation
         run: |
           set -euo pipefail
@@ -138,5 +140,6 @@ jobs:
           path: |
             sz-cninfo-run/
             sz-cninfo-e2e.log
+            sz-cninfo-parser-tests.log
           if-no-files-found: warn
           retention-days: 30
