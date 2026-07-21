@@ -1,2 +1,2 @@
 trigger full cross-validation materialization and 688521 E2E
-revision: 16 exact finance-expense source rules
+revision: 17 persist final rule diagnostics
