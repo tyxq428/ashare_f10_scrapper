@@ -23,7 +23,7 @@ jobs:
           cache: pip
       - run: python -m pip install --upgrade pip
       - run: pip install -e ".[dev]"
-      - name: Correct SSE report types and format validation code
+      - name: Replace SSE report discovery method and format code
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -38,65 +38,102 @@ jobs:
                   1,
               )
 
-          old = '''        params = {
-              "isPagination": "true",
-              "productId": security_code,
-              "keyWord": "",
-              "securityType": "0101,120100,020100,020200,120200",
-              "reportType2": "DQBG",
-              "reportType": "ALL",
-              "beginDate": begin_date,
-              "endDate": end_date,
-              "pageHelp.pageSize": "100",
-              "pageHelp.pageCount": "50",
-              "pageHelp.pageNo": "1",
-              "pageHelp.beginPage": "1",
-              "pageHelp.cacheSize": "1",
-              "pageHelp.endPage": "5",
-          }
-          payload = self._get_json(params)
-          documents: list[OfficialDocument] = []
-          seen: set[tuple[str, str]] = set()
-          for item in _iter_dicts(payload):
-          '''
-          new = '''        base_params = {
-              "isPagination": "false",
-              "productId": security_code,
-              "keyWord": "",
-              "securityType": "0101,120100,020100,020200,120200",
-              "reportType2": "DQBG",
-              "beginDate": begin_date,
-              "endDate": end_date,
-              "pageHelp.pageSize": "100",
-              "pageHelp.pageCount": "50",
-              "pageHelp.pageNo": "1",
-              "pageHelp.beginPage": "1",
-              "pageHelp.cacheSize": "1",
-              "pageHelp.endPage": "5",
-          }
-          payloads: list[dict[str, Any]] = []
-          for report_type in REPORT_TYPE_CODES:
-              params = {**base_params, "reportType": report_type}
-              payloads.append(self._get_json(params))
+          method = '''    def list_reports(
+              self,
+              security_code: str,
+              begin_date: str,
+              end_date: str,
+          ) -> list[OfficialDocument]:
+              base_params = {
+                  "isPagination": "false",
+                  "productId": security_code,
+                  "keyWord": "",
+                  "securityType": "0101,120100,020100,020200,120200",
+                  "reportType2": "DQBG",
+                  "beginDate": begin_date,
+                  "endDate": end_date,
+                  "pageHelp.pageSize": "100",
+                  "pageHelp.pageCount": "50",
+                  "pageHelp.pageNo": "1",
+                  "pageHelp.beginPage": "1",
+                  "pageHelp.cacheSize": "1",
+                  "pageHelp.endPage": "5",
+              }
+              payloads: list[dict[str, Any]] = []
+              for report_type in REPORT_TYPE_CODES:
+                  params = {**base_params, "reportType": report_type}
+                  payloads.append(self._get_json(params))
 
-          documents: list[OfficialDocument] = []
-          seen: set[tuple[str, str]] = set()
-          for payload in payloads:
-              for item in _iter_dicts(payload):
-          '''
-          if old in text:
-              text = text.replace(old, new, 1)
-              start = text.index("            title_value = _first(", text.index("        for payload in payloads:"))
-              end = text.index("        documents.sort(", start)
-              block = text[start:end]
-              block = "".join(("    " + line if line.strip() else line) for line in block.splitlines(True))
-              text = text[:start] + block + text[end:]
-          elif '"reportType": "ALL"' in text:
-              raise SystemExit("Expected SSE query block was not found")
+              documents: list[OfficialDocument] = []
+              seen: set[tuple[str, str]] = set()
+              for payload in payloads:
+                  for item in _iter_dicts(payload):
+                      title_value = _first(
+                          item,
+                          "BULLETIN_HEADING",
+                          "TITLE",
+                          "title",
+                          "bulletinHeading",
+                          "announcementTitle",
+                      )
+                      url_value = _first(
+                          item,
+                          "URL",
+                          "url",
+                          "BULLETIN_URL",
+                          "bulletinUrl",
+                          "adjunctUrl",
+                      )
+                      if title_value in (None, "") or url_value in (None, ""):
+                          continue
+                      title = re.sub(r"<[^>]+>", "", str(title_value)).strip()
+                      identity = _report_identity(title)
+                      if not identity:
+                          continue
+                      report_date, report_kind = identity
+                      url = str(url_value).strip()
+                      if not url.lower().startswith(("http://", "https://")):
+                          url = urljoin(SSE_HOME, url)
+                      publish_date = _date_text(
+                          _first(
+                              item,
+                              "SSEDATE",
+                              "publishDate",
+                              "PUBLISH_DATE",
+                              "announcementTime",
+                          )
+                      )
+                      key = (title, url)
+                      if key in seen:
+                          continue
+                      seen.add(key)
+                      documents.append(
+                          OfficialDocument(
+                              source="SSE",
+                              security_code=security_code,
+                              title=title,
+                              publish_date=publish_date,
+                              report_date=report_date,
+                              report_kind=report_kind,
+                              version_label=_version_label(title),
+                              url=url,
+                          )
+                      )
+              documents.sort(
+                  key=lambda item: (item.report_date, *_version_rank(item)),
+                  reverse=True,
+              )
+              return documents
+
+'''
+          start = text.index("    def list_reports(")
+          end = text.index("    def select_reports(", start)
+          text = text[:start] + method + text[end:]
           path.write_text(text, encoding="utf-8")
           PY
           ruff format src/ashare_f10/validation tests/test_official_validation.py
           ruff check --fix src/ashare_f10/validation tests/test_official_validation.py
+          ruff check src/ashare_f10/validation tests/test_official_validation.py
       - name: Run official validation unit tests
         run: pytest -q tests/test_official_validation.py
       - name: Commit fixes
