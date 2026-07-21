@@ -166,9 +166,9 @@ class SSEOfficialSource:
             for item in _iter_dicts(payload):
                 title_value = _first(
                     item,
-                    "BULLETIN_HEADING",
                     "TITLE",
                     "title",
+                    "BULLETIN_HEADING",
                     "bulletinHeading",
                     "announcementTitle",
                 )
