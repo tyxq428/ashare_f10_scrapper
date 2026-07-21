@@ -31,6 +31,21 @@ jobs:
         run: |
           set -euo pipefail
           python scripts/apply_sz_cninfo_parser_fix.py
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/ashare_f10/validation/documents/pdf_parser.py")
+          text = path.read_text(encoding="utf-8")
+          old = '    text = re.sub(r"[/／]+", " ", text)\n    return _clean_row(text)'
+          new = (
+              '    text = re.sub(r"[/／]+", " ", text)\n'
+              '    text = text.replace("%", " ")\n'
+              '    return _clean_row(text)'
+          )
+          if old not in text and 'text = text.replace("%", " ")' not in text:
+              raise SystemExit("label-context cleanup marker not found")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
           rm scripts/apply_sz_cninfo_parser_fix.py
       - name: Format, lint and unit tests
         run: |
