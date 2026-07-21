@@ -5,6 +5,9 @@ on:
     branches: [feature/official-validation-v1]
     paths:
       - ".github/workflows/apply-official-unit-fix.yml"
+  pull_request:
+    paths:
+      - ".github/workflows/apply-official-unit-fix.yml"
 
 permissions:
   contents: write
