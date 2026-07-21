@@ -40,7 +40,13 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p work/payload
-          cat dispatcher/.raw-pack-bootstrap/part_* | tr -d '\r\n\t ' | base64 --decode > work/raw-pack-batches-1-4.tar.gz
+          : > work/raw-pack-batches-1-4.b64
+          for part in 00 01 02 03 04 05 06 07 08; do
+            tr -d '\r\n\t ' < "dispatcher/.raw-pack-bootstrap/part_${part}" | head -c 6000 >> work/raw-pack-batches-1-4.b64
+          done
+          tr -d '\r\n\t ' < dispatcher/.raw-pack-bootstrap/part_09 | head -c 1324 >> work/raw-pack-batches-1-4.b64
+          test "$(wc -c < work/raw-pack-batches-1-4.b64)" -eq 55324
+          base64 --decode work/raw-pack-batches-1-4.b64 > work/raw-pack-batches-1-4.tar.gz
           echo '7280ae2b6826b909360ec76ba6a5b471205dc6b7dac1e9d0dae167b61a90c373  work/raw-pack-batches-1-4.tar.gz' | sha256sum --check -
           tar -xzf work/raw-pack-batches-1-4.tar.gz -C work/payload
           test -f work/payload/.raw-pack-batch1
