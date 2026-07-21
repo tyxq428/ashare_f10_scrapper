@@ -1,2 +1,2 @@
 trigger full cross-validation materialization and 688521 E2E
-revision: 15 proven semantic patch without redundant alias
+revision: 16 exact finance-expense source rules
