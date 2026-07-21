@@ -1,0 +1,46 @@
+name: Temporary Full Cross Lint Diagnostic
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/full-cross-validation-dispatch-trigger.txt"
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/full-cross-validation-v1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Reconstruct and apply patch
+        run: |
+          set -euo pipefail
+          cat .full-cross-validation-bootstrap/part_*.txt | base64 --decode > /tmp/full-cross-patch.tar.gz
+          mkdir -p /tmp/full-cross-patch
+          tar -xzf /tmp/full-cross-patch.tar.gz -C /tmp/full-cross-patch
+          python /tmp/full-cross-patch/scripts/apply_full_cross_validation_patch.py "$GITHUB_WORKSPACE" /tmp/full-cross-patch
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e ".[dev]"
+      - name: Capture Ruff diagnostics
+        run: |
+          set -o pipefail
+          ruff format --check src tests scripts/verify_full_cross_validation.py 2>&1 | tee ruff-format-output.txt || true
+          ruff check src tests scripts/verify_full_cross_validation.py 2>&1 | tee ruff-check-output.txt || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: full-cross-lint-diagnostics-${{ github.run_id }}
+          path: |
+            ruff-format-output.txt
+            ruff-check-output.txt
+          if-no-files-found: error
+          retention-days: 7
