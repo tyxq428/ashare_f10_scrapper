@@ -1,0 +1,94 @@
+name: Temporary CNINFO Probe
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/cninfo-probe-trigger.txt"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: Probe resolved CNINFO announcement contract
+        run: |
+          set -o pipefail
+          python - <<'PY' 2>&1 | tee cninfo-probe.log
+          import json
+          import requests
+
+          page_url = "https://www.cninfo.com.cn/new/fulltextSearch?keyWord=002352"
+          session = requests.Session()
+          session.headers.update({
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36",
+              "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.7",
+          })
+          session.get("https://www.cninfo.com.cn/", timeout=30)
+          session.get(page_url, timeout=30)
+          session.headers.update({
+              "Accept": "application/json, text/javascript, */*; q=0.01",
+              "Referer": page_url,
+              "X-Requested-With": "XMLHttpRequest",
+          })
+
+          lookup = session.post(
+              "https://www.cninfo.com.cn/new/information/topSearch/query",
+              data={"keyWord": "002352", "maxNum": "10"},
+              timeout=30,
+          )
+          print("LOOKUP", lookup.status_code, lookup.text)
+          items = lookup.json()
+          org_id = items[0]["orgId"]
+          print("ORG_ID", org_id)
+
+          payloads = {
+              "minimal": {"stock": f"002352,{org_id}", "pageSize": "30", "pageNum": "1"},
+              "periodic": {
+                  "stock": f"002352,{org_id}", "pageNum": "1", "pageSize": "30",
+                  "column": "szse", "tabName": "fulltext", "plate": "szse",
+                  "searchkey": "", "secid": "",
+                  "category": "category_ndbg_szsh;category_bndbg_szsh;category_yjdbg_szsh;category_sjdbg_szsh",
+                  "trade": "", "seDate": "2025-01-01~2026-07-21",
+                  "sortName": "", "sortType": "", "isHLtitle": "true",
+              },
+              "annual": {
+                  "stock": f"002352,{org_id}", "pageNum": "1", "pageSize": "30",
+                  "column": "szse", "tabName": "fulltext", "plate": "szse",
+                  "category": "category_ndbg_szsh", "seDate": "2025-01-01~2026-07-21",
+                  "isHLtitle": "true",
+              },
+          }
+          for label, data in payloads.items():
+              response = session.post(
+                  "https://www.cninfo.com.cn/new/hisAnnouncement/query",
+                  data=data,
+                  timeout=45,
+              )
+              print("\n=====", label, response.status_code, response.headers.get("content-type"), "=====")
+              print(response.text[:30000])
+              try:
+                  payload = response.json()
+                  print("SUMMARY", json.dumps({
+                      "total": payload.get("totalAnnouncement"),
+                      "records": payload.get("totalRecordNum"),
+                      "pages": payload.get("totalpages"),
+                      "count": len(payload.get("announcements") or []),
+                  }, ensure_ascii=False))
+              except Exception as exc:
+                  print("JSON ERROR", repr(exc))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cninfo-probe-${{ github.run_id }}
+          path: cninfo-probe.log
+          if-no-files-found: error
+          retention-days: 3
