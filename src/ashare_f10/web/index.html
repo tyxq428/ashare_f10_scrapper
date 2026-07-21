@@ -241,15 +241,17 @@
         </div>
         <div class="input-row">
           <input id="validationCode" maxlength="6" value="688521" placeholder="例如：688521" />
+          <label>官方报告期数 <input id="validationMaxPeriods" type="number" min="2" max="80" value="2" title="首次建议2；留空表示全部可发现报告期" /></label>
           <button id="startValidation" class="primary">开始完整交叉验证</button>
           <button id="refreshValidation">刷新状态</button>
         </div>
       </div>
       <div id="validationProgress" class="panel result-box">尚未创建验证任务</div>
+      <div id="validationNotice" class="panel" hidden></div>
       <div id="validationMetrics" class="metric-grid"></div>
       <div class="panel controls">
         <label>字段搜索 <input id="validationQuery" placeholder="项目名称 / Key / 接口" /></label>
-        <label>状态 <select id="validationStatus"><option value="">全部</option><option>EXACT_MATCH</option><option>WITHIN_ROUNDING</option><option>DERIVED_MATCH</option><option>MISMATCH</option><option>MISSING_OFFICIAL</option><option>MISSING_EASTMONEY</option><option>NOT_IN_OFFICIAL_SCOPE</option><option>SOURCE_SPECIFIC</option><option>FUTURE_FREE_SOURCE_REQUIRED</option></select></label>
+        <label>状态 <select id="validationStatus"><option value="">全部</option><option>EXACT_MATCH</option><option>WITHIN_ROUNDING</option><option>DERIVED_MATCH</option><option>MISMATCH</option><option>MISSING_OFFICIAL</option><option>OFFICIAL_SOURCE_UNAVAILABLE</option><option>MISSING_EASTMONEY</option><option>NOT_IN_OFFICIAL_SCOPE</option><option>SOURCE_SPECIFIC</option><option>FUTURE_FREE_SOURCE_REQUIRED</option></select></label>
         <label>验证模式 <select id="validationMode"><option value="">全部</option><option>OFFICIAL_DIRECT</option><option>OFFICIAL_DERIVED</option><option>OFFICIAL_DOCUMENT_EVENT</option><option>OFFICIAL_METADATA</option><option>NOT_IN_PERIODIC_REPORT_SCOPE</option><option>EASTMONEY_SOURCE_SPECIFIC</option><option>FUTURE_FREE_SOURCE_REQUIRED</option></select></label>
         <label>开始日期 <input id="validationStartDate" type="date" /></label>
         <label>结束日期 <input id="validationEndDate" type="date" /></label>

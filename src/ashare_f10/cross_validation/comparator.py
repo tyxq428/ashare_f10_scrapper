@@ -451,6 +451,7 @@ class CrossSourceComparator:
                     "SOURCE_SPECIFIC",
                     "FUTURE_FREE_SOURCE_REQUIRED",
                     "OFFICIAL_PERIOD_NOT_LOADED",
+                    "OFFICIAL_SOURCE_UNAVAILABLE",
                 ]
             )
         ]
