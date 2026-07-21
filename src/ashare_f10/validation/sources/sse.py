@@ -16,6 +16,7 @@ from ashare_f10.validation.models import OfficialDocument
 
 SSE_QUERY_URL = "https://query.sse.com.cn/security/stock/queryCompanyBulletin.do"
 SSE_HOME = "https://www.sse.com.cn/"
+SSE_ANNOUNCEMENT_PAGE = "http://www.sse.com.cn/disclosure/listedinfo/announcement/"
 REPORT_TYPE_CODES = ("YEARLY", "QUATER1", "QUATER2", "QUATER3")
 
 
@@ -96,12 +97,13 @@ class SSEOfficialSource:
         self.session = session or requests.Session()
         self.timeout = timeout
         self.last_payloads: list[dict[str, Any]] = []
+        self.user_agent = (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131 Safari/537.36"
+        )
         self.session.headers.update(
             {
-                "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131 Safari/537.36"
-                ),
+                "User-Agent": self.user_agent,
                 "Referer": SSE_HOME,
                 "Accept": "application/json,text/javascript,*/*;q=0.01",
                 "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.7",
@@ -247,28 +249,56 @@ class SSEOfficialSource:
         target_dir.mkdir(parents=True, exist_ok=True)
         safe_kind = document.report_kind.replace("/", "-")
         target = target_dir / f"{document.security_code}_{document.report_date}_{safe_kind}.pdf"
-        candidate_urls = [document.url]
         parsed = urlparse(document.url)
+        candidate_urls: list[str] = []
         if parsed.path.startswith("/disclosure/"):
             candidate_urls.extend(
                 [
+                    f"http://static.sse.com.cn{parsed.path}",
+                    f"http://www.sse.com.cn{parsed.path}",
                     f"https://static.sse.com.cn{parsed.path}",
                     f"https://www.sse.com.cn{parsed.path}",
                 ]
             )
+        candidate_urls.append(document.url)
+
+        download_session = requests.Session()
+        download_session.headers.update(
+            {
+                "User-Agent": self.user_agent,
+                "Accept": "application/pdf,application/octet-stream,*/*;q=0.8",
+                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.7",
+                "Referer": SSE_ANNOUNCEMENT_PAGE,
+                "Connection": "keep-alive",
+            }
+        )
+        try:
+            download_session.get(SSE_ANNOUNCEMENT_PAGE, timeout=self.timeout)
+        except requests.RequestException:
+            pass
+
+        diagnostics: list[str] = []
         last_error: Exception | None = None
         for url in dict.fromkeys(candidate_urls):
             for attempt in range(1, 4):
                 try:
-                    response = self.session.get(url, timeout=max(self.timeout, 90))
+                    response = download_session.get(
+                        url,
+                        timeout=max(self.timeout, 90),
+                        allow_redirects=True,
+                    )
                     response.raise_for_status()
                     content = response.content
                     if not content.startswith(b"%PDF"):
-                        raise OfficialSourceError(
-                            f"下载内容不是PDF：{url}，content-type={response.headers.get('content-type')}"
+                        preview = content[:120].decode("utf-8", errors="replace").replace("\n", " ")
+                        diagnostics.append(
+                            f"url={url}, final={response.url}, status={response.status_code}, "
+                            f"content-type={response.headers.get('content-type')}, bytes={len(content)}, "
+                            f"preview={preview}"
                         )
+                        raise OfficialSourceError(f"下载内容不是PDF：{diagnostics[-1]}")
                     target.write_bytes(content)
-                    document.url = url
+                    document.url = response.url
                     document.local_path = str(target)
                     document.sha256 = hashlib.sha256(content).hexdigest()
                     return document
@@ -276,4 +306,7 @@ class SSEOfficialSource:
                     last_error = exc
                     if attempt < 3:
                         time.sleep(2**attempt)
-        raise OfficialSourceError(f"下载官方报告失败：{document.title}：{last_error}")
+        detail = "；".join(diagnostics[-8:])
+        raise OfficialSourceError(
+            f"下载官方报告失败：{document.title}：{last_error}；尝试详情：{detail}"
+        )
