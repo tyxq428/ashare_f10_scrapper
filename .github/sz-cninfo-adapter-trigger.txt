@@ -1,2 +1,2 @@
 validate 002352 official disclosure integration
-revision: 2 parser headings units timestamps
+revision: 3 persist parser diagnostics
