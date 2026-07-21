@@ -1,2 +1,2 @@
 trigger full cross-validation materialization and 688521 E2E
-revision: 12 function-boundary semantic patch
+revision: 13 persist semantic test diagnostics
