@@ -29,6 +29,11 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+      - name: Inventory bootstrap parts
+        run: |
+          set -euo pipefail
+          find .full-cross-validation-bootstrap -maxdepth 1 -type f -printf '%f %s bytes\n' | sort
+          sha1sum .full-cross-validation-bootstrap/part_*.txt
       - name: Reconstruct and verify patch archive
         run: |
           set -euo pipefail
