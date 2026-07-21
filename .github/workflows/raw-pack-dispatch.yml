@@ -46,13 +46,36 @@ jobs:
           root = Path("dispatcher/.raw-pack-bootstrap")
           chunks = []
           lengths = []
-          for index in range(10):
+          for index in range(8):
               path = root / f"part_{index:02d}"
               compact = "".join(path.read_text(encoding="utf-8").split())
-              expected = 1324 if index == 9 else 6000
-              lengths.append(f"{path.name}: raw={len(compact)} selected={expected}")
-              chunks.append(compact[:expected])
+              lengths.append(f"{path.name}: raw={len(compact)} selected=6000")
+              if len(compact) < 6000:
+                  raise SystemExit(f"{path} is too short: {len(compact)}")
+              chunks.append(compact[:6000])
+
+          part_08a = "".join((root / "part_08a").read_text(encoding="utf-8").split())
+          part_08b = "".join((root / "part_08b").read_text(encoding="utf-8").split())
+          part_08 = part_08a + part_08b
+          lengths.extend([
+              f"part_08a: raw={len(part_08a)}",
+              f"part_08b: raw={len(part_08b)}",
+              f"part_08 combined={len(part_08)} selected=6000",
+          ])
+          if len(part_08) != 6000:
+              raise SystemExit(f"corrected part_08 length is {len(part_08)}, expected 6000")
+          chunks.append(part_08)
+
+          part_09_path = root / "part_09"
+          part_09 = "".join(part_09_path.read_text(encoding="utf-8").split())
+          lengths.append(f"part_09: raw={len(part_09)} selected=1324")
+          if len(part_09) < 1324:
+              raise SystemExit(f"part_09 is too short: {len(part_09)}")
+          chunks.append(part_09[:1324])
+
           payload = "".join(chunks)
+          if len(payload) != 55324:
+              raise SystemExit(f"unexpected base64 length: {len(payload)}")
           Path("work/raw-pack-batches-1-4.b64").write_text(payload, encoding="ascii")
           Path("work/part-lengths.txt").write_text("\n".join(lengths) + f"\ntotal={len(payload)}\n", encoding="utf-8")
           print("\n".join(lengths))
