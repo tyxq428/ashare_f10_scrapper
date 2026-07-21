@@ -1,10 +1,10 @@
 name: Temporary CNINFO Probe
 
 on:
-  push:
+  pull_request:
     branches: [main]
     paths:
-      - ".github/workflows/temporary-cninfo-probe.yml"
+      - ".github/cninfo-probe-trigger.txt"
 
 permissions:
   contents: read
@@ -20,8 +20,8 @@ jobs:
       - run: pip install requests
       - name: Probe official CNINFO public endpoints
         run: |
-          python - <<'PY'
-          import json
+          set -o pipefail
+          python - <<'PY' 2>&1 | tee cninfo-probe.log
           import requests
 
           session = requests.Session()
@@ -37,8 +37,7 @@ jobs:
               print("\n=====", label, "=====")
               print("status", response.status_code, "url", response.url)
               print("content-type", response.headers.get("content-type"))
-              text = response.text
-              print(text[:4000])
+              print(response.text[:12000])
 
           try:
               show("topSearch", session.get(
@@ -82,3 +81,10 @@ jobs:
               except Exception as exc:
                   print(f"hisAnnouncement-{index} error", repr(exc))
           PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cninfo-probe-${{ github.run_id }}
+          path: cninfo-probe.log
+          if-no-files-found: error
+          retention-days: 3
