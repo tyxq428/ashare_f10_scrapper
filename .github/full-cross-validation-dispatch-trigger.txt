@@ -1,2 +1,2 @@
 trigger full cross-validation materialization and 688521 E2E
-revision: 17 persist final rule diagnostics
+revision: 18 corrected comparator indentation and final deterministic rules
