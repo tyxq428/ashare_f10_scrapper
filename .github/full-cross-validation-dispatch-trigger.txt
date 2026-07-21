@@ -1,2 +1,2 @@
 trigger full cross-validation materialization and 688521 E2E
-revision: 8 statement identity and unit conflict fixes
+revision: 9 resilient semantic conflict patch
