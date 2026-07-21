@@ -31,104 +31,102 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
-          from textwrap import dedent
+          from textwrap import dedent, indent
 
           parser_path = Path("src/ashare_f10/validation/documents/pdf_parser.py")
           text = parser_path.read_text(encoding="utf-8")
-          existing_marker = "            existing = merged.get(identity)\n"
-          cashflow_alias = dedent(
-              '''
-                          if identity == ("cash_flow", "FINANCE_EXPENSE"):
-                              aliases = tuple(
-                                  dict.fromkeys(
-                                      (
-                                          "财务费用（收益以“－”号填列）",
-                                          "财务费用（收益以\"-\"号填列）",
-                                          *aliases,
-                                      )
+
+          if '("cash_flow", "FINANCE_EXPENSE")' not in text:
+              marker = "            existing = merged.get(identity)\n"
+              if marker not in text:
+                  raise SystemExit("Parser target merge marker was not found")
+              cashflow_alias = indent(
+                  dedent(
+                      '''
+                      if identity == ("cash_flow", "FINANCE_EXPENSE"):
+                          aliases = tuple(
+                              dict.fromkeys(
+                                  (
+                                      "财务费用（收益以“－”号填列）",
+                                      "财务费用（收益以\"-\"号填列）",
+                                      *aliases,
                                   )
                               )
-              '''
-          )
-          if '("cash_flow", "FINANCE_EXPENSE")' not in text:
-              if existing_marker not in text:
-                  raise SystemExit("Parser target merge marker was not found")
-              text = text.replace(existing_marker, cashflow_alias + existing_marker, 1)
+                          )
+                      '''
+                  ).lstrip(),
+                  "            ",
+              )
+              text = text.replace(marker, cashflow_alias + marker, 1)
 
-          old_allowed = dedent(
-              '''
-                              allowed_text = target.statement_type == "summary" or (
-                                  page_section == target.statement_type and page_scope != "parent"
-                              )
-              '''
-          )
-          new_allowed = dedent(
-              '''
-                              is_cashflow_supplement = (
+          if "is_cashflow_supplement" not in text:
+              start = text.index(
+                  '                    allowed_text = target.statement_type == "summary" or ('
+              )
+              end = text.index("\n                    if not allowed_text:", start)
+              new_allowed = indent(
+                  dedent(
+                      '''
+                      is_cashflow_supplement = (
+                          target.statement_type == "cash_flow"
+                          and target.field_key == "FINANCE_EXPENSE"
+                          and any(
+                              _compact(alias) in compact_text
+                              for alias in target.aliases
+                          )
+                      )
+                      allowed_text = (
+                          target.statement_type == "summary"
+                          or (
+                              page_section == target.statement_type
+                              and page_scope != "parent"
+                          )
+                          or is_cashflow_supplement
+                      )
+                      '''
+                  ).lstrip(),
+                  "                    ",
+              ).rstrip("\n")
+              text = text[:start] + new_allowed + text[end:]
+
+          if "normalized_line = _normalized_label(line)" not in text:
+              start = text.index(
+                  "            alias = next((name for name in target.aliases if _label_matches(line, name)), None)"
+              )
+              end = start + len(
+                  "            alias = next((name for name in target.aliases if _label_matches(line, name)), None)"
+              )
+              new_alias = indent(
+                  dedent(
+                      '''
+                      normalized_line = _normalized_label(line)
+                      alias = next(
+                          (
+                              name
+                              for name in target.aliases
+                              if _label_matches(line, name)
+                              or (
                                   target.statement_type == "cash_flow"
                                   and target.field_key == "FINANCE_EXPENSE"
-                                  and any(
-                                      _compact(alias) in compact_text
-                                      for alias in target.aliases
-                                  )
+                                  and normalized_line.startswith(_normalized_label(name))
                               )
-                              allowed_text = (
-                                  target.statement_type == "summary"
-                                  or (
-                                      page_section == target.statement_type
-                                      and page_scope != "parent"
-                                  )
-                                  or is_cashflow_supplement
-                              )
-              '''
-          )
-          if "is_cashflow_supplement" not in text:
-              if old_allowed not in text:
-                  raise SystemExit("Parser allowed-text block was not found")
-              text = text.replace(old_allowed, new_allowed, 1)
-
-          old_alias = dedent(
-              '''
-                          alias = next((name for name in target.aliases if _label_matches(line, name)), None)
-              '''
-          )
-          new_alias = dedent(
-              '''
-                          normalized_line = _normalized_label(line)
-                          alias = next(
-                              (
-                                  name
-                                  for name in target.aliases
-                                  if _label_matches(line, name)
-                                  or (
-                                      target.statement_type == "cash_flow"
-                                      and target.field_key == "FINANCE_EXPENSE"
-                                      and normalized_line.startswith(_normalized_label(name))
-                                  )
-                              ),
-                              None,
-                          )
-              '''
-          )
-          if "normalized_line = _normalized_label(line)" not in text:
-              if old_alias not in text:
-                  raise SystemExit("Parser text alias lookup was not found")
-              text = text.replace(old_alias, new_alias, 1)
+                          ),
+                          None,
+                      )
+                      '''
+                  ).lstrip(),
+                  "            ",
+              ).rstrip("\n")
+              text = text[:start] + new_alias + text[end:]
           parser_path.write_text(text, encoding="utf-8")
 
           comparator_path = Path("src/ashare_f10/cross_validation/comparator.py")
           text = comparator_path.read_text(encoding="utf-8")
-          fallback_marker = dedent(
-              '''
-                      # Summary, cash-flow supplements and ratio endpoints can repeat a canonical
-                      # fact whose authoritative official location is another statement. Permit a
-                      # same-period, same-key fallback across statement types, but never across
-                      # reporting periods. This prevents an FY cumulative amount from being
-                      # compared with a Q4 single-quarter amount.
-              '''
-          )
-          guard = dedent(
-              '''
+          if "primary_statement_families" not in text:
+              insertion = text.index("        same_period_key = [")
+              guard = indent(
+                  dedent(
+                      '''
                       primary_statement_families = {
                           "RPT_F10_FINANCE_GBALANCE",
                           "RPT_F10_FINANCE_GINCOME",
@@ -141,41 +139,42 @@ jobs:
                       ):
                           return None, None
 
-              '''
-          )
-          if "primary_statement_families" not in text:
-              if fallback_marker not in text:
-                  raise SystemExit("Comparator cross-statement fallback marker was not found")
-              text = text.replace(fallback_marker, fallback_marker + guard, 1)
+                      '''
+                  ).lstrip(),
+                  "        ",
+              )
+              text = text[:insertion] + guard + text[insertion:]
           comparator_path.write_text(text, encoding="utf-8")
 
           test_path = Path("tests/test_cross_validation_statement_identity.py")
           text = test_path.read_text(encoding="utf-8")
-          text = text.replace(
-              "from ashare_f10.cross_validation.adapters import load_eastmoney_facts\n",
-              "from ashare_f10.cross_validation.adapters import load_eastmoney_facts\n"
-              "from ashare_f10.cross_validation.comparator import CrossSourceComparator\n"
-              "from ashare_f10.cross_validation.models import RegistryEntry\n",
-              1,
-          )
-          text = text.replace(
-              '    assert "其他综合收益的税后净额" in income.aliases\n',
-              '    assert "其他综合收益的税后净额" in income.aliases\n'
-              '    cashflow = PdfStatementParser(\n'
-              '        (\n'
-              '            TargetField(\n'
-              '                "FINANCE_EXPENSE",\n'
-              '                "财务费用",\n'
-              '                "cash_flow",\n'
-              '                ("财务费用",),\n'
-              '                ("FINANCE_EXPENSE",),\n'
-              '                ("RPT_F10_FINANCE_GCASHFLOW",),\n'
-              '            ),\n'
-              '        )\n'
-              '    ).targets[0]\n'
-              '    assert "财务费用（收益以“－”号填列）" in cashflow.aliases\n',
-              1,
-          )
+          if "CrossSourceComparator" not in text:
+              text = text.replace(
+                  "from ashare_f10.cross_validation.adapters import load_eastmoney_facts\n",
+                  "from ashare_f10.cross_validation.adapters import load_eastmoney_facts\n"
+                  "from ashare_f10.cross_validation.comparator import CrossSourceComparator\n"
+                  "from ashare_f10.cross_validation.models import RegistryEntry\n",
+                  1,
+              )
+          if "cashflow = PdfStatementParser" not in text:
+              text = text.replace(
+                  '    assert "其他综合收益的税后净额" in income.aliases\n',
+                  '    assert "其他综合收益的税后净额" in income.aliases\n'
+                  '    cashflow = PdfStatementParser(\n'
+                  '        (\n'
+                  '            TargetField(\n'
+                  '                "FINANCE_EXPENSE",\n'
+                  '                "财务费用",\n'
+                  '                "cash_flow",\n'
+                  '                ("财务费用",),\n'
+                  '                ("FINANCE_EXPENSE",),\n'
+                  '                ("RPT_F10_FINANCE_GCASHFLOW",),\n'
+                  '            ),\n'
+                  '        )\n'
+                  '    ).targets[0]\n'
+                  '    assert "财务费用（收益以“－”号填列）" in cashflow.aliases\n',
+                  1,
+              )
           if "test_primary_statement_does_not_fallback_across_statement_types" not in text:
               text += dedent(
                   '''
