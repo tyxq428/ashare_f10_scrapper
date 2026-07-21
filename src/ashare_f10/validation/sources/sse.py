@@ -95,6 +95,7 @@ class SSEOfficialSource:
     def __init__(self, session: requests.Session | None = None, timeout: int = 45) -> None:
         self.session = session or requests.Session()
         self.timeout = timeout
+        self.last_payloads: list[dict[str, Any]] = []
         self.session.headers.update(
             {
                 "User-Agent": (
@@ -156,6 +157,8 @@ class SSEOfficialSource:
         for report_type in REPORT_TYPE_CODES:
             params = {**base_params, "reportType": report_type}
             payloads.append(self._get_json(params))
+
+        self.last_payloads = payloads
 
         documents: list[OfficialDocument] = []
         seen: set[tuple[str, str]] = set()
@@ -233,8 +236,10 @@ class SSEOfficialSource:
             selected.append(max(candidates, key=_version_rank))
         if missing:
             titles = "；".join(item.title for item in available[:20])
+            payload_preview = json.dumps(self.last_payloads, ensure_ascii=False)[:4000]
             raise OfficialSourceError(
-                f"SSE未找到报告期 {', '.join(missing)} 的正式报告；查询到的报告：{titles or '无'}"
+                f"SSE未找到报告期 {', '.join(missing)} 的正式报告；"
+                f"查询到的报告：{titles or '无'}；响应预览：{payload_preview}"
             )
         return selected
 
