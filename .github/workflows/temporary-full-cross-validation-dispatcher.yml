@@ -5,6 +5,10 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/temporary-full-cross-validation-dispatcher.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/full-cross-validation-dispatch-trigger.txt"
 
 permissions:
   contents: write
