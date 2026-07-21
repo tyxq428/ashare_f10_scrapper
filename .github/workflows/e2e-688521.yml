@@ -1,0 +1,246 @@
+name: E2E 688521
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-688521-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install project
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Fetch all fixed F10 data for 688521
+        env:
+          ASHARE_F10_TIMEOUT: "60"
+          ASHARE_F10_RETRIES: "3"
+          ASHARE_F10_MAX_WORKERS: "4"
+          ASHARE_F10_PAGE_WORKERS: "3"
+        run: |
+          ashare-f10 fetch 688521 --output e2e-output --workers 4 --force
+
+      - name: Validate generated artifacts, chained search and research functions
+        run: |
+          ashare-f10 validate e2e-output
+          python - <<'PY'
+          from __future__ import annotations
+
+          import json
+          import os
+          import zipfile
+          from pathlib import Path
+
+          import duckdb
+          import pandas as pd
+
+          from ashare_f10.api.search import search_facts
+          from ashare_f10.calculate.formula import evaluate_formula
+          from ashare_f10.calculate.ttm import compute_ttm
+
+          root = Path("e2e-output").resolve()
+          artifacts = json.loads((root / "artifacts.json").read_text(encoding="utf-8"))
+          artifacts = {
+              key: str(Path(value).resolve()) if key in {"json", "excel", "parquet", "duckdb"} else value
+              for key, value in artifacts.items()
+          }
+          required = ["json", "excel", "parquet", "duckdb"]
+          for key in required:
+              path = Path(artifacts[key])
+              assert path.exists() and path.stat().st_size > 0, (key, path)
+
+          payload = json.loads(Path(artifacts["json"]).read_text(encoding="utf-8"))
+          security = payload.get("metadata", {}).get("security", {})
+          assert security.get("security_code") == "688521", security
+
+          with zipfile.ZipFile(artifacts["excel"]) as book:
+              assert book.testzip() is None
+              assert "xl/workbook.xml" in book.namelist()
+
+          facts = pd.read_parquet(artifacts["parquet"])
+          assert len(facts) > 100
+          assert {"field_key", "field_name_cn", "report_date"}.issubset(facts.columns)
+
+          con = duckdb.connect(artifacts["duckdb"], read_only=True)
+          try:
+              fact_count = con.execute("select count(*) from facts").fetchone()[0]
+              assert fact_count == len(facts)
+              assert con.execute("select count(*) from facts where field_key='TOTAL_ASSETS'").fetchone()[0] > 0
+          finally:
+              con.close()
+
+          search_results = search_facts(artifacts["duckdb"], query="资产", limit=10)
+          assert search_results
+
+          periods = sorted(
+              {str(value)[:10] for value in facts.loc[facts["field_key"] == "TOTAL_OPERATE_INCOME", "report_date"].dropna()},
+              reverse=True,
+          )
+          assert periods
+
+          ttm_result = None
+          ttm_errors = []
+          for period in periods:
+              try:
+                  ttm_result = compute_ttm(artifacts["duckdb"], "TOTAL_OPERATE_INCOME", period)
+                  break
+              except ValueError as exc:
+                  ttm_errors.append({"period": period, "error": str(exc)})
+          assert ttm_result is not None, ttm_errors[:5]
+
+          formula_result = None
+          formula_used = None
+          formula_errors = []
+          for formula in (
+              "CIP / TOTAL_ASSETS",
+              "MONETARYFUNDS / TOTAL_ASSETS",
+              "ACCOUNTS_RECE / TOTAL_ASSETS",
+          ):
+              try:
+                  formula_result = evaluate_formula(artifacts["duckdb"], formula, periods[0])
+                  formula_used = formula
+                  break
+              except ValueError as exc:
+                  formula_errors.append({"formula": formula, "error": str(exc)})
+          assert formula_result is not None, formula_errors
+
+          data_dir = Path("api-data").resolve()
+          stock_dir = data_dir / "688521"
+          stock_dir.mkdir(parents=True, exist_ok=True)
+          (stock_dir / "latest.json").write_text(
+              json.dumps(
+                  {
+                      "job_id": "e2e-688521",
+                      "output_dir": str(root),
+                      "artifacts": artifacts,
+                  },
+                  ensure_ascii=False,
+                  indent=2,
+              ),
+              encoding="utf-8",
+          )
+          os.environ["ASHARE_F10_DATA_DIR"] = str(data_dir)
+
+          from fastapi.testclient import TestClient
+          from ashare_f10.api.app import app
+
+          client = TestClient(app)
+          health = client.get("/api/health")
+          assert health.status_code == 200 and health.json().get("status") == "ok"
+
+          overview = client.get("/api/stocks/688521/latest")
+          assert overview.status_code == 200, overview.text
+
+          api_search = client.get("/api/stocks/688521/search", params={"q": "资产", "limit": 5})
+          assert api_search.status_code == 200 and api_search.json(), api_search.text
+
+          structured_query = {
+              "base_query": "资产",
+              "base_match_type": "contains",
+              "base_columns": ["field_name_cn", "field_key"],
+              "base_threshold": 60,
+              "search_steps": [
+                  {
+                      "query": "同比",
+                      "operation": "exclude",
+                      "match_type": "contains",
+                      "columns": ["field_name_cn", "field_key"],
+                      "threshold": 60,
+                      "enabled": True,
+                  }
+              ],
+              "filters": [
+                  {
+                      "column": "effective_date",
+                      "operator": "between",
+                      "lower": "2024-01-01",
+                      "upper": "2026-12-31",
+                      "enabled": True,
+                  }
+              ],
+              "sort": [{"column": "report_date", "direction": "desc"}],
+              "page": 1,
+              "page_size": 50,
+          }
+          structured = client.post("/api/stocks/688521/search/query", json=structured_query)
+          assert structured.status_code == 200, structured.text
+          structured_payload = structured.json()
+          assert structured_payload["total"] > 0
+          assert len(structured_payload["rows"]) <= 50
+          assert len(structured_payload["stage_counts"]) >= 3
+          assert all("同比" not in row["field_name_cn"] for row in structured_payload["rows"])
+
+          facets = client.post(
+              "/api/stocks/688521/search/facets",
+              json={"query": structured_query, "column": "family", "term": "", "limit": 50},
+          )
+          assert facets.status_code == 200, facets.text
+          assert facets.json().get("values")
+
+          search_export = client.post(
+              "/api/stocks/688521/search/export",
+              json={"query": structured_query, "format": "csv", "max_rows": 1000},
+          )
+          assert search_export.status_code == 200
+          assert search_export.content.startswith(b"\xef\xbb\xbf")
+
+          api_ttm = client.post(
+              "/api/stocks/688521/ttm",
+              json={"field": "TOTAL_OPERATE_INCOME", "end_period": ttm_result.end_period},
+          )
+          assert api_ttm.status_code == 200, api_ttm.text
+
+          api_formula = client.post(
+              "/api/stocks/688521/formula",
+              json={"formula": formula_used, "end_period": periods[0]},
+          )
+          assert api_formula.status_code == 200, api_formula.text
+
+          for kind in ("json", "xlsx", "parquet", "duckdb"):
+              response = client.get(f"/api/stocks/688521/download/{kind}")
+              assert response.status_code == 200 and response.content, (kind, response.status_code)
+
+          summary = {
+              "security_code": "688521",
+              "fact_count": fact_count,
+              "simple_search_result_count": len(search_results),
+              "structured_search_total": structured_payload["total"],
+              "structured_stage_counts": structured_payload["stage_counts"],
+              "latest_period": periods[0],
+              "ttm_end_period": ttm_result.end_period,
+              "ttm_method": ttm_result.method,
+              "ttm_value": ttm_result.value,
+              "formula": formula_used,
+              "formula_value": formula_result["value"],
+              "artifacts": artifacts,
+          }
+          (root / "e2e-summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+          print(json.dumps(summary, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Upload E2E artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ashare-f10-e2e-688521-${{ github.run_id }}
+          path: e2e-output/
+          if-no-files-found: error
+          retention-days: 30

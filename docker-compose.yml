@@ -1,0 +1,12 @@
+services:
+  f10:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      ASHARE_F10_DATA_DIR: /app/data
+      ASHARE_F10_MAX_WORKERS: 8
+      ASHARE_F10_PAGE_WORKERS: 4
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped

@@ -1,0 +1,229 @@
+name: Cashflow 300308 Regression
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/ashare_f10/export/**"
+      - "src/ashare_f10/fetch/**"
+      - "src/ashare_f10/models.py"
+      - "src/ashare_f10/resources/field_mapping_patch_v*.json"
+      - "tests/test_cashflow_export_regression.py"
+      - ".github/workflows/cashflow-300308-regression.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cashflow-300308-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cashflow-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install project
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Verify primary quarterly cash-flow values and sparse supplementary notes
+        env:
+          ASHARE_F10_TIMEOUT: "60"
+          ASHARE_F10_RETRIES: "3"
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          import json
+          from pathlib import Path
+
+          from openpyxl import load_workbook
+
+          from ashare_f10.config import Settings
+          from ashare_f10.export.excel_exporter import export_excel
+          from ashare_f10.fetch.client import HttpClient
+          from ashare_f10.fetch.manifest import load_field_mapping
+          from ashare_f10.models import RequestSpec
+
+          root = Path("cashflow-300308-regression")
+          root.mkdir(parents=True, exist_ok=True)
+          settings = Settings(timeout=60, retries=3, page_workers=2)
+          client = HttpClient(settings, root / "raw")
+          spec = RequestSpec(
+              method="GET",
+              host="datacenter.eastmoney.com",
+              path="/securities/api/data/get",
+              params={
+                  "type": "RPT_F10_FINANCE_GCASHFLOW",
+                  "source": "HSF10",
+                  "client": "PC",
+                  "sty": "APP_F10_GCASHFLOW",
+                  "filter": '(SECUCODE="300308.SZ")',
+                  "p": "1",
+                  "ps": "500",
+                  "sr": "-1",
+                  "st": "REPORT_DATE",
+              },
+          )
+          pages, records = client.request_all_pages(spec, "cashflow-300308", "result.data")
+          assert len(records) >= 60, len(records)
+          by_date = {str(record["REPORT_DATE"])[:10]: record for record in records}
+
+          # The F10 page's main cash-flow row is NETCASH_OPERATE. It is present
+          # in Q1 and Q3. NETCASH_OPERATENOTE belongs to the separate 补充资料
+          # reconciliation section and is legitimately blank in those periods.
+          for date in ("2026-03-31", "2025-09-30", "2025-03-31", "2024-09-30"):
+              record = by_date[date]
+              assert record.get("NETCASH_OPERATE") not in (None, ""), (date, record)
+              assert record.get("CONSTRUCT_LONG_ASSET") not in (None, ""), (date, record)
+              assert record.get("NETCASH_OPERATENOTE") in (None, ""), (
+                  date,
+                  record.get("NETCASH_OPERATENOTE"),
+              )
+
+          for date in ("2025-12-31", "2025-06-30", "2024-12-31", "2024-06-30"):
+              assert by_date[date].get("NETCASH_OPERATENOTE") not in (None, ""), date
+
+          mapping = load_field_mapping()["global"]
+          assert mapping["NETCASH_OPERATE"]["label"] == "经营活动产生的现金流量净额"
+          assert mapping["NETCASH_OPERATENOTE"]["label"] == "经营活动产生的现金流量净额（补充资料）"
+
+          combined = {
+              "metadata": {
+                  "security": {"code": "300308", "secucode": "300308.SZ"},
+                  "completed_at_utc": pages[0].response["fetched_at_utc"],
+                  "group_count": 1,
+                  "completed_group_count": 1,
+                  "failed_group_count": 0,
+                  "source": "Eastmoney live APIs",
+              },
+              "groups": [
+                  {
+                      "group_id": "cashflow-300308",
+                      "theme": "财务报表与指标",
+                      "family": "RPT_F10_FINANCE_GCASHFLOW",
+                      "strategy": "finance_all_periods",
+                      "success": True,
+                      "used_fallback": False,
+                      "record_count": len(records),
+                      "records": records,
+                      "payloads": [page.payload for page in pages],
+                      "requests": [
+                          {"request": page.request, "response": page.response}
+                          for page in pages
+                      ],
+                      "errors": [],
+                      "started_at_utc": pages[0].response["fetched_at_utc"],
+                      "completed_at_utc": pages[-1].response["fetched_at_utc"],
+                  }
+              ],
+          }
+          xlsx_path = export_excel(combined, root)
+          book = load_workbook(xlsx_path, data_only=True)
+          assert "现金流量表" in book.sheetnames
+          assert "现金流补充资料" in book.sheetnames
+          assert "现金流量表同比" in book.sheetnames
+
+          def find_row(ws, key):
+              for row in range(3, ws.max_row + 1):
+                  if ws.cell(row, 2).value == key:
+                      return row
+              raise AssertionError((ws.title, key))
+
+          def find_col(ws, date):
+              for col in range(4, ws.max_column + 1):
+                  if str(ws.cell(2, col).value).startswith(date):
+                      return col
+              raise AssertionError((ws.title, date))
+
+          main = book["现金流量表"]
+          note = book["现金流补充资料"]
+          main_row = find_row(main, "NETCASH_OPERATE")
+          note_row = find_row(note, "NETCASH_OPERATENOTE")
+          assert all(
+              main.cell(main_row, find_col(main, date)).value is not None
+              for date in ("2026-03-31", "2025-09-30")
+          )
+          assert note.cell(note_row, 1).value.endswith("（补充资料）")
+          assert note.cell(note_row, find_col(note, "2026-03-31")).value is None
+          assert note.cell(note_row, find_col(note, "2025-12-31")).value is not None
+
+          diagnostic = {
+              "request_url": pages[0].request["url"],
+              "record_count": len(records),
+              "dates": {
+                  date: {
+                      "NETCASH_OPERATE": by_date[date].get("NETCASH_OPERATE"),
+                      "NETCASH_OPERATENOTE": by_date[date].get("NETCASH_OPERATENOTE"),
+                      "CONSTRUCT_LONG_ASSET": by_date[date].get("CONSTRUCT_LONG_ASSET"),
+                  }
+                  for date in ("2026-03-31", "2025-12-31", "2025-09-30", "2025-06-30")
+              },
+              "workbook": str(xlsx_path),
+              "sheet_names": book.sheetnames,
+          }
+          (root / "diagnostic.json").write_text(
+              json.dumps(diagnostic, ensure_ascii=False, indent=2),
+              encoding="utf-8",
+          )
+          print(json.dumps(diagnostic, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Generate and validate complete fixed 300308 data package
+        env:
+          ASHARE_F10_TIMEOUT: "60"
+          ASHARE_F10_RETRIES: "3"
+          ASHARE_F10_MAX_WORKERS: "4"
+          ASHARE_F10_PAGE_WORKERS: "3"
+        run: |
+          ashare-f10 fetch 300308 --output cashflow-300308-full --workers 4 --force
+          ashare-f10 validate cashflow-300308-full
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          from openpyxl import load_workbook
+
+          root = Path("cashflow-300308-full")
+          payload = json.loads((root / "exports/300308_F10_full.json").read_text(encoding="utf-8"))
+          cashflow = next(
+              group
+              for group in payload["groups"]
+              if group["family"] == "RPT_F10_FINANCE_GCASHFLOW"
+          )
+          assert cashflow["record_count"] == len(cashflow["records"]) >= 60
+          by_date = {str(record["REPORT_DATE"])[:10]: record for record in cashflow["records"]}
+          assert by_date["2026-03-31"]["NETCASH_OPERATE"] is not None
+          assert by_date["2025-09-30"]["NETCASH_OPERATE"] is not None
+
+          workbook = load_workbook(root / "exports/300308_F10_full.xlsx", data_only=True)
+          for name in ("现金流量表", "现金流补充资料", "现金流量表同比"):
+              assert name in workbook.sheetnames
+          main = workbook["现金流量表"]
+          note = workbook["现金流补充资料"]
+          main_keys = {main.cell(row, 2).value for row in range(3, main.max_row + 1)}
+          note_keys = {note.cell(row, 2).value for row in range(3, note.max_row + 1)}
+          assert "NETCASH_OPERATE" in main_keys
+          assert "NETCASH_OPERATENOTE" not in main_keys
+          assert "NETCASH_OPERATENOTE" in note_keys
+          PY
+
+      - name: Upload fixed 300308 evidence and complete package
+        uses: actions/upload-artifact@v4
+        with:
+          name: cashflow-300308-regression-${{ github.run_id }}
+          path: |
+            cashflow-300308-regression/
+            cashflow-300308-full/
+          if-no-files-found: error
+          retention-days: 30

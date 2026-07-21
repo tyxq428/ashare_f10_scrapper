@@ -1,0 +1,40 @@
+name: Job Management Regression
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/ashare_f10/api/jobs.py"
+      - "src/ashare_f10/api/jobs_v2.py"
+      - "src/ashare_f10/api/app.py"
+      - "src/ashare_f10/models.py"
+      - "src/ashare_f10/web/job-center.js"
+      - "src/ashare_f10/web/job-center-v2.js"
+      - "src/ashare_f10/web/index.html"
+      - "src/ashare_f10/web/app.css"
+      - "tests/test_job_management.py"
+      - "tests/test_runtime_regressions.py"
+      - ".github/workflows/job-management-regression.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  task-center:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install project
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Validate task center browser code
+        run: node --check src/ashare_f10/web/job-center-v2.js
+      - name: Run task center lifecycle and runtime regression tests
+        run: pytest tests/test_job_management.py tests/test_runtime_regressions.py -q
