@@ -13,10 +13,35 @@ from ashare_f10.config import settings
 from ashare_f10.cross_validation.runner import run_full_cross_validation
 from ashare_f10.export.bundle import build_exports
 from ashare_f10.fetch.pipeline import FetchPipeline
+from ashare_f10.raw_sources.runner import run_raw_pack
 from ashare_f10.validation.runner import run_official_validation
 
 app = typer.Typer(help="A股F10投研平台命令行")
 console = Console()
+
+
+def _run_raw_pack_if_requested(
+    stock_code: str,
+    run_dir: Path,
+    *,
+    include_raw_pack: bool,
+    raw_pack_packs: str,
+    raw_pack_max_docs: int,
+) -> dict | None:
+    if not include_raw_pack:
+        return None
+    console.print("[cyan]正在生成官方Raw Pack[/cyan]")
+    result = run_raw_pack(
+        stock_code,
+        run_dir,
+        f10_run_dir=run_dir,
+        packs=raw_pack_packs,
+        max_docs=raw_pack_max_docs,
+    )
+    console.print(
+        f"[green]Raw Pack完成：{result['document_count']}条资料，状态={result['status_counts']}[/green]"
+    )
+    return result
 
 
 @app.command()
@@ -25,8 +50,17 @@ def fetch(
     output: Annotated[Path | None, typer.Option("--output", "-o", help="输出目录")] = None,
     workers: Annotated[int | None, typer.Option("--workers", help="接口并发数")] = None,
     force: Annotated[bool, typer.Option("--force", help="忽略现有检查点重新执行")] = False,
+    include_raw_pack: Annotated[
+        bool, typer.Option("--include-raw-pack/--no-raw-pack", help="同时生成官方Raw Pack")
+    ] = False,
+    raw_pack_packs: Annotated[
+        str, typer.Option("--raw-pack-packs", help="Raw Pack资料包：default/all/逗号分隔pack_id")
+    ] = "default",
+    raw_pack_max_docs: Annotated[
+        int, typer.Option("--raw-pack-max-docs", min=1, max=5000, help="Raw Pack最多文档数")
+    ] = 200,
 ) -> None:
-    """拉取固定接口清单并生成JSON、Excel、Parquet和DuckDB。"""
+    """拉取固定接口清单并生成JSON、Excel、Parquet、DuckDB和可选官方Raw Pack。"""
     if workers:
         settings.max_workers = workers
     run_dir = output or settings.data_dir / stock_code / "manual"
@@ -53,8 +87,37 @@ def fetch(
             combined = pipeline.run(resume=True)
 
     artifacts = build_exports(combined, run_dir)
+    raw_pack_result = _run_raw_pack_if_requested(
+        stock_code,
+        run_dir,
+        include_raw_pack=include_raw_pack,
+        raw_pack_packs=raw_pack_packs,
+        raw_pack_max_docs=raw_pack_max_docs,
+    )
+    if raw_pack_result is not None:
+        artifacts["raw_pack"] = raw_pack_result["output_dir"]
+        artifacts["raw_pack_summary"] = str(run_dir / "reports" / stock_code / "raw_pack_summary.json")
     console.print("[bold green]完成[/bold green]")
     console.print_json(json.dumps(artifacts, ensure_ascii=False))
+
+
+@app.command("raw-pack")
+def raw_pack(
+    stock_code: Annotated[str, typer.Argument(help="六位A股代码")],
+    run_dir: Annotated[Path, typer.Option("--run-dir", help="已完成F10拉取的运行目录")],
+    output: Annotated[Path | None, typer.Option("--output", "-o", help="Raw Pack输出根目录")] = None,
+    packs: Annotated[str, typer.Option("--packs", help="default/all/逗号分隔pack_id")] = "default",
+    max_docs: Annotated[int, typer.Option("--max-docs", min=1, max=5000)] = 200,
+) -> None:
+    """基于已完成F10版本生成官方原文、官网、实体风险和条件资料Raw Pack。"""
+    result = run_raw_pack(
+        stock_code,
+        output or run_dir,
+        f10_run_dir=run_dir,
+        packs=packs,
+        max_docs=max_docs,
+    )
+    console.print_json(json.dumps(result, ensure_ascii=False))
 
 
 @app.command("validate-official")
@@ -162,6 +225,15 @@ def validate(path: Path) -> None:
                 artifact_path = Path.cwd() / artifact_path
             if not artifact_path.exists() or artifact_path.stat().st_size == 0:
                 failures.append(f"交付文件不存在或为空：{key} -> {artifact_path}")
+        raw_pack_path = artifacts_payload.get("raw_pack")
+        if raw_pack_path:
+            quality_path = Path(raw_pack_path) / "quality" / "raw_pack_quality.json"
+            if not quality_path.exists():
+                failures.append(f"Raw Pack质量报告不存在：{quality_path}")
+            else:
+                quality = json.loads(quality_path.read_text(encoding="utf-8"))
+                if quality.get("status") != "PASS":
+                    failures.append(f"Raw Pack质量验证未通过：{quality.get('failures')}")
 
     if failures:
         for failure in failures:
@@ -177,7 +249,7 @@ def serve(
     reload: Annotated[bool, typer.Option()] = False,
 ) -> None:
     """启动本地网页。"""
-    uvicorn.run("ashare_f10.api.app:app", host=host, port=port, reload=reload)
+    uvicorn.run("ashare_f10.api.app_with_raw_pack:app", host=host, port=port, reload=reload)
 
 
 if __name__ == "__main__":
