@@ -40,12 +40,26 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p work/payload
-          : > work/raw-pack-batches-1-4.b64
-          for part in 00 01 02 03 04 05 06 07 08; do
-            tr -d '\r\n\t ' < "dispatcher/.raw-pack-bootstrap/part_${part}" | head -c 6000 >> work/raw-pack-batches-1-4.b64
-          done
-          tr -d '\r\n\t ' < dispatcher/.raw-pack-bootstrap/part_09 | head -c 1324 >> work/raw-pack-batches-1-4.b64
-          test "$(wc -c < work/raw-pack-batches-1-4.b64)" -eq 55324
+          python - <<'PYCODE'
+          from pathlib import Path
+
+          root = Path("dispatcher/.raw-pack-bootstrap")
+          chunks = []
+          lengths = []
+          for index in range(10):
+              path = root / f"part_{index:02d}"
+              compact = "".join(path.read_text(encoding="utf-8").split())
+              expected = 1324 if index == 9 else 6000
+              lengths.append(f"{path.name}: raw={len(compact)} selected={expected}")
+              if len(compact) < expected:
+                  raise SystemExit(f"{path} is too short: {len(compact)} < {expected}")
+              chunks.append(compact[:expected])
+          payload = "".join(chunks)
+          if len(payload) != 55324:
+              raise SystemExit(f"unexpected base64 length: {len(payload)}")
+          Path("work/raw-pack-batches-1-4.b64").write_text(payload, encoding="ascii")
+          Path("work/part-lengths.txt").write_text("\n".join(lengths) + "\n", encoding="utf-8")
+          PYCODE
           base64 --decode work/raw-pack-batches-1-4.b64 > work/raw-pack-batches-1-4.tar.gz
           echo '7280ae2b6826b909360ec76ba6a5b471205dc6b7dac1e9d0dae167b61a90c373  work/raw-pack-batches-1-4.tar.gz' | sha256sum --check -
           tar -xzf work/raw-pack-batches-1-4.tar.gz -C work/payload
@@ -136,5 +150,7 @@ jobs:
           path: |
             work/raw-pack-staged-commits.txt
             work/raw-pack-batches-1-4.tar.gz
+            work/raw-pack-batches-1-4.b64
+            work/part-lengths.txt
           if-no-files-found: warn
           retention-days: 7
