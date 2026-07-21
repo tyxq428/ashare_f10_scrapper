@@ -24,6 +24,8 @@ dependencies = [
   "openpyxl>=3.1,<4",
   "rapidfuzz>=3.10,<4",
   "python-multipart>=0.0.20,<1",
+  "pdfplumber>=0.11,<1",
+  "pypdf>=5,<7",
 ]
 
 [project.optional-dependencies]
@@ -58,6 +60,11 @@ ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
 "src/ashare_f10/api/jobs.py" = ["I001"]
+"src/ashare_f10/validation/reconcile/__init__.py" = ["I001"]
+"src/ashare_f10/validation/reconcile/engine.py" = ["I001"]
+"src/ashare_f10/validation/reporting.py" = ["I001"]
+"src/ashare_f10/validation/runner.py" = ["I001"]
+"tests/test_official_validation.py" = ["I001"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

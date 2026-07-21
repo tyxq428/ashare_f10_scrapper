@@ -1,0 +1,75 @@
+name: Official Validation 688521
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/official-validation-v1]
+    paths:
+      - "src/ashare_f10/validation/**"
+      - "src/ashare_f10/cli.py"
+      - "tests/test_official_validation.py"
+      - "pyproject.toml"
+      - ".github/workflows/official-validation-688521.yml"
+  pull_request:
+    paths:
+      - "src/ashare_f10/validation/**"
+      - "src/ashare_f10/cli.py"
+      - "tests/test_official_validation.py"
+      - "pyproject.toml"
+      - ".github/workflows/official-validation-688521.yml"
+
+permissions:
+  contents: read
+
+env:
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  official-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e ".[dev]"
+      - name: Unit tests for official validation
+        run: pytest -q tests/test_official_validation.py
+      - name: Fetch all fixed Eastmoney F10 sources
+        run: ashare-f10 fetch 688521 --output official-validation-run --workers 8
+      - name: Validate against free official SSE reports
+        run: |
+          set -o pipefail
+          ashare-f10 validate-official 688521 official-validation-run \
+            --output official-validation-run/validation \
+            --annual-year 2025 \
+            --quarter-year 2026 2>&1 | tee official-validation.log
+      - name: Verify validation acceptance
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          summary_path = Path("official-validation-run/validation/validation_summary.json")
+          summary = json.loads(summary_path.read_text(encoding="utf-8"))
+          print(json.dumps(summary, ensure_ascii=False, indent=2))
+          assert summary["paid_sources_used"] is False
+          assert summary["document_count"] >= 2
+          assert summary["official_fact_count"] >= 20
+          assert summary["high_severity_mismatch_count"] == 0
+          assert summary["acceptance_status"] == "PASS"
+          PY
+      - name: Upload official validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: official-validation-688521-${{ github.run_id }}
+          path: |
+            official-validation-run/validation/
+            official-validation.log
+            official-validation-run/artifacts.json
+          if-no-files-found: warn
+          retention-days: 30
