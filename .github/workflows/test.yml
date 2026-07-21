@@ -4,31 +4,11 @@ on:
   push:
   pull_request:
 
-permissions:
-  contents: write
-
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: feature/official-validation-v1
-          fetch-depth: 0
-      - name: Materialize validated PDF parser
-        run: |
-          python - <<'PY'
-          import base64
-          import gzip
-          from pathlib import Path
-
-          parts = sorted(Path(".validation-bootstrap/parser_parts").glob("part_*.txt"))
-          if len(parts) != 5:
-              raise SystemExit(f"Expected 5 parser parts, found {len(parts)}")
-          payload = "".join(path.read_text(encoding="ascii").strip() for path in parts)
-          target = Path("src/ashare_f10/validation/documents/pdf_parser.py")
-          target.write_bytes(gzip.decompress(base64.b64decode(payload)))
-          PY
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -47,19 +27,6 @@ jobs:
         run: |
           set -o pipefail
           ruff check src tests --output-format=concise 2>&1 | tee ruff-output.txt
-      - name: Run tests
-        run: pytest --cov=ashare_f10 --cov-report=term-missing
-      - name: Commit validated parser
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/ashare_f10/validation/documents/pdf_parser.py
-          if git diff --cached --quiet; then
-            echo "PDF parser already up to date."
-          else
-            git commit -m "Fix official PDF statement parsing"
-            git push origin HEAD:feature/official-validation-v1
-          fi
       - name: Upload lint diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -68,3 +35,4 @@ jobs:
           path: ruff-output.txt
           if-no-files-found: warn
           retention-days: 7
+      - run: pytest --cov=ashare_f10 --cov-report=term-missing
