@@ -1,0 +1,139 @@
+name: Raw Pack 688521 E2E
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/ashare_f10/raw_sources/**"
+      - "src/ashare_f10/resources/raw_source_manifest.json"
+      - "src/ashare_f10/api/raw_pack.py"
+      - "src/ashare_f10/api/app_with_raw_pack.py"
+      - "src/ashare_f10/cli.py"
+      - "src/ashare_f10/web/raw-pack.*"
+      - "tests/test_raw_pack_*.py"
+      - ".github/workflows/raw-pack-688521.yml"
+      - ".github/workflows/fetch-stock.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: raw-pack-688521-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  raw-pack-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install project
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Static checks for Raw Pack page
+        run: |
+          ruff check src/ashare_f10/raw_sources src/ashare_f10/api/raw_pack.py src/ashare_f10/api/app_with_raw_pack.py tests/test_raw_pack_*.py
+          node --check src/ashare_f10/web/raw-pack.js
+      - name: Unit tests
+        run: pytest tests/test_raw_pack_*.py
+      - name: Existing F10 E2E path with Raw Pack enabled
+        env:
+          ASHARE_F10_TIMEOUT: "60"
+          ASHARE_F10_RETRIES: "3"
+          ASHARE_F10_MAX_WORKERS: "4"
+          ASHARE_F10_PAGE_WORKERS: "3"
+        run: |
+          ashare-f10 fetch 688521 --output raw-pack-e2e --workers 4 --force \
+            --include-raw-pack --raw-pack-packs default --raw-pack-max-docs 12
+          ashare-f10 validate raw-pack-e2e
+      - name: Validate Raw Pack artifacts, status routing and API
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          import json
+          import os
+          from pathlib import Path
+
+          import duckdb
+          import pandas as pd
+          from fastapi.testclient import TestClient
+
+          root = Path("raw-pack-e2e").resolve()
+          artifacts = json.loads((root / "artifacts.json").read_text(encoding="utf-8"))
+          raw_root = Path(artifacts["raw_pack"])
+          quality = json.loads((raw_root / "quality/raw_pack_quality.json").read_text(encoding="utf-8"))
+          assert quality["status"] == "PASS", quality
+          assert quality["document_count"] >= 4, quality
+          assert quality["status_counts"].get("FACT_DIRECT", 0) >= 1, quality
+          assert quality["permission_blocked_count"] >= 0
+          assert (raw_root / "source_index/source_documents.jsonl").exists()
+          assert (raw_root / "source_index/raw_pack_index.xlsx").exists()
+
+          frame = pd.read_parquet(raw_root / "source_index/source_documents.parquet")
+          assert len(frame) == quality["document_count"]
+          connection = duckdb.connect(str(raw_root / "source_index/raw_pack.duckdb"), read_only=True)
+          try:
+              assert connection.execute("select count(*) from source_documents").fetchone()[0] == len(frame)
+          finally:
+              connection.close()
+
+          data_dir = Path("api-raw-pack-data").resolve()
+          stock_dir = data_dir / "688521"
+          stock_dir.mkdir(parents=True, exist_ok=True)
+          (stock_dir / "latest.json").write_text(
+              json.dumps({"job_id": "raw-pack-e2e", "output_dir": str(root), "artifacts": artifacts}, ensure_ascii=False),
+              encoding="utf-8",
+          )
+          os.environ["ASHARE_F10_DATA_DIR"] = str(data_dir)
+          from ashare_f10.config import settings
+          settings.data_dir = data_dir
+          from ashare_f10.api.app_with_raw_pack import app
+
+          client = TestClient(app)
+          stats = client.get("/api/raw-pack/evidence/stats", params={"stock_code": "688521"})
+          assert stats.status_code == 200, stats.text
+          assert stats.json()["document_count"] == quality["document_count"]
+          search = client.get(
+              "/api/raw-pack/evidence/search",
+              params={"stock_code": "688521", "status": "FACT_DIRECT", "limit": 10},
+          )
+          assert search.status_code == 200 and search.json()["total"] >= 1, search.text
+          document = search.json()["rows"][0]
+          detail = client.get(
+              f"/api/raw-pack/documents/{document['document_id']}",
+              params={"stock_code": "688521"},
+          )
+          assert detail.status_code == 200, detail.text
+          assert detail.json()["document"]["source_url"]
+          assert detail.json()["document"]["retrieved_at_utc"]
+
+          summary = {
+              "security_code": "688521",
+              "document_count": quality["document_count"],
+              "status_counts": quality["status_counts"],
+              "downloaded_file_count": quality["downloaded_file_count"],
+              "parsed_text_count": quality["parsed_text_count"],
+              "permission_blocked_count": quality["permission_blocked_count"],
+              "no_match_count": quality["no_match_count"],
+              "raw_pack_root": str(raw_root),
+          }
+          (root / "raw-pack-e2e-summary.json").write_text(
+              json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
+          )
+          print(json.dumps(summary, ensure_ascii=False, indent=2))
+          PY
+      - name: Upload complete E2E package
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: raw-pack-688521-${{ github.run_id }}
+          path: raw-pack-e2e/
+          if-no-files-found: error
+          retention-days: 30
