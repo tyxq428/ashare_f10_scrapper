@@ -216,6 +216,15 @@ class CrossSourceComparator:
         # same-period, same-key fallback across statement types, but never across
         # reporting periods. This prevents an FY cumulative amount from being
         # compared with a Q4 single-quarter amount.
+        primary_statement_families = {
+            "RPT_F10_FINANCE_GBALANCE",
+            "RPT_F10_FINANCE_GINCOME",
+            "RPT_F10_FINANCE_GCASHFLOW",
+        }
+        family = str(eastmoney.get("family") or "")
+        if family in primary_statement_families and entry.validation_mode == "OFFICIAL_DIRECT":
+            return None, None
+
         same_period_key = [
             row
             for lookup, rows in index.items()

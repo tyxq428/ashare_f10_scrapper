@@ -382,6 +382,15 @@ class PdfStatementParser:
             aliases = target.aliases
             if identity == ("income_statement", "OTHER_COMPRE_INCOME"):
                 aliases = tuple(dict.fromkeys(("其他综合收益的税后净额", *aliases)))
+            if identity == ("cash_flow", "FINANCE_EXPENSE"):
+                aliases = tuple(
+                    dict.fromkeys(
+                        (
+                            "财务费用（收益以“－”号填列）",
+                            *aliases,
+                        )
+                    )
+                )
             existing = merged.get(identity)
             if existing is None:
                 merged[identity] = TargetField(
@@ -484,8 +493,15 @@ class PdfStatementParser:
                         candidates[(target.statement_type, target.field_key)].append((score, extracted))
                         continue
 
-                    allowed_text = target.statement_type == "summary" or (
-                        page_section == target.statement_type and page_scope != "parent"
+                    is_cashflow_supplement = (
+                        target.statement_type == "cash_flow"
+                        and target.field_key == "FINANCE_EXPENSE"
+                        and any(_compact(alias) in compact_text for alias in target.aliases)
+                    )
+                    allowed_text = (
+                        target.statement_type == "summary"
+                        or (page_section == target.statement_type and page_scope != "parent")
+                        or is_cashflow_supplement
                     )
                     if not allowed_text:
                         continue
@@ -595,7 +611,20 @@ class PdfStatementParser:
     ) -> OfficialFact | None:
         lines = [_clean_row(line) for line in text.splitlines() if _clean_row(line)]
         for index, line in enumerate(lines):
-            alias = next((name for name in target.aliases if _label_matches(line, name)), None)
+            normalized_line = _normalized_label(line)
+            alias = next(
+                (
+                    name
+                    for name in target.aliases
+                    if _label_matches(line, name)
+                    or (
+                        target.statement_type == "cash_flow"
+                        and target.field_key == "FINANCE_EXPENSE"
+                        and normalized_line.startswith(_normalized_label(name))
+                    )
+                ),
+                None,
+            )
             if not alias:
                 continue
             context_lines = lines[index : min(index + 3, len(lines))]
