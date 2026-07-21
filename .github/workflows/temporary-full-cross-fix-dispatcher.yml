@@ -31,75 +31,78 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          from textwrap import dedent
 
           parser_path = Path("src/ashare_f10/validation/documents/pdf_parser.py")
           text = parser_path.read_text(encoding="utf-8")
-          old_init = '''    def __init__(self, targets: Iterable[TargetField] = DEFAULT_TARGETS) -> None:
-                  self.targets = tuple(targets)
-                  self.summary_targets = tuple(target for target in self.targets if target.statement_type == "summary")
-          '''
-          new_init = '''    def __init__(self, targets: Iterable[TargetField] = DEFAULT_TARGETS) -> None:
-                  merged: dict[tuple[str, str], TargetField] = {}
-                  for target in targets:
-                      identity = (target.statement_type, target.field_key)
-                      aliases = target.aliases
-                      if identity == ("income_statement", "OTHER_COMPRE_INCOME"):
-                          aliases = tuple(
-                              dict.fromkeys(("其他综合收益的税后净额", *aliases))
-                          )
-                      existing = merged.get(identity)
-                      if existing is None:
-                          merged[identity] = TargetField(
-                              target.field_key,
-                              target.field_name_cn,
-                              target.statement_type,
-                              aliases,
-                              target.eastmoney_keys,
-                              target.eastmoney_families,
-                              target.semantics,
-                          )
-                      else:
-                          merged[identity] = TargetField(
-                              existing.field_key,
-                              existing.field_name_cn,
-                              existing.statement_type,
-                              tuple(dict.fromkeys((*existing.aliases, *aliases))),
-                              tuple(
-                                  dict.fromkeys(
-                                      (*existing.eastmoney_keys, *target.eastmoney_keys)
-                                  )
-                              ),
-                              tuple(
-                                  dict.fromkeys(
-                                      (
-                                          *existing.eastmoney_families,
-                                          *target.eastmoney_families,
+          init_start = text.index(
+              "    def __init__(self, targets: Iterable[TargetField] = DEFAULT_TARGETS) -> None:"
+          )
+          init_end = text.index("\n    def extract(", init_start)
+          new_init = dedent(
+              '''
+                  def __init__(self, targets: Iterable[TargetField] = DEFAULT_TARGETS) -> None:
+                      merged: dict[tuple[str, str], TargetField] = {}
+                      for target in targets:
+                          identity = (target.statement_type, target.field_key)
+                          aliases = target.aliases
+                          if identity == ("income_statement", "OTHER_COMPRE_INCOME"):
+                              aliases = tuple(
+                                  dict.fromkeys(("其他综合收益的税后净额", *aliases))
+                              )
+                          existing = merged.get(identity)
+                          if existing is None:
+                              merged[identity] = TargetField(
+                                  target.field_key,
+                                  target.field_name_cn,
+                                  target.statement_type,
+                                  aliases,
+                                  target.eastmoney_keys,
+                                  target.eastmoney_families,
+                                  target.semantics,
+                              )
+                          else:
+                              merged[identity] = TargetField(
+                                  existing.field_key,
+                                  existing.field_name_cn,
+                                  existing.statement_type,
+                                  tuple(dict.fromkeys((*existing.aliases, *aliases))),
+                                  tuple(
+                                      dict.fromkeys(
+                                          (*existing.eastmoney_keys, *target.eastmoney_keys)
                                       )
-                                  )
-                              ),
-                              existing.semantics,
-                          )
-                  self.targets = tuple(merged.values())
-                  self.summary_targets = tuple(
-                      target
-                      for target in self.targets
-                      if target.statement_type == "summary"
-                  )
-          '''
-          if old_init not in text:
-              raise SystemExit("Expected PdfStatementParser.__init__ block was not found")
-          text = text.replace(old_init, new_init, 1)
-          old_candidates = '''        candidates: dict[str, list[tuple[int, OfficialFact]]] = {
-                  target.field_key: [] for target in self.targets
-              }
-          '''
-          new_candidates = '''        candidates: dict[tuple[str, str], list[tuple[int, OfficialFact]]] = {
-                  (target.statement_type, target.field_key): [] for target in self.targets
-              }
-          '''
-          if old_candidates not in text:
-              raise SystemExit("Expected parser candidate dictionary was not found")
-          text = text.replace(old_candidates, new_candidates, 1)
+                                  ),
+                                  tuple(
+                                      dict.fromkeys(
+                                          (
+                                              *existing.eastmoney_families,
+                                              *target.eastmoney_families,
+                                          )
+                                      )
+                                  ),
+                                  existing.semantics,
+                              )
+                      self.targets = tuple(merged.values())
+                      self.summary_targets = tuple(
+                          target
+                          for target in self.targets
+                          if target.statement_type == "summary"
+                      )
+              '''
+          ).strip("\n")
+          text = text[:init_start] + new_init + text[init_end:]
+
+          candidates_start = text.index("        candidates:", text.index("    def extract("))
+          candidates_end = text.index("\n        active_section", candidates_start)
+          new_candidates = dedent(
+              '''
+                      candidates: dict[tuple[str, str], list[tuple[int, OfficialFact]]] = {
+                          (target.statement_type, target.field_key): []
+                          for target in self.targets
+                      }
+              '''
+          ).strip("\n")
+          text = text[:candidates_start] + new_candidates + text[candidates_end:]
           text = text.replace(
               "candidates[target.field_key].append((score, extracted))",
               "candidates[(target.statement_type, target.field_key)].append((score, extracted))",
@@ -107,113 +110,115 @@ jobs:
           text = text.replace(
               "found = candidates[target.field_key]",
               "found = candidates[(target.statement_type, target.field_key)]",
-              1,
           )
           parser_path.write_text(text, encoding="utf-8")
 
           adapters_path = Path("src/ashare_f10/cross_validation/adapters.py")
           text = adapters_path.read_text(encoding="utf-8")
-          old_units = '''    frame["normalized_unit"] = frame["unit"].fillna("")
-              frame["source_document"] = frame["family"]
-          '''
-          new_units = '''    frame["normalized_unit"] = frame["unit"].fillna("")
-              monetary_override = (
-                  (frame["family"] == "RPT_F10_FINANCE_GBALANCE")
-                  & frame["field_key"].isin({"TREASURY_SHARES"})
-              )
-              frame.loc[monetary_override, "unit"] = "元"
-              frame.loc[monetary_override, "normalized_unit"] = "元"
-              frame["source_document"] = frame["family"]
-          '''
-          if old_units not in text:
-              raise SystemExit("Expected Eastmoney unit block was not found")
-          adapters_path.write_text(text.replace(old_units, new_units, 1), encoding="utf-8")
+          marker = '    frame["normalized_unit"] = frame["unit"].fillna("")\n'
+          if marker not in text:
+              raise SystemExit("Eastmoney normalized-unit marker was not found")
+          override = dedent(
+              '''
+                  monetary_override = (
+                      (frame["family"] == "RPT_F10_FINANCE_GBALANCE")
+                      & frame["field_key"].isin({"TREASURY_SHARES"})
+                  )
+                  frame.loc[monetary_override, "unit"] = "元"
+                  frame.loc[monetary_override, "normalized_unit"] = "元"
+              '''
+          )
+          if 'frame["field_key"].isin({"TREASURY_SHARES"})' not in text:
+              text = text.replace(marker, marker + override, 1)
+          adapters_path.write_text(text, encoding="utf-8")
 
           runner_path = Path("src/ashare_f10/cross_validation/runner.py")
           text = runner_path.read_text(encoding="utf-8")
-          if 'PARSER_CACHE_VERSION = "1.1.0"' in text:
-              text = text.replace(
-                  'PARSER_CACHE_VERSION = "1.1.0"',
-                  'PARSER_CACHE_VERSION = "1.2.0"',
-                  1,
-              )
+          text = text.replace(
+              'PARSER_CACHE_VERSION = "1.1.0"',
+              'PARSER_CACHE_VERSION = "1.2.0"',
+              1,
+          )
           runner_path.write_text(text, encoding="utf-8")
 
           test_path = Path("tests/test_cross_validation_statement_identity.py")
           test_path.write_text(
-              '''from __future__ import annotations
+              dedent(
+                  '''
+                  from __future__ import annotations
 
-          import duckdb
-          import pandas as pd
+                  import duckdb
+                  import pandas as pd
 
-          from ashare_f10.cross_validation.adapters import load_eastmoney_facts
-          from ashare_f10.validation.documents.pdf_parser import PdfStatementParser
-          from ashare_f10.validation.models import TargetField
-
-
-          def test_parser_keeps_same_key_separate_by_statement() -> None:
-              targets = (
-                  TargetField(
-                      "OTHER_COMPRE_INCOME",
-                      "其他综合收益",
-                      "balance_sheet",
-                      ("其他综合收益",),
-                      ("OTHER_COMPRE_INCOME",),
-                      ("RPT_F10_FINANCE_GBALANCE",),
-                      "point_in_time",
-                  ),
-                  TargetField(
-                      "OTHER_COMPRE_INCOME",
-                      "其他综合收益",
-                      "income_statement",
-                      ("其他综合收益",),
-                      ("OTHER_COMPRE_INCOME",),
-                      ("RPT_F10_FINANCE_GINCOME",),
-                  ),
-              )
-              parser = PdfStatementParser(targets)
-              assert len(parser.targets) == 2
-              income = next(
-                  target
-                  for target in parser.targets
-                  if target.statement_type == "income_statement"
-              )
-              assert "其他综合收益的税后净额" in income.aliases
+                  from ashare_f10.cross_validation.adapters import load_eastmoney_facts
+                  from ashare_f10.validation.documents.pdf_parser import PdfStatementParser
+                  from ashare_f10.validation.models import TargetField
 
 
-          def test_treasury_shares_is_a_monetary_balance_sheet_item(tmp_path) -> None:
-              database = tmp_path / "facts.duckdb"
-              frame = pd.DataFrame(
-                  [
-                      {
-                          "security_code": "688521",
-                          "theme": "财务报表与指标",
-                          "family": "RPT_F10_FINANCE_GBALANCE",
-                          "dataset": "资产负债表",
-                          "record_key": "688521|2025-12-31",
-                          "report_date": "2025-12-31",
-                          "event_date": "2025-12-31",
-                          "period_type": "FY",
-                          "data_semantics": "point_in_time",
-                          "field_key": "TREASURY_SHARES",
-                          "field_name_cn": "库存股",
-                          "field_category": "PAGE_DISPLAY_FIELD",
-                          "value_text": "24836121.01",
-                          "value_num": 24836121.01,
-                          "unit": "股",
-                          "source_url": "",
-                          "source_status": "FACT_DIRECT",
-                      }
-                  ]
-              )
-              connection = duckdb.connect(str(database))
-              connection.register("input_frame", frame)
-              connection.execute("CREATE TABLE facts AS SELECT * FROM input_frame")
-              connection.close()
-              result = load_eastmoney_facts(database)
-              assert result.iloc[0]["unit"] == "元"
-              assert result.iloc[0]["normalized_unit"] == "元"
-          ''',
+                  def test_parser_keeps_same_key_separate_by_statement() -> None:
+                      targets = (
+                          TargetField(
+                              "OTHER_COMPRE_INCOME",
+                              "其他综合收益",
+                              "balance_sheet",
+                              ("其他综合收益",),
+                              ("OTHER_COMPRE_INCOME",),
+                              ("RPT_F10_FINANCE_GBALANCE",),
+                              "point_in_time",
+                          ),
+                          TargetField(
+                              "OTHER_COMPRE_INCOME",
+                              "其他综合收益",
+                              "income_statement",
+                              ("其他综合收益",),
+                              ("OTHER_COMPRE_INCOME",),
+                              ("RPT_F10_FINANCE_GINCOME",),
+                          ),
+                      )
+                      parser = PdfStatementParser(targets)
+                      assert len(parser.targets) == 2
+                      income = next(
+                          target
+                          for target in parser.targets
+                          if target.statement_type == "income_statement"
+                      )
+                      assert "其他综合收益的税后净额" in income.aliases
+
+
+                  def test_treasury_shares_is_a_monetary_balance_sheet_item(tmp_path) -> None:
+                      database = tmp_path / "facts.duckdb"
+                      frame = pd.DataFrame(
+                          [
+                              {
+                                  "security_code": "688521",
+                                  "theme": "财务报表与指标",
+                                  "family": "RPT_F10_FINANCE_GBALANCE",
+                                  "dataset": "资产负债表",
+                                  "record_key": "688521|2025-12-31",
+                                  "report_date": "2025-12-31",
+                                  "event_date": "2025-12-31",
+                                  "period_type": "FY",
+                                  "data_semantics": "point_in_time",
+                                  "field_key": "TREASURY_SHARES",
+                                  "field_name_cn": "库存股",
+                                  "field_category": "PAGE_DISPLAY_FIELD",
+                                  "value_text": "24836121.01",
+                                  "value_num": 24836121.01,
+                                  "unit": "股",
+                                  "source_url": "",
+                                  "source_status": "FACT_DIRECT",
+                              }
+                          ]
+                      )
+                      connection = duckdb.connect(str(database))
+                      connection.register("input_frame", frame)
+                      connection.execute("CREATE TABLE facts AS SELECT * FROM input_frame")
+                      connection.close()
+                      result = load_eastmoney_facts(database)
+                      assert result.iloc[0]["unit"] == "元"
+                      assert result.iloc[0]["normalized_unit"] == "元"
+                  '''
+              ).lstrip(),
               encoding="utf-8",
           )
           PY
