@@ -16,6 +16,7 @@ from ashare_f10.validation.models import OfficialDocument
 
 SSE_QUERY_URL = "https://query.sse.com.cn/security/stock/queryCompanyBulletin.do"
 SSE_HOME = "https://www.sse.com.cn/"
+REPORT_TYPE_CODES = ("YEARLY", "QUATER1", "QUATER2", "QUATER3")
 
 
 class OfficialSourceError(RuntimeError):
@@ -119,9 +120,7 @@ class SSEOfficialSource:
                 except ValueError:
                     match = re.search(r"\((\{.*\})\)\s*;?\s*$", text, flags=re.S)
                     if not match:
-                        raise OfficialSourceError(
-                            f"SSE公告查询返回非JSON内容：{text[:200]}"
-                        ) from None
+                        raise OfficialSourceError(f"SSE公告查询返回非JSON内容：{text[:200]}") from None
                     payload = json.loads(match.group(1))
                 if not isinstance(payload, dict):
                     raise OfficialSourceError("SSE公告查询返回结构不是对象")
@@ -138,13 +137,12 @@ class SSEOfficialSource:
         begin_date: str,
         end_date: str,
     ) -> list[OfficialDocument]:
-        params = {
-            "isPagination": "true",
+        base_params = {
+            "isPagination": "false",
             "productId": security_code,
             "keyWord": "",
             "securityType": "0101,120100,020100,020200,120200",
             "reportType2": "DQBG",
-            "reportType": "ALL",
             "beginDate": begin_date,
             "endDate": end_date,
             "pageHelp.pageSize": "100",
@@ -154,48 +152,60 @@ class SSEOfficialSource:
             "pageHelp.cacheSize": "1",
             "pageHelp.endPage": "5",
         }
-        payload = self._get_json(params)
+        payloads: list[dict[str, Any]] = []
+        for report_type in REPORT_TYPE_CODES:
+            params = {**base_params, "reportType": report_type}
+            payloads.append(self._get_json(params))
+
         documents: list[OfficialDocument] = []
         seen: set[tuple[str, str]] = set()
-        for item in _iter_dicts(payload):
-            title_value = _first(
-                item,
-                "BULLETIN_HEADING",
-                "TITLE",
-                "title",
-                "bulletinHeading",
-                "announcementTitle",
-            )
-            url_value = _first(item, "URL", "url", "BULLETIN_URL", "bulletinUrl", "adjunctUrl")
-            if title_value in (None, "") or url_value in (None, ""):
-                continue
-            title = re.sub(r"<[^>]+>", "", str(title_value)).strip()
-            identity = _report_identity(title)
-            if not identity:
-                continue
-            report_date, report_kind = identity
-            url = str(url_value).strip()
-            if not url.lower().startswith(("http://", "https://")):
-                url = urljoin(SSE_HOME, url)
-            publish_date = _date_text(
-                _first(item, "SSEDATE", "publishDate", "PUBLISH_DATE", "announcementTime")
-            )
-            key = (title, url)
-            if key in seen:
-                continue
-            seen.add(key)
-            documents.append(
-                OfficialDocument(
-                    source="SSE",
-                    security_code=security_code,
-                    title=title,
-                    publish_date=publish_date,
-                    report_date=report_date,
-                    report_kind=report_kind,
-                    version_label=_version_label(title),
-                    url=url,
+        for payload in payloads:
+            for item in _iter_dicts(payload):
+                title_value = _first(
+                    item,
+                    "BULLETIN_HEADING",
+                    "TITLE",
+                    "title",
+                    "bulletinHeading",
+                    "announcementTitle",
                 )
-            )
+                url_value = _first(
+                    item,
+                    "URL",
+                    "url",
+                    "BULLETIN_URL",
+                    "bulletinUrl",
+                    "adjunctUrl",
+                )
+                if title_value in (None, "") or url_value in (None, ""):
+                    continue
+                title = re.sub(r"<[^>]+>", "", str(title_value)).strip()
+                identity = _report_identity(title)
+                if not identity:
+                    continue
+                report_date, report_kind = identity
+                url = str(url_value).strip()
+                if not url.lower().startswith(("http://", "https://")):
+                    url = urljoin(SSE_HOME, url)
+                publish_date = _date_text(
+                    _first(item, "SSEDATE", "publishDate", "PUBLISH_DATE", "announcementTime")
+                )
+                key = (title, url)
+                if key in seen:
+                    continue
+                seen.add(key)
+                documents.append(
+                    OfficialDocument(
+                        source="SSE",
+                        security_code=security_code,
+                        title=title,
+                        publish_date=publish_date,
+                        report_date=report_date,
+                        report_kind=report_kind,
+                        version_label=_version_label(title),
+                        url=url,
+                    )
+                )
         documents.sort(key=lambda item: (item.report_date, *_version_rank(item)), reverse=True)
         return documents
 
