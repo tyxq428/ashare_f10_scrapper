@@ -18,6 +18,49 @@ SSE_QUERY_URL = "https://query.sse.com.cn/security/stock/queryCompanyBulletin.do
 SSE_HOME = "https://www.sse.com.cn/"
 SSE_ANNOUNCEMENT_PAGE = "http://www.sse.com.cn/disclosure/listedinfo/announcement/"
 REPORT_TYPE_CODES = ("YEARLY", "QUATER1", "QUATER2", "QUATER3")
+_ACW_PERMUTATION = (
+    0x0F,
+    0x23,
+    0x1D,
+    0x18,
+    0x21,
+    0x10,
+    0x01,
+    0x26,
+    0x0A,
+    0x09,
+    0x13,
+    0x1F,
+    0x28,
+    0x1B,
+    0x16,
+    0x17,
+    0x19,
+    0x0D,
+    0x06,
+    0x0B,
+    0x27,
+    0x12,
+    0x14,
+    0x08,
+    0x0E,
+    0x15,
+    0x20,
+    0x1A,
+    0x02,
+    0x1E,
+    0x07,
+    0x04,
+    0x11,
+    0x05,
+    0x03,
+    0x1C,
+    0x22,
+    0x25,
+    0x0C,
+    0x24,
+)
+_ACW_XOR_KEY = "3000176000856006061501533003690027800375"
 
 
 class OfficialSourceError(RuntimeError):
@@ -85,6 +128,29 @@ def _version_label(title: str) -> str:
 def _version_rank(document: OfficialDocument) -> tuple[int, str]:
     rank = {"corrected": 3, "original": 2, "withdrawn": 0}.get(document.version_label, 1)
     return rank, document.publish_date
+
+
+def _calculate_acw_cookie(arg1: str) -> str:
+    """Calculate the browser verification cookie returned by the SSE public CDN."""
+    if not re.fullmatch(r"[0-9A-Fa-f]{40}", arg1):
+        raise ValueError("SSE verification seed must be a 40-character hexadecimal string")
+    reordered = [""] * len(_ACW_PERMUTATION)
+    for index, character in enumerate(arg1):
+        for destination, source_position in enumerate(_ACW_PERMUTATION):
+            if source_position == index + 1:
+                reordered[destination] = character
+                break
+    unsboxed = "".join(reordered)
+    return "".join(
+        f"{int(unsboxed[index:index + 2], 16) ^ int(_ACW_XOR_KEY[index:index + 2], 16):02x}"
+        for index in range(0, len(unsboxed), 2)
+    )
+
+
+def _verification_seed(content: bytes) -> str | None:
+    text = content.decode("utf-8", errors="ignore")
+    match = re.search(r"var\s+arg1\s*=\s*['\"]([0-9A-Fa-f]{40})['\"]", text)
+    return match.group(1) if match else None
 
 
 class SSEOfficialSource:
@@ -289,6 +355,21 @@ class SSEOfficialSource:
                     )
                     response.raise_for_status()
                     content = response.content
+                    seed = _verification_seed(content)
+                    if seed:
+                        download_session.cookies.set(
+                            "acw_sc__v2",
+                            _calculate_acw_cookie(seed),
+                            domain=".sse.com.cn",
+                            path="/",
+                        )
+                        response = download_session.get(
+                            url,
+                            timeout=max(self.timeout, 90),
+                            allow_redirects=True,
+                        )
+                        response.raise_for_status()
+                        content = response.content
                     if not content.startswith(b"%PDF"):
                         preview = content[:120].decode("utf-8", errors="replace").replace("\n", " ")
                         diagnostics.append(
