@@ -31,7 +31,7 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
-          from textwrap import dedent
+          from textwrap import dedent, indent
 
           parser_path = Path("src/ashare_f10/validation/documents/pdf_parser.py")
           text = parser_path.read_text(encoding="utf-8")
@@ -39,8 +39,9 @@ jobs:
               "    def __init__(self, targets: Iterable[TargetField] = DEFAULT_TARGETS) -> None:"
           )
           init_end = text.index("\n    def extract(", init_start)
-          new_init = dedent(
-              '''
+          new_init = indent(
+              dedent(
+                  '''
                   def __init__(self, targets: Iterable[TargetField] = DEFAULT_TARGETS) -> None:
                       merged: dict[tuple[str, str], TargetField] = {}
                       for target in targets:
@@ -88,20 +89,25 @@ jobs:
                           for target in self.targets
                           if target.statement_type == "summary"
                       )
-              '''
-          ).strip("\n")
+                  '''
+              ).strip("\n"),
+              "    ",
+          )
           text = text[:init_start] + new_init + text[init_end:]
 
           candidates_start = text.index("        candidates:", text.index("    def extract("))
           candidates_end = text.index("\n        active_section", candidates_start)
-          new_candidates = dedent(
-              '''
-                      candidates: dict[tuple[str, str], list[tuple[int, OfficialFact]]] = {
-                          (target.statement_type, target.field_key): []
-                          for target in self.targets
-                      }
-              '''
-          ).strip("\n")
+          new_candidates = indent(
+              dedent(
+                  '''
+                  candidates: dict[tuple[str, str], list[tuple[int, OfficialFact]]] = {
+                      (target.statement_type, target.field_key): []
+                      for target in self.targets
+                  }
+                  '''
+              ).strip("\n"),
+              "        ",
+          )
           text = text[:candidates_start] + new_candidates + text[candidates_end:]
           text = text.replace(
               "candidates[target.field_key].append((score, extracted))",
@@ -118,15 +124,18 @@ jobs:
           marker = '    frame["normalized_unit"] = frame["unit"].fillna("")\n'
           if marker not in text:
               raise SystemExit("Eastmoney normalized-unit marker was not found")
-          override = dedent(
-              '''
+          override = indent(
+              dedent(
+                  '''
                   monetary_override = (
                       (frame["family"] == "RPT_F10_FINANCE_GBALANCE")
                       & frame["field_key"].isin({"TREASURY_SHARES"})
                   )
                   frame.loc[monetary_override, "unit"] = "元"
                   frame.loc[monetary_override, "normalized_unit"] = "元"
-              '''
+                  '''
+              ),
+              "    ",
           )
           if 'frame["field_key"].isin({"TREASURY_SHARES"})' not in text:
               text = text.replace(marker, marker + override, 1)
