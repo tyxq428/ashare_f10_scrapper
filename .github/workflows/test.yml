@@ -22,7 +22,10 @@ jobs:
           import gzip
           from pathlib import Path
 
-          payload = Path(".validation-bootstrap/pdf_parser.py.gz.b64").read_text(encoding="ascii").strip()
+          parts = sorted(Path(".validation-bootstrap/parser_parts").glob("part_*.txt"))
+          if len(parts) != 5:
+              raise SystemExit(f"Expected 5 parser parts, found {len(parts)}")
+          payload = "".join(path.read_text(encoding="ascii").strip() for path in parts)
           target = Path("src/ashare_f10/validation/documents/pdf_parser.py")
           target.write_bytes(gzip.decompress(base64.b64decode(payload)))
           PY
