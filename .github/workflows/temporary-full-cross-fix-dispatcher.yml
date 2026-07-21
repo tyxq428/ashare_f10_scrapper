@@ -1,0 +1,81 @@
+name: Temporary Full Cross Fix Dispatcher
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/full-cross-validation-dispatch-trigger.txt"
+
+permissions:
+  contents: write
+
+env:
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  materialize-fix-and-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/full-cross-validation-v1
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Reconstruct and verify patch archive
+        run: |
+          set -euo pipefail
+          cat .full-cross-validation-bootstrap/part_*.txt | base64 --decode > /tmp/full-cross-patch.tar.gz
+          echo "a8b204da67440193d9de0a57325fa2faf1edb50222db74ca7a8029a81c3daa3e  /tmp/full-cross-patch.tar.gz" | sha256sum --check --strict
+          mkdir -p /tmp/full-cross-patch
+          tar -xzf /tmp/full-cross-patch.tar.gz -C /tmp/full-cross-patch
+      - name: Apply deterministic platform patch
+        run: python /tmp/full-cross-patch/scripts/apply_full_cross_validation_patch.py "$GITHUB_WORKSPACE" /tmp/full-cross-patch
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e ".[dev]"
+      - name: Apply safe formatting and lint fixes
+        run: |
+          set -euo pipefail
+          TARGETS="src/ashare_f10/cross_validation src/ashare_f10/validation/documents/pdf_parser.py src/ashare_f10/cli.py src/ashare_f10/api/app.py tests/test_cross_validation_registry.py tests/test_cross_validation_comparator.py tests/test_cross_validation_derived.py scripts/verify_full_cross_validation.py"
+          ruff format $TARGETS
+          ruff check --fix --unsafe-fixes $TARGETS
+          ruff check src tests scripts/verify_full_cross_validation.py
+      - name: Static and unit tests
+        run: |
+          python -m compileall -q src
+          node --check src/ashare_f10/web/app.js
+          node --check src/ashare_f10/web/cross-validation.js
+          pytest --cov=ashare_f10 --cov-report=term-missing
+      - name: Remove bootstrap transport
+        run: |
+          rm -rf .full-cross-validation-bootstrap
+          rm -f .github/workflows/bootstrap-full-cross-validation.yml
+      - name: Commit materialized platform
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Full cross-validation platform is already materialized."
+          else
+            git commit -m "Build full dual-source cross-validation platform"
+            git push origin HEAD:feature/full-cross-validation-v1
+          fi
+      - name: Real 688521 one-input dual-source E2E
+        run: |
+          set -o pipefail
+          ashare-f10 run-and-validate 688521 --output full-cross-validation-run --workers 8 --max-periods 2 2>&1 | tee full-cross-validation.log
+          python scripts/verify_full_cross_validation.py full-cross-validation-run
+      - name: Upload full cross-validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-cross-validation-688521-${{ github.run_id }}
+          path: |
+            full-cross-validation-run/
+            full-cross-validation.log
+          if-no-files-found: warn
+          retention-days: 30
