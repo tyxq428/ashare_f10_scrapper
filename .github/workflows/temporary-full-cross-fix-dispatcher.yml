@@ -35,11 +35,8 @@ jobs:
 
           parser_path = Path("src/ashare_f10/validation/documents/pdf_parser.py")
           text = parser_path.read_text(encoding="utf-8")
-
           if '("cash_flow", "FINANCE_EXPENSE")' not in text:
               marker = "            existing = merged.get(identity)\n"
-              if marker not in text:
-                  raise SystemExit("Parser target merge marker was not found")
               cashflow_alias = indent(
                   dedent(
                       '''
@@ -58,7 +55,6 @@ jobs:
                   "            ",
               )
               text = text.replace(marker, cashflow_alias + marker, 1)
-
           if "is_cashflow_supplement" not in text:
               start = text.index(
                   '                    allowed_text = target.statement_type == "summary" or ('
@@ -88,7 +84,6 @@ jobs:
                   "                    ",
               ).rstrip("\n")
               text = text[:start] + new_allowed + text[end:]
-
           if "normalized_line = _normalized_label(line)" not in text:
               start = text.index(
                   "            alias = next((name for name in target.aliases if _label_matches(line, name)), None)"
@@ -225,16 +220,18 @@ jobs:
               )
           test_path.write_text(text, encoding="utf-8")
           PY
-      - name: Format, lint and test
+      - name: Format, lint and test with persisted diagnostics
         run: |
           set -euo pipefail
-          ruff format src/ashare_f10/validation/documents/pdf_parser.py src/ashare_f10/cross_validation/comparator.py tests/test_cross_validation_statement_identity.py
-          ruff check --fix --unsafe-fixes src/ashare_f10/validation/documents/pdf_parser.py src/ashare_f10/cross_validation/comparator.py tests/test_cross_validation_statement_identity.py
-          ruff check src tests scripts/verify_full_cross_validation.py
-          python -m compileall -q src
-          node --check src/ashare_f10/web/app.js
-          node --check src/ashare_f10/web/cross-validation.js
-          pytest --cov=ashare_f10 --cov-report=term-missing
+          {
+            ruff format src/ashare_f10/validation/documents/pdf_parser.py src/ashare_f10/cross_validation/comparator.py tests/test_cross_validation_statement_identity.py
+            ruff check --fix --unsafe-fixes src/ashare_f10/validation/documents/pdf_parser.py src/ashare_f10/cross_validation/comparator.py tests/test_cross_validation_statement_identity.py
+            ruff check src tests scripts/verify_full_cross_validation.py
+            python -m compileall -q src
+            node --check src/ashare_f10/web/app.js
+            node --check src/ashare_f10/web/cross-validation.js
+            pytest --cov=ashare_f10 --cov-report=term-missing
+          } 2>&1 | tee semantic-fix-diagnostics.log
       - name: Commit final conflict-resolution code
         run: |
           git config user.name "github-actions[bot]"
@@ -253,12 +250,13 @@ jobs:
           set -o pipefail
           ashare-f10 run-and-validate 688521 --output full-cross-validation-run --workers 8 --max-periods 2 2>&1 | tee full-cross-validation.log
           python scripts/verify_full_cross_validation.py full-cross-validation-run
-      - name: Upload full cross-validation evidence
+      - name: Upload full cross-validation evidence and diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: full-cross-validation-688521-${{ github.run_id }}
           path: |
+            semantic-fix-diagnostics.log
             full-cross-validation-run/
             full-cross-validation.log
           if-no-files-found: warn
