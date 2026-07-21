@@ -66,8 +66,7 @@ jobs:
               raise SystemExit(f"corrected part_08 length is {len(part_08)}, expected 6000")
           chunks.append(part_08)
 
-          part_09_path = root / "part_09"
-          part_09 = "".join(part_09_path.read_text(encoding="utf-8").split())
+          part_09 = "".join((root / "part_09").read_text(encoding="utf-8").split())
           lengths.append(f"part_09: raw={len(part_09)} selected=1324")
           if len(part_09) < 1324:
               raise SystemExit(f"part_09 is too short: {len(part_09)}")
@@ -78,8 +77,6 @@ jobs:
               raise SystemExit(f"unexpected base64 length: {len(payload)}")
           Path("work/raw-pack-batches-1-4.b64").write_text(payload, encoding="ascii")
           Path("work/part-lengths.txt").write_text("\n".join(lengths) + f"\ntotal={len(payload)}\n", encoding="utf-8")
-          print("\n".join(lengths))
-          print(f"total={len(payload)}")
           PYCODE
           base64 --decode work/raw-pack-batches-1-4.b64 > work/raw-pack-batches-1-4.tar.gz
           echo '7280ae2b6826b909360ec76ba6a5b471205dc6b7dac1e9d0dae167b61a90c373  work/raw-pack-batches-1-4.tar.gz' | sha256sum --check -
@@ -106,8 +103,10 @@ jobs:
             mkdir -p "target/$(dirname "$file")"
             cp "work/payload/$file" "target/$file"
           done < work/payload/.raw-pack-batch1
-          ruff check target/src/ashare_f10/raw_sources target/tests/test_raw_pack_models.py target/tests/test_raw_pack_manifest.py
-          pytest -q target/tests/test_raw_pack_models.py target/tests/test_raw_pack_manifest.py
+          ruff format target/src/ashare_f10/raw_sources target/tests/test_raw_pack_models.py target/tests/test_raw_pack_manifest.py | tee work/batch1-format.log
+          ruff check --fix target/src/ashare_f10/raw_sources target/tests/test_raw_pack_models.py target/tests/test_raw_pack_manifest.py | tee work/batch1-ruff-fix.log
+          ruff check target/src/ashare_f10/raw_sources target/tests/test_raw_pack_models.py target/tests/test_raw_pack_manifest.py | tee work/batch1-ruff.log
+          pytest -q target/tests/test_raw_pack_models.py target/tests/test_raw_pack_manifest.py | tee work/batch1-pytest.log
           git -C target add --all
           git -C target commit -m 'Raw Pack: add schema manifest and models'
           git -C target push origin HEAD:feature/raw-pack-v1
@@ -121,8 +120,10 @@ jobs:
             mkdir -p "target/$(dirname "$file")"
             cp "work/payload/$file" "target/$file"
           done < work/payload/.raw-pack-batch2
-          ruff check target/src/ashare_f10/raw_sources target/tests/test_raw_pack_downloader.py target/tests/test_raw_pack_parsers.py target/tests/test_raw_pack_status_router.py
-          pytest -q target/tests/test_raw_pack_downloader.py target/tests/test_raw_pack_parsers.py target/tests/test_raw_pack_status_router.py
+          ruff format target/src/ashare_f10/raw_sources target/tests/test_raw_pack_downloader.py target/tests/test_raw_pack_parsers.py target/tests/test_raw_pack_status_router.py | tee work/batch2-format.log
+          ruff check --fix target/src/ashare_f10/raw_sources target/tests/test_raw_pack_downloader.py target/tests/test_raw_pack_parsers.py target/tests/test_raw_pack_status_router.py | tee work/batch2-ruff-fix.log
+          ruff check target/src/ashare_f10/raw_sources target/tests/test_raw_pack_downloader.py target/tests/test_raw_pack_parsers.py target/tests/test_raw_pack_status_router.py | tee work/batch2-ruff.log
+          pytest -q target/tests/test_raw_pack_downloader.py target/tests/test_raw_pack_parsers.py target/tests/test_raw_pack_status_router.py | tee work/batch2-pytest.log
           git -C target add --all
           git -C target commit -m 'Raw Pack: add downloader parsers and status routing'
           git -C target push origin HEAD:feature/raw-pack-v1
@@ -136,8 +137,10 @@ jobs:
             mkdir -p "target/$(dirname "$file")"
             cp "work/payload/$file" "target/$file"
           done < work/payload/.raw-pack-batch3
-          ruff check target/src/ashare_f10/raw_sources target/tests/test_raw_pack_entity_matcher.py
-          pytest -q target/tests/test_raw_pack_entity_matcher.py
+          ruff format target/src/ashare_f10/raw_sources target/tests/test_raw_pack_entity_matcher.py | tee work/batch3-format.log
+          ruff check --fix target/src/ashare_f10/raw_sources target/tests/test_raw_pack_entity_matcher.py | tee work/batch3-ruff-fix.log
+          ruff check target/src/ashare_f10/raw_sources target/tests/test_raw_pack_entity_matcher.py | tee work/batch3-ruff.log
+          pytest -q target/tests/test_raw_pack_entity_matcher.py | tee work/batch3-pytest.log
           git -C target add --all
           git -C target commit -m 'Raw Pack: add SSE collection and entity matching'
           git -C target push origin HEAD:feature/raw-pack-v1
@@ -151,16 +154,18 @@ jobs:
             mkdir -p "target/$(dirname "$file")"
             cp "work/payload/$file" "target/$file"
           done < work/payload/.raw-pack-batch4
-          ruff check target/src/ashare_f10/raw_sources target/src/ashare_f10/cli.py target/src/ashare_f10/api/raw_pack.py target/src/ashare_f10/api/app_with_raw_pack.py target/tests/test_raw_pack_exporter.py target/tests/test_raw_pack_api.py
-          pytest -q target/tests/test_raw_pack_exporter.py target/tests/test_raw_pack_api.py
+          ruff format target/src/ashare_f10/raw_sources target/src/ashare_f10/cli.py target/src/ashare_f10/api/raw_pack.py target/src/ashare_f10/api/app_with_raw_pack.py target/tests/test_raw_pack_exporter.py target/tests/test_raw_pack_api.py | tee work/batch4-format.log
+          ruff check --fix target/src/ashare_f10/raw_sources target/src/ashare_f10/cli.py target/src/ashare_f10/api/raw_pack.py target/src/ashare_f10/api/app_with_raw_pack.py target/tests/test_raw_pack_exporter.py target/tests/test_raw_pack_api.py | tee work/batch4-ruff-fix.log
+          ruff check target/src/ashare_f10/raw_sources target/src/ashare_f10/cli.py target/src/ashare_f10/api/raw_pack.py target/src/ashare_f10/api/app_with_raw_pack.py target/tests/test_raw_pack_exporter.py target/tests/test_raw_pack_api.py | tee work/batch4-ruff.log
+          pytest -q target/tests/test_raw_pack_exporter.py target/tests/test_raw_pack_api.py | tee work/batch4-pytest.log
           git -C target add --all
           git -C target commit -m 'Raw Pack: add exporter CLI and API'
           git -C target push origin HEAD:feature/raw-pack-v1
 
       - name: Verify all staged Raw Pack tests
         run: |
-          ruff check target/src/ashare_f10/raw_sources target/src/ashare_f10/cli.py target/src/ashare_f10/api/raw_pack.py target/src/ashare_f10/api/app_with_raw_pack.py target/tests/test_raw_pack_*.py
-          pytest -q target/tests/test_raw_pack_models.py target/tests/test_raw_pack_manifest.py target/tests/test_raw_pack_downloader.py target/tests/test_raw_pack_parsers.py target/tests/test_raw_pack_status_router.py target/tests/test_raw_pack_entity_matcher.py target/tests/test_raw_pack_exporter.py target/tests/test_raw_pack_api.py
+          ruff check target/src/ashare_f10/raw_sources target/src/ashare_f10/cli.py target/src/ashare_f10/api/raw_pack.py target/src/ashare_f10/api/app_with_raw_pack.py target/tests/test_raw_pack_*.py | tee work/final-ruff.log
+          pytest -q target/tests/test_raw_pack_models.py target/tests/test_raw_pack_manifest.py target/tests/test_raw_pack_downloader.py target/tests/test_raw_pack_parsers.py target/tests/test_raw_pack_status_router.py target/tests/test_raw_pack_entity_matcher.py target/tests/test_raw_pack_exporter.py target/tests/test_raw_pack_api.py | tee work/final-pytest.log
           git -C target log --oneline -5 > work/raw-pack-staged-commits.txt
 
       - name: Upload dispatcher verification
@@ -169,9 +174,9 @@ jobs:
         with:
           name: raw-pack-dispatch-${{ github.run_id }}
           path: |
+            work/*.log
             work/raw-pack-staged-commits.txt
             work/raw-pack-batches-1-4.tar.gz
-            work/raw-pack-batches-1-4.b64
             work/part-lengths.txt
           if-no-files-found: warn
           retention-days: 7
