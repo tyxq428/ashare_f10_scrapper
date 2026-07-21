@@ -1,2 +1,2 @@
 validate 002352 official disclosure integration
-revision: 3 persist parser diagnostics
+revision: 4 split summary label cleanup
