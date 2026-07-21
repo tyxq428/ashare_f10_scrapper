@@ -9,6 +9,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin
+from zoneinfo import ZoneInfo
 
 import requests
 
@@ -19,6 +20,7 @@ CNINFO_FULLTEXT_PAGE = "https://www.cninfo.com.cn/new/fulltextSearch"
 CNINFO_LOOKUP_URL = "https://www.cninfo.com.cn/new/information/topSearch/query"
 CNINFO_QUERY_URL = "https://www.cninfo.com.cn/new/hisAnnouncement/query"
 CNINFO_STATIC_HOME = "https://static.cninfo.com.cn/"
+CNINFO_TIMEZONE = ZoneInfo("Asia/Shanghai")
 CNINFO_PERIODIC_CATEGORIES = ";".join(
     (
         "category_ndbg_szsh",
@@ -44,7 +46,9 @@ def _date_text(value: Any) -> str:
     if isinstance(value, (int, float)) or str(value).isdigit():
         number = int(float(value))
         if number > 10_000_000_000:
-            return datetime.fromtimestamp(number / 1000, tz=UTC).date().isoformat()
+            return (
+                datetime.fromtimestamp(number / 1000, tz=UTC).astimezone(CNINFO_TIMEZONE).date().isoformat()
+            )
     text = str(value)
     match = re.search(r"\d{4}-\d{2}-\d{2}", text)
     if match:
