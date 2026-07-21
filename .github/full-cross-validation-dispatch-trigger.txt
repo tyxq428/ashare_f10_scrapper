@@ -1,2 +1,2 @@
 trigger full cross-validation materialization and 688521 E2E
-revision: 3 persist diagnostic artifact
+revision: 4 missing archive parts restored
