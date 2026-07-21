@@ -1,0 +1,84 @@
+name: Temporary CNINFO Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/temporary-cninfo-probe.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: Probe official CNINFO public endpoints
+        run: |
+          python - <<'PY'
+          import json
+          import requests
+
+          session = requests.Session()
+          session.headers.update({
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36",
+              "Accept": "application/json, text/javascript, */*; q=0.01",
+              "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.7",
+              "Referer": "https://www.cninfo.com.cn/new/fulltextSearch?keyWord=002352",
+              "X-Requested-With": "XMLHttpRequest",
+          })
+
+          def show(label, response):
+              print("\n=====", label, "=====")
+              print("status", response.status_code, "url", response.url)
+              print("content-type", response.headers.get("content-type"))
+              text = response.text
+              print(text[:4000])
+
+          try:
+              show("topSearch", session.get(
+                  "https://www.cninfo.com.cn/new/information/topSearch/query",
+                  params={"keyWord": "002352", "maxNum": "10"},
+                  timeout=30,
+              ))
+          except Exception as exc:
+              print("topSearch error", repr(exc))
+
+          payloads = [
+              {
+                  "pageNum": "1", "pageSize": "30", "column": "szse", "tabName": "fulltext",
+                  "plate": "szse", "stock": "002352", "searchkey": "", "secid": "",
+                  "category": "category_ndbg_szsh;category_bndbg_szsh;category_yjdbg_szsh;category_sjdbg_szsh",
+                  "trade": "", "seDate": "2025-01-01~2026-07-21", "sortName": "", "sortType": "",
+                  "isHLtitle": "true",
+              },
+              {
+                  "pageNum": "1", "pageSize": "30", "column": "szse", "tabName": "fulltext",
+                  "plate": "szse", "stock": "002352,9900001501", "searchkey": "", "secid": "",
+                  "category": "category_ndbg_szsh;category_bndbg_szsh;category_yjdbg_szsh;category_sjdbg_szsh",
+                  "trade": "", "seDate": "2025-01-01~2026-07-21", "sortName": "", "sortType": "",
+                  "isHLtitle": "true",
+              },
+              {
+                  "pageNum": "1", "pageSize": "30", "column": "szse", "tabName": "fulltext",
+                  "plate": "", "stock": "002352", "searchkey": "", "secid": "",
+                  "category": "", "trade": "", "seDate": "2025-01-01~2026-07-21",
+                  "sortName": "", "sortType": "", "isHLtitle": "true",
+              },
+          ]
+          for index, data in enumerate(payloads, 1):
+              try:
+                  response = session.post(
+                      "https://www.cninfo.com.cn/new/hisAnnouncement/query",
+                      data=data,
+                      timeout=45,
+                  )
+                  show(f"hisAnnouncement-{index}", response)
+              except Exception as exc:
+                  print(f"hisAnnouncement-{index} error", repr(exc))
+          PY
