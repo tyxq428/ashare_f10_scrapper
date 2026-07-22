@@ -6,7 +6,11 @@ from typing import Any
 
 from ashare_f10.api.visual_jobs import (
     DEFAULT_VISUAL_OPTIONS as LEGACY_DEFAULT_VISUAL_OPTIONS,
+)
+from ashare_f10.api.visual_jobs import (
     VisualJobManager as LegacyVisualJobManager,
+)
+from ashare_f10.api.visual_jobs import (
     normalize_visual_options as normalize_legacy_options,
 )
 from ashare_f10.config import Settings
