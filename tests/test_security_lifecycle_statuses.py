@@ -70,3 +70,31 @@ def test_lifecycle_period_frame_is_complete() -> None:
         == "OFFICIAL_DOCUMENT_EXTRACTION_FAILED"
     )
     assert frame.loc[frame["report_date"] == "2020-12-31", "coverage_status"].iloc[0] == "AVAILABLE"
+
+
+def test_pending_and_summary_only_statuses_are_not_generic_missing() -> None:
+    comparison = pd.DataFrame(
+        [
+            {
+                "report_date": "2021-03-31",
+                "status": "MISSING_OFFICIAL",
+                "verification_grade": "E",
+                "notes": "",
+            },
+            {
+                "report_date": "2026-06-30",
+                "status": "OFFICIAL_PERIOD_NOT_LOADED",
+                "verification_grade": "E",
+                "notes": "",
+            },
+        ]
+    )
+    source_status = {
+        "available_report_dates": ["2026-03-31"],
+        "summary_only_report_dates": ["2021-03-31"],
+    }
+    result = apply_lifecycle_statuses(comparison, source_status)
+    assert result["status"].tolist() == [
+        "OFFICIAL_REPORT_SUMMARY_SCOPE_GAP",
+        "OFFICIAL_REPORT_NOT_YET_DISCLOSED",
+    ]

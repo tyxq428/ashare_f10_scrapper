@@ -165,7 +165,9 @@ def apply_lifecycle_statuses(
     date_values = dates.fillna("").astype(str).str[:10]
     pre_listing = set(source_status.get("pre_listing_report_dates") or [])
     zero_extraction = set(source_status.get("discovered_but_zero_extraction_dates") or [])
+    summary_only = set(source_status.get("summary_only_report_dates") or [])
     post_listing_missing = set(source_status.get("post_listing_missing_report_dates") or [])
+    latest_available = max(source_status.get("available_report_dates") or [""])
 
     pre_mask = date_values.isin(pre_listing) & result["status"].isin(
         ["MISSING_OFFICIAL", "OFFICIAL_PERIOD_NOT_LOADED", "PERIOD_CONFLICT"]
@@ -176,6 +178,26 @@ def apply_lifecycle_statuses(
         "该期间早于证券上市日期，不存在同代码上市公司定期报告；"
         "应由招股说明书或发行上市申报文件验证，当前不判为来源冲突"
     )
+
+    summary_mask = date_values.isin(summary_only) & result["status"].isin(
+        ["MISSING_OFFICIAL", "OFFICIAL_PERIOD_NOT_LOADED"]
+    )
+    result.loc[summary_mask, "status"] = "OFFICIAL_REPORT_SUMMARY_SCOPE_GAP"
+    result.loc[summary_mask, "verification_grade"] = "N/A"
+    result.loc[summary_mask, "notes"] = (
+        "官方旧版季度报告仅披露主要财务数据摘要，不包含完整三张报表；摘要未直接披露的项目不参与一致性判断"
+    )
+
+    pending_mask = pd.Series(False, index=result.index)
+    if latest_available:
+        pending_mask = (
+            ~date_values.isin(post_listing_missing)
+            & (date_values > latest_available)
+            & result["status"].eq("OFFICIAL_PERIOD_NOT_LOADED")
+        )
+    result.loc[pending_mask, "status"] = "OFFICIAL_REPORT_NOT_YET_DISCLOSED"
+    result.loc[pending_mask, "verification_grade"] = "N/A"
+    result.loc[pending_mask, "notes"] = "该报告期晚于最新已披露官方报告期，报告尚未公开，不参与一致性判断"
 
     zero_mask = date_values.isin(zero_extraction) & result["status"].isin(
         ["MISSING_OFFICIAL", "OFFICIAL_PERIOD_NOT_LOADED"]
@@ -195,13 +217,19 @@ def apply_lifecycle_statuses(
 
 def lifecycle_period_frame(source_status: dict[str, Any]) -> pd.DataFrame:
     lifecycle = source_status.get("security_lifecycle") or {}
-    requested = lifecycle.get("requested_report_dates") or source_status.get("requested_report_dates") or []
+    requested = list(
+        lifecycle.get("requested_report_dates") or source_status.get("requested_report_dates") or []
+    )
+    requested.extend(source_status.get("not_yet_disclosed_report_dates") or [])
+    requested = sorted(set(requested))
     pre_listing = set(
         lifecycle.get("pre_listing_report_dates") or source_status.get("pre_listing_report_dates") or []
     )
     transition = set(lifecycle.get("listing_transition_report_dates") or [])
     available = set(source_status.get("available_report_dates") or [])
     zero_extraction = set(source_status.get("discovered_but_zero_extraction_dates") or [])
+    summary_only = set(source_status.get("summary_only_report_dates") or [])
+    pending = set(source_status.get("not_yet_disclosed_report_dates") or [])
     post_missing = set(source_status.get("post_listing_missing_report_dates") or [])
     extraction = source_status.get("extraction_by_report_date") or {}
     rows: list[dict[str, Any]] = []
@@ -211,22 +239,29 @@ def lifecycle_period_frame(source_status: dict[str, Any]) -> pd.DataFrame:
             coverage_status = "PRE_LISTING_OFFICIAL_SOURCE_NOT_LOADED"
         elif report_date in transition:
             period_class = "LISTING_TRANSITION_PERIOD"
-            coverage_status = (
-                "OFFICIAL_DOCUMENT_EXTRACTION_FAILED"
-                if report_date in zero_extraction
-                else ("AVAILABLE" if report_date in available else "POST_LISTING_OFFICIAL_REPORT_NOT_FOUND")
-            )
+            if report_date in summary_only:
+                coverage_status = "OFFICIAL_REPORT_SUMMARY_SCOPE_GAP"
+            elif report_date in zero_extraction:
+                coverage_status = "OFFICIAL_DOCUMENT_EXTRACTION_FAILED"
+            elif report_date in available:
+                coverage_status = "AVAILABLE"
+            else:
+                coverage_status = "POST_LISTING_OFFICIAL_REPORT_NOT_FOUND"
+        elif report_date in pending:
+            period_class = "POST_LISTING_PERIOD_NOT_YET_DISCLOSED"
+            coverage_status = "OFFICIAL_REPORT_NOT_YET_DISCLOSED"
         else:
             period_class = "POST_LISTING_PERIODIC_EXPECTED"
-            coverage_status = (
-                "OFFICIAL_DOCUMENT_EXTRACTION_FAILED"
-                if report_date in zero_extraction
-                else (
-                    "POST_LISTING_OFFICIAL_REPORT_NOT_FOUND"
-                    if report_date in post_missing
-                    else ("AVAILABLE" if report_date in available else "UNRESOLVED")
-                )
-            )
+            if report_date in summary_only:
+                coverage_status = "OFFICIAL_REPORT_SUMMARY_SCOPE_GAP"
+            elif report_date in zero_extraction:
+                coverage_status = "OFFICIAL_DOCUMENT_EXTRACTION_FAILED"
+            elif report_date in post_missing:
+                coverage_status = "POST_LISTING_OFFICIAL_REPORT_NOT_FOUND"
+            elif report_date in available:
+                coverage_status = "AVAILABLE"
+            else:
+                coverage_status = "UNRESOLVED"
         rows.append(
             {
                 "security_code": lifecycle.get("security_code") or "",

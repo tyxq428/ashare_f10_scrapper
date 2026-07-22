@@ -426,6 +426,8 @@ class CrossValidationExporter:
                         "PRE_LISTING_OFFICIAL_SOURCE_NOT_LOADED",
                         "OFFICIAL_DOCUMENT_EXTRACTION_FAILED",
                         "POST_LISTING_OFFICIAL_REPORT_NOT_FOUND",
+                        "OFFICIAL_REPORT_SUMMARY_SCOPE_GAP",
+                        "OFFICIAL_REPORT_NOT_YET_DISCLOSED",
                     ]
                 )
             ]

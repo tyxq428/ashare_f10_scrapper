@@ -475,6 +475,51 @@ def _section_from_text(text: str) -> tuple[str | None, str | None]:
     return (events[-1][1], events[-1][2]) if events else (None, None)
 
 
+SUMMARY_DIRECT_ALIASES = {
+    "总资产",
+    "资产总计",
+    "归属于上市公司股东的净资产",
+    "归属于母公司股东的净资产",
+    "经营活动产生的现金流量净额",
+    "营业收入",
+    "归属于上市公司股东的净利润",
+    "归属于母公司股东的净利润",
+    "归属于上市公司股东的扣除非经常性损益的净利润",
+    "归属于母公司股东的扣除非经常性损益的净利润",
+    "基本每股收益",
+    "稀释每股收益",
+    "加权平均净资产收益率",
+    "研发投入占营业收入的比例",
+}
+
+
+def _is_summary_direct_target(target: TargetField) -> bool:
+    return any(
+        _compact(alias) in {_compact(item) for item in SUMMARY_DIRECT_ALIASES} for alias in target.aliases
+    )
+
+
+def financial_scope_from_texts(texts: Iterable[str]) -> str:
+    has_summary = False
+    for text in texts:
+        compact = _compact(text)
+        if _heading_events(None, text):
+            return "FULL_STATEMENTS"
+        if "主要财务数据" in compact:
+            has_summary = True
+    return "SUMMARY_ONLY" if has_summary else "UNRESOLVED"
+
+
+def classify_pdf_financial_scope(pdf_path: Path | str) -> str:
+    texts: list[str] = []
+    with pdfplumber.open(Path(pdf_path)) as pdf:
+        for page in pdf.pages:
+            texts.append(
+                page.extract_text(x_tolerance=1.5, y_tolerance=3, layout=True) or page.extract_text() or ""
+            )
+    return financial_scope_from_texts(texts)
+
+
 def _normalized_label(value: Any) -> str:
     label = _compact(value).replace(":", "：")
     label = re.sub(r"^[一二三四五六七八九十百]+、", "", label)
@@ -504,6 +549,7 @@ class PdfStatementParser:
             aliases = target.aliases
             special_aliases = {
                 ("balance_sheet", "TOTAL_LIAB_EQUITY"): ("负债及股东权益总计",),
+                ("balance_sheet", "TOTAL_ASSETS"): ("总资产",),
                 ("income_statement", "FINANCE_EXPENSE"): ("财务（费用）/收入", "财务（费用）收入"),
                 ("income_statement", "PARENT_NETPROFIT"): ("归属于母公司所有者的净利润",),
                 ("cash_flow", "NETCASH_OPERATE"): (
@@ -621,6 +667,7 @@ class PdfStatementParser:
                     previous_unit = unit
 
                 compact_text = _compact(text)
+                is_key_financial_summary_page = "主要财务数据" in compact_text and page_number <= 5
                 has_summary_alias = "扣除非经常性损益" in compact_text or any(
                     _compact(alias) in compact_text
                     for target in self.summary_targets
@@ -662,10 +709,12 @@ class PdfStatementParser:
                         and target.field_key == "FINANCE_EXPENSE"
                         and _compact("财务费用（收益以“－”号填列）") in compact_text
                     )
+                    is_summary_direct = is_key_financial_summary_page and _is_summary_direct_target(target)
                     allowed_text = (
                         target.statement_type == "summary"
                         or (page_section == target.statement_type and page_scope != "parent")
                         or is_cashflow_supplement
+                        or is_summary_direct
                     )
                     if not allowed_text:
                         continue
@@ -676,6 +725,7 @@ class PdfStatementParser:
                         page_number,
                         unit,
                         page_scope or "consolidated",
+                        max_width=6 if is_summary_direct else 3,
                     )
                     if extracted:
                         base_score = 140 if document.source == "CNINFO" else 60
@@ -774,13 +824,14 @@ class PdfStatementParser:
         page_number: int,
         unit: tuple[str, float],
         scope: str,
+        max_width: int = 3,
     ) -> OfficialFact | None:
         lines = [_clean_row(line) for line in text.splitlines() if _clean_row(line)]
         candidates: list[tuple[int, int, str, tuple[float, int, str], tuple[str, float], str]] = []
         seen: set[tuple[int, int, str, int]] = set()
 
         for start in range(len(lines)):
-            for width in (1, 2, 3):
+            for width in range(1, max_width + 1):
                 end = min(len(lines), start + width)
                 if end <= start:
                     continue
@@ -842,7 +893,7 @@ class PdfStatementParser:
                     normalized_context = _normalized_label(label_context)
                     normalized_alias = _normalized_label(alias)
                     exact_bonus = 40 if normalized_context == normalized_alias else 20
-                    width_bonus = {1: 30, 2: 20, 3: 10}[width]
+                    width_bonus = max(0, 40 - 10 * width)
                     score = relation_score + exact_bonus + width_bonus
                     identity = (start, end, alias, numeric_index)
                     if identity in seen:

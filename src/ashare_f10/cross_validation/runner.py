@@ -34,7 +34,10 @@ from ashare_f10.cross_validation.process_policy import ensure_process_policy
 from ashare_f10.cross_validation.registry import FieldValidationRegistry
 from ashare_f10.cross_validation.targets import build_dynamic_targets
 from ashare_f10.fetch.security import parse_security
-from ashare_f10.validation.documents.pdf_parser import PdfStatementParser
+from ashare_f10.validation.documents.pdf_parser import (
+    PdfStatementParser,
+    classify_pdf_financial_scope,
+)
 from ashare_f10.validation.models import OfficialFact
 from ashare_f10.validation.reconcile.engine import build_logic_checks, build_ttm_checks
 from ashare_f10.validation.sources.cninfo import CNInfoOfficialSource
@@ -257,6 +260,8 @@ class FullCrossValidationRunner:
         parsed_cache_dir.mkdir(parents=True, exist_ok=True)
 
         def parse_document(document):
+            path = Path(document.local_path)
+            document_scope_by_report_date[document.report_date] = classify_pdf_financial_scope(path)
             cache_path = parsed_cache_dir / f"{document.sha256}-{PARSER_CACHE_VERSION}.json"
             if cache_path.exists():
                 try:
@@ -269,7 +274,7 @@ class FullCrossValidationRunner:
                 except Exception:  # noqa: BLE001
                     cache_path.unlink(missing_ok=True)
             parser = PdfStatementParser(targets)
-            facts = parser.extract(document.local_path, document)
+            facts = parser.extract(path, document)
             temporary = cache_path.with_suffix(".json.tmp")
             temporary.write_text(
                 json.dumps([fact.to_dict() for fact in facts], ensure_ascii=False, indent=2),
@@ -281,6 +286,7 @@ class FullCrossValidationRunner:
         official_records: list[dict[str, Any]] = []
         extraction_by_document: dict[str, int] = {}
         extraction_by_report_date: dict[str, int] = {}
+        document_scope_by_report_date: dict[str, str] = {}
         parser_cache_hits = 0
         with ThreadPoolExecutor(max_workers=max(1, min(3, len(downloaded) or 1))) as executor:
             futures = [executor.submit(parse_document, document) for document in downloaded]
@@ -322,8 +328,15 @@ class FullCrossValidationRunner:
             official = pd.concat([official, metadata], ignore_index=True, sort=False)
         available_dates = sorted({item.report_date for item in downloaded})
         post_listing_missing = sorted(set(periodic_report_dates) - set(available_dates))
+        summary_only_dates = sorted(
+            report_date
+            for report_date, scope in document_scope_by_report_date.items()
+            if scope == "SUMMARY_ONLY"
+        )
         zero_extraction_dates = sorted(
-            report_date for report_date, count in extraction_by_report_date.items() if count == 0
+            report_date
+            for report_date, count in extraction_by_report_date.items()
+            if count == 0 and report_date not in summary_only_dates
         )
         source_status = {
             "source": source_name,
@@ -336,6 +349,8 @@ class FullCrossValidationRunner:
             "missing_report_dates": post_listing_missing,
             "post_listing_missing_report_dates": post_listing_missing,
             "discovered_but_zero_extraction_dates": zero_extraction_dates,
+            "summary_only_report_dates": summary_only_dates,
+            "document_scope_by_report_date": document_scope_by_report_date,
             "document_count": len(downloaded),
             "official_fact_count": len(official),
             "extraction_by_document": extraction_by_document,
@@ -388,6 +403,16 @@ class FullCrossValidationRunner:
         comparator = CrossSourceComparator(registry_frame)
         comparison = comparator.compare(eastmoney, official)
         comparison = apply_lifecycle_statuses(comparison, source_status)
+        source_status["not_yet_disclosed_report_dates"] = sorted(
+            {
+                str(value)[:10]
+                for value in comparison.loc[
+                    comparison["status"] == "OFFICIAL_REPORT_NOT_YET_DISCLOSED",
+                    "report_date",
+                ]
+                if value not in (None, "") and not pd.isna(value)
+            }
+        )
         source_unavailable = source_status.get("source") == "UNAVAILABLE"
         if source_unavailable:
             unavailable_mask = comparison["status"] == "MISSING_OFFICIAL"
@@ -436,6 +461,8 @@ class FullCrossValidationRunner:
                     "PRE_LISTING_OFFICIAL_SOURCE_NOT_LOADED",
                     "OFFICIAL_DOCUMENT_EXTRACTION_FAILED",
                     "POST_LISTING_OFFICIAL_REPORT_NOT_FOUND",
+                    "OFFICIAL_REPORT_SUMMARY_SCOPE_GAP",
+                    "OFFICIAL_REPORT_NOT_YET_DISCLOSED",
                 ]
             )
             .sum()
