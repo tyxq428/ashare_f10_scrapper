@@ -130,3 +130,17 @@
 - **根因**：不同功能直接改动高频共享入口，虽然逻辑不冲突，Git层面仍会产生同路径合并风险。
 - **修复**：恢复共享文件到main，使用规范`visual_execution.py`转发到V2实现；定向测试留在独立Workflow。
 - **预防规则**：并行开发优先使用扩展模块和稳定转发层，尽量不修改对方正在变更的聚合入口。
+
+## GHA-006 网络不可达错误未进入有限重试
+
+- **现象**：Post-merge全历史验证访问上交所时出现`NewConnectionError`、`Max retries exceeded`和`[Errno 101] Network is unreachable`，但有限重试器把它判为不可重试并在第一次失败后停止。
+- **根因**：重试正则只覆盖HTTP状态、timeout、connection reset和DNS等常见文案，没有覆盖urllib3/操作系统产生的“建立新连接失败”和“网络不可达”表达。
+- **修复**：将`Network is unreachable`、`Failed to establish a new connection`、`Max retries exceeded`、`NewConnectionError`以及errno 101/110/111/113加入重试分类，并使用实际SSE错误文本增加回归测试。
+- **预防规则**：重试分类必须包含HTTP、DNS、TLS、socket errno及主流HTTP库包装异常的代表性fixture；非网络类`OfficialSourceError`仍应立即停止。
+
+## GHA-007 Post-merge验证必须能够阻断收尾
+
+- **现象**：合并前全部门禁通过，但合并后独立验证暴露了网络重试分类缺口。
+- **根因**：真实网络故障组合只有在新的独立运行中才出现，单纯复用合并前结果无法覆盖运行环境变化。
+- **修复**：关闭未合并的临时验证PR，独立创建并合并热修复PR，再从最新`main`重新触发五项完整门禁。
+- **预防规则**：重要功能必须保留“合并后临时PR复验—失败则热修复—重新全门禁—关闭并重置临时分支”的闭环，未通过时不得写100%完成。
