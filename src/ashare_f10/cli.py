@@ -44,6 +44,14 @@ def _run_raw_pack_if_requested(
     return result
 
 
+def _status_color(status: str) -> str:
+    if status.startswith("FAIL"):
+        return "red"
+    if status.startswith("PASS_WITH") or status.startswith("PARTIAL"):
+        return "yellow"
+    return "green" if status == "PASS" else "yellow"
+
+
 @app.command()
 def fetch(
     stock_code: Annotated[str, typer.Argument(help="六位A股代码")],
@@ -127,11 +135,21 @@ def validate_official(
     output: Annotated[Path | None, typer.Option("--output", "-o", help="验证结果输出目录")] = None,
     annual_year: Annotated[int, typer.Option("--annual-year", help="年度报告所属年度")] = 2025,
     quarter_year: Annotated[int, typer.Option("--quarter-year", help="第一季度报告所属年度")] = 2026,
+    as_of_date: Annotated[
+        str | None, typer.Option("--as-of-date", help="研究截止日YYYY-MM-DD；默认运行当日")
+    ] = None,
 ) -> None:
     """使用免费官方披露文件对F10财务数据进行独立薄切片验证。"""
-    result = run_official_validation(stock_code, run_dir, output, annual_year, quarter_year)
+    result = run_official_validation(
+        stock_code,
+        run_dir,
+        output,
+        annual_year,
+        quarter_year,
+        as_of_date,
+    )
     status = str(result.get("acceptance_status", "UNKNOWN"))
-    color = "green" if status == "PASS" else "yellow" if status.startswith("PARTIAL") else "red"
+    color = _status_color(status)
     console.print(f"[{color}]官方交叉验证状态：{status}[/{color}]")
     console.print_json(json.dumps(result, ensure_ascii=False))
     if status.startswith("FAIL"):
@@ -147,6 +165,9 @@ def run_and_validate(
         int | None, typer.Option("--max-periods", help="最多验证最近N个报告期；默认全部")
     ] = None,
     force: Annotated[bool, typer.Option("--force", help="忽略东方财富检查点重新执行")] = False,
+    as_of_date: Annotated[
+        str | None, typer.Option("--as-of-date", help="研究截止日YYYY-MM-DD；默认运行当日")
+    ] = None,
 ) -> None:
     """一次输入股票代码，生成东方财富、官方披露和双源比较数据包。"""
     if workers:
@@ -168,6 +189,7 @@ def run_and_validate(
         run_dir,
         run_dir / "cross_validation",
         max_periods=max_periods,
+        as_of_date=as_of_date,
     )
     console.print_json(json.dumps(result, ensure_ascii=False))
     if str(result.get("acceptance_status", "")).startswith("FAIL"):
