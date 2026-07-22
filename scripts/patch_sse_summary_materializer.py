@@ -45,6 +45,7 @@ elif "classify downloaded report scope before cache lookup" not in text:
 for helper_name in (
     "patch_sse_summary_materializer_v2.py",
     "patch_sse_summary_materializer_v3.py",
+    "patch_sse_summary_materializer_v4.py",
 ):
     helper = Path(__file__).with_name(helper_name)
     exec(compile(helper.read_text(encoding="utf-8"), str(helper), "exec"))
