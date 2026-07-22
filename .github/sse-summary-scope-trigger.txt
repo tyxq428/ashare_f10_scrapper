@@ -1,2 +1,2 @@
 apply old-quarter summary and pending-period fixes
-revision: 4 pending report precedence corrected
+revision: 5 Q3 cumulative summary value selection
