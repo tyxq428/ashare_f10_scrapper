@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from runpy import run_path
 
-from scripts.run_resilient_fetch import classify_failure
+classify_failure = run_path(
+    str(Path(__file__).resolve().parents[1] / "scripts" / "run_resilient_fetch.py")
+)["classify_failure"]
 
 
 def test_transient_http_502_is_retryable(tmp_path: Path) -> None:
