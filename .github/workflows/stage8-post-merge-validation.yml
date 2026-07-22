@@ -20,23 +20,29 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
-      GH_TOKEN: ${{ github.token }}
       EXPECTED_MAIN_SHA: ${{ github.event.pull_request.base.sha }}
     steps:
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-
       - name: Clone exact main branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: main-clone
+          fetch-depth: 1
+
+      - name: Verify cloned main SHA
+        working-directory: main-clone
         run: |
           set -euo pipefail
-          gh repo clone "$GITHUB_REPOSITORY" main-clone -- --branch main --depth 1
-          cd main-clone
           ACTUAL_MAIN_SHA="$(git rev-parse HEAD)"
           echo "expected_main_sha=$EXPECTED_MAIN_SHA"
           echo "actual_main_sha=$ACTUAL_MAIN_SHA"
           test "$ACTUAL_MAIN_SHA" = "$EXPECTED_MAIN_SHA"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: main-clone/pyproject.toml
 
       - name: Install cloned main
         working-directory: main-clone
