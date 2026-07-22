@@ -1,12 +1,28 @@
 name: Research Pack W08 Matrix
 
 on:
+  push:
+    branches:
+      - feature/f10-research-mapping-evidence-pack-v1
+    paths:
+      - "src/ashare_f10/research_pack/**"
+      - "src/ashare_f10/research_mapping/**"
+      - "src/ashare_f10/evidence/**"
+      - "src/ashare_f10/cross_validation/**"
+      - "src/ashare_f10/resources/field_validation_registry_v1.json"
+      - "tests/test_research_pack*.py"
+      - "tests/test_w08_cninfo_false_conflicts.py"
+      - "scripts/verify_research_pack_e2e.py"
+      - ".github/workflows/research-pack-matrix.yml"
   pull_request:
     paths:
       - "src/ashare_f10/research_pack/**"
       - "src/ashare_f10/research_mapping/**"
       - "src/ashare_f10/evidence/**"
+      - "src/ashare_f10/cross_validation/**"
+      - "src/ashare_f10/resources/field_validation_registry_v1.json"
       - "tests/test_research_pack*.py"
+      - "tests/test_w08_cninfo_false_conflicts.py"
       - "scripts/verify_research_pack_e2e.py"
       - ".github/workflows/research-pack-matrix.yml"
       - "docs/implementation/f10-research-mapping-evidence-pack-v1/W08_plan.md"
@@ -38,8 +54,10 @@ jobs:
             src/ashare_f10/research_pack \
             src/ashare_f10/research_mapping \
             src/ashare_f10/evidence \
+            src/ashare_f10/cross_validation \
             tests/test_research_pack.py \
             tests/test_research_pack_acceptance_matrix.py \
+            tests/test_w08_cninfo_false_conflicts.py \
             scripts/verify_research_pack_e2e.py
       - name: Deterministic multi-market and portability tests
         run: |
@@ -47,6 +65,7 @@ jobs:
           pytest -q \
             tests/test_research_pack.py \
             tests/test_research_pack_acceptance_matrix.py \
+            tests/test_w08_cninfo_false_conflicts.py \
             tests/test_point_in_time.py \
             tests/test_research_mapping.py \
             tests/test_research_extractors.py \
