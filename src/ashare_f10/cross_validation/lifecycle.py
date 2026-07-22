@@ -26,14 +26,25 @@ _LISTING_FAMILY_PRIORITY = {
 def normalize_date(value: Any) -> str | None:
     if value in (None, ""):
         return None
-    text = str(value).strip()
+    text = (
+        str(value)
+        .strip()
+        .replace("年", "-")
+        .replace("月", "-")
+        .replace("日", "")
+        .replace("/", "-")
+        .replace(".", "-")
+    )
     match = re.search(
-        r"(?:19|20)\d{2}[-/.年](?:1[0-2]|0?[1-9])[-/.月](?:3[01]|[12]\d|0?[1-9])",
+        r"(?P<year>(?:19|20)\d{2})-(?P<month>1[0-2]|0?[1-9])-(?P<day>3[01]|[12]\d|0?[1-9])",
         text,
     )
     if match:
-        digits = re.sub(r"\D", "", match.group(0))
-        candidate = f"{digits[:4]}-{digits[4:6]}-{digits[6:8]}"
+        candidate = (
+            f"{int(match.group('year')):04d}-"
+            f"{int(match.group('month')):02d}-"
+            f"{int(match.group('day')):02d}"
+        )
         try:
             date.fromisoformat(candidate)
         except ValueError:
