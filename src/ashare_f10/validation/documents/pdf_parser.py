@@ -504,6 +504,7 @@ def _select_summary_amount(
     target: TargetField,
     document: OfficialDocument,
     context: str,
+    page_text: str = "",
 ) -> tuple[float, int, str] | None:
     """Select the comparable value from key-financial-data summary rows.
 
@@ -524,6 +525,12 @@ def _select_summary_amount(
     ]
     usable = usable or values
     if document.report_kind != "q3" or target.semantics == "point_in_time":
+        return usable[0]
+    compact_page = _compact(page_text)
+    modern_q3_layout = bool(re.search(r"本报告期(?:比上年同期|同比)", compact_page))
+    if not modern_q3_layout:
+        # Pre-2021 SSE summary-only reports expose YTD, prior-year YTD and change.
+        # Their first amount is already the cumulative value; the third is a rate.
         return usable[0]
     if len(usable) >= 3:
         return usable[2]
@@ -907,7 +914,13 @@ class PdfStatementParser:
                     current, _previous = amounts
                     if summary_direct:
                         current = (
-                            _select_summary_amount(numeric_values, target, document, numeric_source)
+                            _select_summary_amount(
+                                numeric_values,
+                                target,
+                                document,
+                                numeric_source,
+                                page_text=text,
+                            )
                             or current
                         )
                     if not math.isfinite(current[0]):

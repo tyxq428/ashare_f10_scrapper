@@ -6,11 +6,9 @@ from ashare_f10.validation.documents.pdf_parser import (
 )
 from ashare_f10.validation.models import OfficialDocument, TargetField
 
-
 MODERN_Q3_HEADER = "本报告期比上年同期增减 年初至报告期末"
 LEGACY_Q3_HEADER = (
-    "本报告期末 上年度末 本报告期末比上年度末增减 "
-    "年初至报告期末 上年初至上年报告期末 比上年同期增减"
+    "本报告期末 上年度末 本报告期末比上年度末增减 年初至报告期末 上年初至上年报告期末 比上年同期增减"
 )
 
 
