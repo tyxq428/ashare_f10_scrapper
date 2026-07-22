@@ -1,7 +1,7 @@
-19 files reformatted, 51 files left unchanged
+1 file reformatted, 70 files left unchanged
 All checks passed!
 All checks passed!
-............................................................             [100%]
+..............................................................           [100%]
 =============================== warnings summary ===============================
 ../../../../../opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/fastapi/testclient.py:1
   /opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
@@ -53,7 +53,7 @@ src/ashare_f10/resources/__init__.py                    0      0   100%
 src/ashare_f10/validation/__init__.py                   3      0   100%
 src/ashare_f10/validation/accounting/__init__.py        0      0   100%
 src/ashare_f10/validation/documents/__init__.py         2      0   100%
-src/ashare_f10/validation/documents/pdf_parser.py     332    118    64%   239, 246, 253, 258, 261-262, 274, 299, 308, 374, 424-431, 434, 495, 519, 539-644, 654-667, 678-715, 734, 760, 766, 770, 782, 797
+src/ashare_f10/validation/documents/pdf_parser.py     339    123    64%   239, 246, 253, 258, 261-262, 274, 299, 308, 376, 426-433, 436, 497, 521, 541-654, 664-677, 688-725, 744, 770, 776, 780, 792, 807
 src/ashare_f10/validation/models.py                   109      6    94%   22, 56, 80, 98, 116, 130
 src/ashare_f10/validation/reconcile/__init__.py         2      0   100%
 src/ashare_f10/validation/reconcile/engine.py         100      4    96%   70, 79, 243, 275
@@ -63,5 +63,5 @@ src/ashare_f10/validation/sources/__init__.py           3      0   100%
 src/ashare_f10/validation/sources/cninfo.py           202     58    71%   45, 52-59, 84, 92, 124-141, 144-163, 167, 175, 182, 192, 232, 236, 240, 248, 253, 272, 275, 289, 302-303, 306-307, 337, 347-351
 src/ashare_f10/validation/sources/sse.py              211     92    56%   72, 77-80, 100, 113, 116, 124, 135-144, 151-153, 181-201, 292, 302-303, 306-308, 315-391
 ---------------------------------------------------------------------------------
-TOTAL                                                5219   2315    56%
-60 passed, 1 warning in 8.14s
+TOTAL                                                5226   2320    56%
+62 passed, 1 warning in 6.51s

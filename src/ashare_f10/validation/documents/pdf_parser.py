@@ -312,10 +312,12 @@ def _label_context(value: Any) -> str:
     text = _clean_row(value)
     text = _NOTE_REFERENCE_PATTERN.sub(" ", text)
     text = _NUMBER_PATTERN.sub(" ", text)
+    text = re.sub(r"[（(][A-Za-z][）)]", " ", text)
     text = re.sub(r"(^|\s)[一二三四五六七八九十百]+(?=\s|$)", " ", text)
     text = re.sub(r"[/／]+", " ", text)
     text = re.sub(r"[—–-]+", " ", text)
     text = text.replace("%", " ")
+    text = re.sub(r"[一二三四五六七八九十百]+$", " ", text)
     return _clean_row(text)
 
 
@@ -562,6 +564,12 @@ class PdfStatementParser:
                 # heading starts a new table after the preceding statement table.
                 if events and events[0][0] <= float(page.height) * 0.45:
                     page_section, page_scope = events[0][1], events[0][2]
+                elif not events and any(
+                    token in _compact(text)
+                    for token in ("股东权益变动表", "所有者权益变动表", "财务报表附注")
+                ):
+                    page_section, page_scope = None, None
+                    active_section, active_scope = None, None
 
                 unit = _unit_info(text)
                 explicit_unit = _page_unit_info(text) is not None
@@ -604,7 +612,8 @@ class PdfStatementParser:
                     if extracted:
                         score = 100 + (15 if extracted.scope == "consolidated" else 0)
                         candidates[(target.statement_type, target.field_key)].append((score, extracted))
-                        continue
+                        if document.source != "CNINFO":
+                            continue
 
                     is_cashflow_supplement = (
                         target.statement_type == "cash_flow"
@@ -627,7 +636,8 @@ class PdfStatementParser:
                         page_scope or "consolidated",
                     )
                     if extracted:
-                        score = 60 + (15 if page_scope == "consolidated" else 0)
+                        base_score = 140 if document.source == "CNINFO" else 60
+                        score = base_score + (15 if page_scope == "consolidated" else 0)
                         candidates[(target.statement_type, target.field_key)].append((score, extracted))
 
                 if events:
