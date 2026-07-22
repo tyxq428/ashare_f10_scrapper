@@ -23,11 +23,22 @@ jobs:
         with:
           ref: ${{ github.head_ref }}
           fetch-depth: 0
+          show-progress: false
       - name: Reconstruct and verify patch archive
         run: |
           set -euo pipefail
-          cat .visual-bootstrap/part_*.txt | base64 --decode > /tmp/visual-patch.tar.xz
-          echo "72a4cb48b8569dc789c441c4ae26301942216d546a1ebb01a6f70d6d5749b4eb  /tmp/visual-patch.tar.xz" | sha256sum -c -
+          echo "part_count=$(find .visual-bootstrap -name 'part_*.txt' -type f | wc -l)"
+          sha1sum .visual-bootstrap/part_*.txt
+          cat .visual-bootstrap/part_*.txt | tr -d '\r\n' > /tmp/visual-patch.b64
+          echo "base64_size=$(wc -c < /tmp/visual-patch.b64)"
+          if LC_ALL=C grep -q '[^A-Za-z0-9+/=]' /tmp/visual-patch.b64; then
+            echo "Invalid character found in split Base64 transport" >&2
+            exit 1
+          fi
+          base64 --decode /tmp/visual-patch.b64 > /tmp/visual-patch.tar.xz
+          ACTUAL_SHA="$(sha256sum /tmp/visual-patch.tar.xz | awk '{print $1}')"
+          echo "archive_sha256=$ACTUAL_SHA"
+          test "$ACTUAL_SHA" = "72a4cb48b8569dc789c441c4ae26301942216d546a1ebb01a6f70d6d5749b4eb"
           tar -tJf /tmp/visual-patch.tar.xz > /tmp/visual-patch-files.txt
           grep -qx 'src/ashare_f10/api/visual_jobs.py' /tmp/visual-patch-files.txt
           if grep -q '^\.github/workflows/' /tmp/visual-patch-files.txt; then
