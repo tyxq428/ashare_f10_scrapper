@@ -1,0 +1,51 @@
+name: Temporary PR21 EPS Unit Fix
+
+on:
+  push:
+    branches:
+      - feature/f10-research-mapping-evidence-pack-v1
+    paths:
+      - "scripts/apply_eps_per_share_unit_fix.py"
+      - ".github/workflows/temporary-pr21-eps-unit-fix.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: temporary-pr21-eps-unit-fix
+  cancel-in-progress: true
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/f10-research-mapping-evidence-pack-v1
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Apply EPS row-unit repair
+        run: python scripts/apply_eps_per_share_unit_fix.py
+      - name: Validate repair
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          python -m compileall -q src scripts
+          ruff check src/ashare_f10/validation/documents/pdf_parser.py tests/test_cninfo_pdf_variants.py
+          pytest -q tests/test_cninfo_pdf_variants.py tests/test_w08_cninfo_false_conflicts.py tests/test_official_validation.py
+      - name: Commit verified repair and remove temporary machinery
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/temporary-pr21-eps-unit-fix.yml
+          git rm scripts/apply_eps_per_share_unit_fix.py
+          git add src/ashare_f10/validation/documents/pdf_parser.py tests/test_cninfo_pdf_variants.py
+          git commit -m "Fix CNINFO per-share unit extraction"
+          git push origin HEAD:feature/f10-research-mapping-evidence-pack-v1
