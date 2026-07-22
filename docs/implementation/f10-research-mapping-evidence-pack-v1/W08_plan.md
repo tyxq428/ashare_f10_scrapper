@@ -31,6 +31,17 @@
 9. 记录网络临时错误、重试次数和最终状态；
 10. 所有失败均按数据、逻辑、来源、环境或权限分类。
 
+## 第一轮实时样本排查
+
+002352第一轮形成27条冲突。逐条检查原始值、官方值、比较方法和公式后确认：
+
+- 25条为杜邦派生金额字段缺少展示单位，错误走文本比较造成的假冲突；
+- 2条为速动比率派生公式只扣存货，遗漏预付款、合同资产、其他流动资产等非速动项目；
+- 会计逻辑检查6项和TTM检查2项均通过；
+- 没有发现需要人工判定的权威来源冲突。
+
+修复策略：为明确的杜邦金额字段配置数值比较政策，按披露口径补全速动资产扣除项，添加真实数值回归测试后重跑完整矩阵。
+
 ## 验收标准
 
 - Test、Ruff和编译检查通过；
@@ -47,6 +58,6 @@
 
 ```yaml
 phase: W08
-checkpoint: W08_PLAN_COMMITTED
-next_action: implement_and_run_research_pack_acceptance_matrix
+checkpoint: W08_CNINFO_FALSE_CONFLICTS_REPAIRED
+next_action: rerun_research_pack_acceptance_matrix
 ```
