@@ -1,19 +1,20 @@
 name: Temporary Research Pack Main Sync
 
-# Triggered after PR #20 merged and PR #21 was retargeted to main.
 on:
-  push:
-    branches:
-      - feature/f10-research-mapping-evidence-pack-v1
-    paths:
-      - ".github/workflows/temporary-research-pack-main-sync.yml"
+  pull_request:
+    branches: [main]
+    types: [synchronize]
 
 permissions:
   contents: write
 
+concurrency:
+  group: temporary-research-pack-main-sync-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   sync:
-    if: github.actor != 'github-actions[bot]'
+    if: github.actor != 'github-actions[bot]' && github.event.pull_request.head.ref == 'feature/f10-research-mapping-evidence-pack-v1'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -27,6 +28,7 @@ jobs:
           cache: pip
       - name: Merge latest main without discarding feature contracts
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch origin main
@@ -34,6 +36,7 @@ jobs:
           python scripts/prepare_research_pack_main_sync.py
       - name: Validate merged result
         run: |
+          set -euo pipefail
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
           python -m compileall -q src scripts
@@ -42,8 +45,10 @@ jobs:
           pytest -q
       - name: Commit and publish verified main sync
         run: |
-          git rm .github/workflows/temporary-research-pack-main-sync.yml
-          git rm scripts/prepare_research_pack_main_sync.py
+          set -euo pipefail
+          git rm -f .github/workflows/temporary-research-pack-main-sync.yml
+          git rm -f .github/workflows/temporary-pr21-main-sync.yml
+          git rm -f scripts/prepare_research_pack_main_sync.py
           git add .
           git commit -m "Merge latest main into Research Pack implementation"
           git push origin HEAD:feature/f10-research-mapping-evidence-pack-v1
