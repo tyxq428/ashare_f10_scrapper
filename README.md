@@ -242,7 +242,7 @@ curl -X POST http://localhost:8000/api/jobs \
 ## 测试
 
 ```bash
-python -m pip install -e "[dev]"
+python -m pip install -e ".[dev]"
 ruff check src tests
 pytest --cov=ashare_f10
 ```
