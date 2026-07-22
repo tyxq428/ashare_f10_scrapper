@@ -1,2 +1,2 @@
 apply old-quarter summary and pending-period fixes
-revision: 5 Q3 cumulative summary value selection
+revision: 6 legacy Q3 summary layout discrimination
