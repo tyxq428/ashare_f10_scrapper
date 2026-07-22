@@ -1,2 +1,2 @@
 apply old-quarter summary and pending-period fixes
-revision: 3 text extractor signature corrected
+revision: 4 pending report precedence corrected
