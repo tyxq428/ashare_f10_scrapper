@@ -1,2 +1,2 @@
 apply old-quarter summary and pending-period fixes
-revision: 7 final Q3 layout regression rerun
+revision: 8 compatibility script restored
