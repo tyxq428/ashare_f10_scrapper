@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
+import os
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 EXPECTED = {
@@ -23,10 +27,27 @@ EXPECTED = {
 }
 EXPECTED_ARCHIVE_SHA256 = "72a4cb48b8569dc789c441c4ae26301942216d546a1ebb01a6f70d6d5749b4eb"
 
-root = Path(".visual-bootstrap")
+repository = os.environ["GITHUB_REPOSITORY"]
+ref = os.environ["HEAD_BRANCH"]
+token = os.environ["GH_TOKEN"]
 chunks: list[bytes] = []
 for name, expected in EXPECTED.items():
-    raw = (root / name).read_bytes()
+    url = (
+        f"https://api.github.com/repos/{repository}/contents/"
+        f".visual-bootstrap/{name}?ref={urllib.parse.quote(ref, safe='')}"
+    )
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "ashare-f10-visual-materializer",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        payload = json.load(response)
+    raw = base64.b64decode(payload["content"])
     actual = hashlib.sha1(f"blob {len(raw)}\0".encode() + raw).hexdigest()
     print(f"{name} bytes={len(raw)} blob={actual} expected={expected}", flush=True)
     if actual != expected:
