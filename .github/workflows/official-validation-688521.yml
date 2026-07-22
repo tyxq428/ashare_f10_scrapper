@@ -13,6 +13,7 @@ on:
       - "scripts/run_full_cross_validation.py"
       - "tests/test_official_validation.py"
       - "tests/test_visual_execution.py"
+      - "tests/test_resilient_fetch.py"
       - "pyproject.toml"
       - ".github/workflows/official-validation-688521.yml"
 
@@ -49,11 +50,12 @@ jobs:
             --backoff-seconds 8 \
             --heartbeat-seconds 15 \
             --report official-validation-run/resilient-fetch-report.json
-      - name: Validate all available official reports with finite retry
+      - name: Validate all available official reports with finite retry and heartbeat
         run: |
           python scripts/run_resilient_command.py \
             --max-attempts 3 \
             --backoff-seconds 10 \
+            --heartbeat-seconds 15 \
             --report official-validation-run/cross_validation/resilient-validation-report.json \
             -- python scripts/run_full_cross_validation.py 688521 official-validation-run \
               --output official-validation-run/cross_validation \
