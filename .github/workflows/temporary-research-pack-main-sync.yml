@@ -1,5 +1,6 @@
 name: Temporary Research Pack Main Sync
 
+# Triggered after PR #20 merged and PR #21 was retargeted to main.
 on:
   push:
     branches:
