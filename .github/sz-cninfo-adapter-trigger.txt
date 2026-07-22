@@ -1,2 +1,2 @@
 validate 002352 official disclosure integration
-revision: 4 split summary label cleanup
+revision: 5 canonical signs row association units
