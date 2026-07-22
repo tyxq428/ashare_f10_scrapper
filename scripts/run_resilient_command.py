@@ -10,7 +10,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 RETRYABLE = re.compile(
-    r"HTTP\s+(?:408|425|429|500|502|503|504)\b|timeout|connection\s+(?:reset|aborted|refused)|temporary failure",
+    r"HTTP\s+(?:408|425|429|500|502|503|504)\b|"
+    r"(?:Connect|Read|Write)?Timeout|timed?\s*out|"
+    r"connection\s+(?:reset|aborted|refused|closed)|"
+    r"remote\s+disconnected|server\s+disconnected|"
+    r"temporary\s+failure|name\s+resolution|TLS|SSL",
     re.IGNORECASE,
 )
 
@@ -32,21 +36,26 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not command:
         parser.error("a command is required after --")
 
+    args.report.parent.mkdir(parents=True, exist_ok=True)
     attempts: list[dict] = []
     for attempt in range(1, max(1, args.max_attempts) + 1):
         print(f"[resilient-command] attempt {attempt}: {subprocess.list2cmdline(command)}", flush=True)
         completed = subprocess.run(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        print(completed.stdout, end="", flush=True)
-        retryable = bool(RETRYABLE.search(completed.stdout or ""))
+        output = completed.stdout or ""
+        print(output, end="", flush=True)
+        retryable = bool(RETRYABLE.search(output))
+        output_log = args.report.parent / f"{args.report.stem}.attempt-{attempt}.log"
+        output_log.write_text(output, encoding="utf-8")
         attempts.append(
             {
                 "attempt": attempt,
                 "return_code": completed.returncode,
                 "retryable": retryable,
+                "output_log": str(output_log),
+                "output_tail": output[-12000:],
                 "completed_at_utc": utc_now(),
             }
         )
-        args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(
             json.dumps(
                 {
