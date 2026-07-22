@@ -167,6 +167,10 @@ def official_fact_columns(frame: pd.DataFrame) -> pd.DataFrame:
         "quality_flags",
         "parse_notes",
         "raw_value",
+        "document_id",
+        "effective_at",
+        "available_at",
+        "extracted_at",
     ]
     for column in columns:
         if column not in frame:
