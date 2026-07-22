@@ -1,16 +1,11 @@
 from __future__ import annotations
 
+import runpy
 from pathlib import Path
 
-path = Path(__file__).with_name("apply_sz_cninfo_parser_fix_v3.py")
-text = path.read_text(encoding="utf-8")
-old = '''    text = _NUMBER_PATTERN.sub(" ", text)
-    text = re.sub(r"(^|\\s)[一二三四五六七八九十百]+(?=\\s|$)", " ", text)
-'''
-new = '''    text = _NUMBER_PATTERN.sub(" ", text)
-    text = re.sub(r"[（(][A-Za-z][）)]", " ", text)
-    text = re.sub(r"(^|\\s)[一二三四五六七八九十百]+(?=\\s|$)", " ", text)
-'''
-if old not in text and 're.sub(r"[（(][A-Za-z][）)]"' not in text:
-    raise SystemExit("CNINFO v3 alphabetic note marker not found")
-path.write_text(text.replace(old, new, 1), encoding="utf-8")
+root = Path(__file__).resolve().parents[1]
+v4 = root / "scripts/apply_sz_cninfo_parser_fix_v4.py"
+v3 = root / "scripts/apply_sz_cninfo_parser_fix_v3.py"
+runpy.run_path(str(v4), run_name="__main__")
+v4.unlink(missing_ok=True)
+v3.write_text("from __future__ import annotations\n", encoding="utf-8")
