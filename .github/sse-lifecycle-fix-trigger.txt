@@ -1,0 +1,2 @@
+apply SSE lifecycle and false-conflict fixes
+revision: 1
