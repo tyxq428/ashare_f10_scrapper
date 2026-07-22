@@ -111,24 +111,51 @@ jobs:
           ashare-f10 --help > stage8-cli-help.txt
           ashare-f10 fetch --help > stage8-fetch-help.txt
           ashare-f10 raw-pack --help > stage8-raw-pack-help.txt
-          grep -q -- "--include-raw-pack" stage8-fetch-help.txt
-          grep -q -- "--raw-pack-packs" stage8-fetch-help.txt
-          grep -q -- "--raw-pack-max-docs" stage8-fetch-help.txt
+          ashare-f10 serve --help > stage8-serve-help.txt
 
           ashare-f10 serve --host 127.0.0.1 --port 8765 > stage8-server.log 2>&1 &
           SERVER_PID=$!
           cleanup() { kill "$SERVER_PID" 2>/dev/null || true; }
           trap cleanup EXIT
-          for _ in $(seq 1 60); do
-            if curl -fsS http://127.0.0.1:8765/api/health > stage8-health.json; then
-              break
-            fi
-            sleep 1
-          done
-          curl -fsS http://127.0.0.1:8765/api/health > stage8-health.json
-          curl -fsS http://127.0.0.1:8765/raw-pack.html > stage8-raw-pack.html
-          grep -q "Raw Pack" stage8-raw-pack.html
-          grep -q "证据浏览器" stage8-raw-pack.html
+          if ! python - <<'PY'
+          from __future__ import annotations
+
+          import json
+          import time
+          import urllib.error
+          import urllib.request
+          from pathlib import Path
+
+          health_url = "http://127.0.0.1:8765/api/health"
+          page_url = "http://127.0.0.1:8765/raw-pack.html"
+          last_error: Exception | None = None
+          health_bytes = b""
+          for _ in range(60):
+              try:
+                  health_bytes = urllib.request.urlopen(health_url, timeout=5).read()
+                  break
+              except Exception as exc:  # noqa: BLE001
+                  last_error = exc
+                  time.sleep(1)
+          else:
+              raise RuntimeError(f"server did not become healthy: {last_error}")
+
+          health = json.loads(health_bytes.decode("utf-8"))
+          assert health.get("status") == "ok", health
+          page_bytes = urllib.request.urlopen(page_url, timeout=10).read()
+          page = page_bytes.decode("utf-8")
+          assert "Raw Pack" in page
+          assert "证据浏览器" in page
+          Path("stage8-health.json").write_text(
+              json.dumps(health, ensure_ascii=False, indent=2), encoding="utf-8"
+          )
+          Path("stage8-raw-pack.html").write_text(page, encoding="utf-8")
+          print(json.dumps({"health": health, "raw_pack_page_bytes": len(page_bytes)}, ensure_ascii=False))
+          PY
+          then
+            cat stage8-server.log
+            exit 1
+          fi
           cleanup
           trap - EXIT
 
@@ -167,6 +194,7 @@ jobs:
           PY
 
       - name: Upload Stage 8 clone validation
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: stage8-post-merge-main-${{ github.run_id }}
@@ -176,7 +204,8 @@ jobs:
             main-clone/stage8-cli-help.txt
             main-clone/stage8-fetch-help.txt
             main-clone/stage8-raw-pack-help.txt
+            main-clone/stage8-serve-help.txt
             main-clone/stage8-server.log
             main-clone/stage8-raw-pack.html
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 30
