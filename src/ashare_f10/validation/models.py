@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -20,9 +22,9 @@ def _quality_flags_for_fact(
     """Detect high-risk parser outputs without guessing a replacement value.
 
     Official financial statements often place note references between the row label and
-    the amount columns.  When PDF table extraction drops the amount cells, a line such as
-    ``递延所得税资产 七、29`` can leave ``29`` as the only numeric token.  That token is a
-    note number, not an amount.  The quality gate marks the fact as suspicious so that it
+    the amount columns. When PDF table extraction drops the amount cells, a line such as
+    ``递延所得税资产 七、29`` can leave ``29`` as the only numeric token. That token is a
+    note number, not an amount. The quality gate marks the fact as suspicious so that it
     remains auditable but cannot enter reconciliation, logic checks or canonical facts.
     """
 
@@ -37,13 +39,29 @@ def _quality_flags_for_fact(
     except (TypeError, ValueError):
         return ()
     prefix = row[: match.start()]
-    # A genuine amount before the note token means the row still contains monetary data;
-    # do not reject it here.  The parser may have selected a later amount column.
     if re.search(r"[-−(（]?\d[\d,，]*(?:\.\d+)?", prefix):
         return ()
     if abs(float(value) - note_number) > 1e-12:
         return ()
     return ("NOTE_REFERENCE_AS_AMOUNT",)
+
+
+def _stable_document_id(
+    source: str,
+    security_code: str,
+    report_date: str,
+    report_kind: str,
+    version_label: str,
+    url: str,
+) -> str:
+    payload = "|".join(
+        (source, security_code, report_date, report_kind, version_label, url)
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()[:24]
+
+
+def _utc_now() -> str:
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 @dataclass(slots=True)
@@ -58,6 +76,29 @@ class OfficialDocument:
     url: str
     local_path: str = ""
     sha256: str = ""
+    document_id: str = ""
+    effective_at: str = ""
+    available_at: str = ""
+    retrieved_at: str = ""
+    supersedes_document_id: str = ""
+    is_boundary: bool = False
+
+    def __post_init__(self) -> None:
+        if not self.document_id:
+            self.document_id = _stable_document_id(
+                self.source,
+                self.security_code,
+                self.report_date,
+                self.report_kind,
+                self.version_label,
+                self.url,
+            )
+        if not self.effective_at:
+            self.effective_at = self.report_date
+        if not self.available_at:
+            self.available_at = self.publish_date
+        if not self.retrieved_at:
+            self.retrieved_at = _utc_now()
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -96,10 +137,18 @@ class OfficialFact:
     quality_flags: tuple[str, ...] = ()
     parse_notes: str = ""
     raw_value: float | None = None
+    document_id: str = ""
+    effective_at: str = ""
+    available_at: str = ""
+    extracted_at: str = ""
 
     def __post_init__(self) -> None:
         if self.raw_value is None:
             self.raw_value = self.value
+        if not self.effective_at:
+            self.effective_at = self.report_date
+        if not self.extracted_at:
+            self.extracted_at = _utc_now()
         detected = _quality_flags_for_fact(self.source_row, self.value, self.statement_type)
         if detected:
             self.quality_flags = tuple(dict.fromkeys((*self.quality_flags, *detected)))
