@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: write
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -38,3 +41,43 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
       - run: pytest --cov=ashare_f10 --cov-report=term-missing
+
+  sync-pr21:
+    if: github.event_name == 'push' && contains(github.event.head_commit.message, '[sync-pr21]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/f10-research-mapping-evidence-pack-v1
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Merge latest main and apply semantic conflict resolution
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git merge --no-ff --no-commit -X ours origin/main
+          python scripts/prepare_research_pack_main_sync.py
+      - name: Validate synchronized branch
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          python -m compileall -q src scripts
+          node --check src/ashare_f10/web/research-pack.js
+          ruff check src tests scripts/run_resilient_fetch.py scripts/run_resilient_command.py
+          pytest -q
+      - name: Remove temporary sync machinery and publish
+        run: |
+          set -euo pipefail
+          git rm -f .github/workflows/temporary-research-pack-main-sync.yml
+          git rm -f .github/workflows/temporary-pr21-main-sync.yml
+          git rm -f scripts/prepare_research_pack_main_sync.py
+          git add .
+          git commit -m "Merge latest main into Research Pack implementation"
+          git push origin HEAD:feature/f10-research-mapping-evidence-pack-v1
