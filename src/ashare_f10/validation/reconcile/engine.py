@@ -22,6 +22,16 @@ def _relative_difference(left: float, right: float) -> float | None:
     return 0.0 if denominator == 0 else abs(left - right) / denominator
 
 
+def _usable_facts(official_facts: list[OfficialFact]) -> list[OfficialFact]:
+    """Return facts that passed the parser-quality gate.
+
+    Suspicious facts remain in evidence exports for auditability, but they must not be
+    treated as official numbers in reconciliation or accounting checks.
+    """
+
+    return [fact for fact in official_facts if fact.usable_for_reconciliation]
+
+
 def _fetch_eastmoney_value(
     connection: duckdb.DuckDBPyConnection, target: TargetField, report_date: str
 ) -> tuple[float | None, str, str]:
@@ -42,11 +52,13 @@ def _fetch_eastmoney_value(
 def reconcile_official_facts(
     db_path: Path | str, official_facts: list[OfficialFact]
 ) -> list[ReconciliationResult]:
+    usable = _usable_facts(official_facts)
     connection = duckdb.connect(str(db_path), read_only=True)
     results: list[ReconciliationResult] = []
     try:
-        lookup = {(fact.report_date, fact.field_key): fact for fact in official_facts}
-        for report_date in sorted({fact.report_date for fact in official_facts}):
+        lookup = {(fact.report_date, fact.field_key): fact for fact in usable}
+        all_dates = sorted({fact.report_date for fact in official_facts})
+        for report_date in all_dates:
             for target in DEFAULT_TARGETS:
                 fact = lookup.get((report_date, target.field_key))
                 eastmoney_value, family, _unit = _fetch_eastmoney_value(connection, target, report_date)
@@ -136,7 +148,7 @@ def _logic_result(
 
 def build_logic_checks(official_facts: list[OfficialFact]) -> list[LogicCheck]:
     grouped: dict[str, dict[str, OfficialFact]] = defaultdict(dict)
-    for fact in official_facts:
+    for fact in _usable_facts(official_facts):
         grouped[fact.report_date][fact.field_key] = fact
     checks: list[LogicCheck] = []
     for report_date, facts in sorted(grouped.items()):
