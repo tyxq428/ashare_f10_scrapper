@@ -499,6 +499,43 @@ def _is_summary_direct_target(target: TargetField) -> bool:
     )
 
 
+def _select_summary_amount(
+    values: list[tuple[float, int, str]],
+    target: TargetField,
+    document: OfficialDocument,
+    context: str,
+) -> tuple[float, int, str] | None:
+    """Select the comparable value from key-financial-data summary rows.
+
+    SSE Q3 reports place four logical columns after the item label:
+    current quarter, current-quarter change, year-to-date, year-to-date change.
+    Flow and per-share facts used by cumulative statement endpoints must therefore
+    use the third numeric value when it exists. Point-in-time rows continue to use
+    the first value. If the two current-quarter columns are explicitly unavailable,
+    the first numeric value is already the year-to-date amount.
+    """
+
+    if not values:
+        return None
+    usable = [
+        value
+        for value in values
+        if not (abs(value[0]) < 100 and bool(re.fullmatch(r"[（(]\s*\d{1,2}\s*[）)]", value[2].strip())))
+    ]
+    usable = usable or values
+    if document.report_kind != "q3" or target.semantics == "point_in_time":
+        return usable[0]
+    if len(usable) >= 3:
+        return usable[2]
+    compact = _compact(context)
+    first_token = _compact(usable[0][2])
+    first_position = compact.find(first_token)
+    prefix = compact[:first_position] if first_position >= 0 else ""
+    if prefix.count("不适用") >= 2:
+        return usable[0]
+    return usable[-1]
+
+
 def financial_scope_from_texts(texts: Iterable[str]) -> str:
     has_summary = False
     for text in texts:
@@ -726,6 +763,7 @@ class PdfStatementParser:
                         unit,
                         page_scope or "consolidated",
                         max_width=6 if is_summary_direct else 3,
+                        summary_direct=is_summary_direct,
                     )
                     if extracted:
                         base_score = 140 if document.source == "CNINFO" else 60
@@ -825,6 +863,7 @@ class PdfStatementParser:
         unit: tuple[str, float],
         scope: str,
         max_width: int = 3,
+        summary_direct: bool = False,
     ) -> OfficialFact | None:
         lines = [_clean_row(line) for line in text.splitlines() if _clean_row(line)]
         candidates: list[tuple[int, int, str, tuple[float, int, str], tuple[str, float], str]] = []
@@ -861,10 +900,16 @@ class PdfStatementParser:
                 )
                 for numeric_index in range(start, end):
                     numeric_source = value_segment if bounded_by_next_label else lines[numeric_index]
-                    amounts = _choose_amounts(_numeric_candidates([numeric_source]))
+                    numeric_values = _numeric_candidates([numeric_source])
+                    amounts = _choose_amounts(numeric_values)
                     if not amounts:
                         continue
                     current, _previous = amounts
+                    if summary_direct:
+                        current = (
+                            _select_summary_amount(numeric_values, target, document, numeric_source)
+                            or current
+                        )
                     if not math.isfinite(current[0]):
                         continue
 
@@ -920,7 +965,7 @@ class PdfStatementParser:
             source_url=document.url,
             source_page=page_number,
             source_row=context,
-            extraction_method="PDF_TEXT_WINDOW",
+            extraction_method=("PDF_SUMMARY_TEXT_WINDOW" if summary_direct else "PDF_TEXT_WINDOW"),
             precision_tolerance=_tolerance(row_unit[1], current[1]),
             confidence="high" if target.statement_type != "summary" else "medium",
         )
