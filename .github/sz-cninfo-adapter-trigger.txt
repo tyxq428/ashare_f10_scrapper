@@ -1,2 +1,2 @@
 validate 002352 official disclosure integration
-revision: 6 corrected v2 compatibility
+revision: 7 row alignment and statement boundaries
