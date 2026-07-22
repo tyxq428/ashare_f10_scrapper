@@ -1,0 +1,150 @@
+name: Temporary W08 CNINFO Repair
+
+on:
+  push:
+    branches:
+      - feature/f10-research-mapping-evidence-pack-v1
+    paths:
+      - ".github/workflows/temporary-w08-cninfo-repair.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/f10-research-mapping-evidence-pack-v1
+          fetch-depth: 0
+      - name: Apply deterministic W08 repair
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          import json
+          from pathlib import Path
+
+          comparator = Path("src/ashare_f10/cross_validation/comparator.py")
+          text = comparator.read_text(encoding="utf-8")
+          old = '''                official_num, official_unit = _normalize_numeric(official_value_num, official_unit)
+                is_text_method = comparison_method in {"date", "text", "set"}
+'''
+          new = '''                official_num, official_unit = _normalize_numeric(official_value_num, official_unit)
+                # Calculated financial families such as Dupont can contain numeric values
+                # whose source field mapping has no display unit.  Do not compare those
+                # numbers as strings merely because policy inference conservatively chose
+                # ``text`` for an event-labelled source row.
+                if (
+                    comparison_method == "text"
+                    and mode == "OFFICIAL_DERIVED"
+                    and east_num is not None
+                    and official_num is not None
+                ):
+                    comparison_method = "numeric"
+                is_text_method = comparison_method in {"date", "text", "set"}
+'''
+          if old not in text:
+              raise SystemExit("Comparator insertion point not found")
+          comparator.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          registry_path = Path("src/ashare_f10/resources/field_validation_registry_v1.json")
+          registry = json.loads(registry_path.read_text(encoding="utf-8"))
+          registry["formula_overrides"]["GUARD_SPEED_RATIO"] = (
+              "(TOTAL_CURRENT_ASSETS - INVENTORY - PREPAYMENT - OTHER_CURRENT_ASSET "
+              "- CONTRACT_ASSET - FINANCE_RECE - CURRENT_ASSET_OTHER "
+              "- NONCURRENT_ASSET_1YEAR) / TOTAL_CURRENT_LIAB"
+          )
+          registry_path.write_text(
+              json.dumps(registry, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+
+          policy_test = Path("tests/test_comparison_policy.py")
+          policy_text = policy_test.read_text(encoding="utf-8")
+          marker = "def test_official_derived_numeric_values_override_accidental_text_policy"
+          if marker not in policy_text:
+              policy_text += '''
+
+
+def test_official_derived_numeric_values_override_accidental_text_policy() -> None:
+    entry = _registry_entry("NETPROFIT", "净利润")
+    entry.validation_mode = "OFFICIAL_DERIVED"
+    entry.family = "RPT_F10_FINANCE_DUPONT"
+    entry.dataset = "dupont"
+    entry.statement_type = "dupont"
+    entry.data_semantics = "event"
+    entry.comparison_method = "text"
+    entry.absolute_tolerance = 1.0
+
+    east = _eastmoney_row("NETPROFIT", "净利润", value_num=100.0, value_text="100")
+    east.update(
+        family="RPT_F10_FINANCE_DUPONT",
+        dataset="dupont",
+        statement_type="dupont",
+        data_semantics="event",
+    )
+    official = _official_row("NETPROFIT", "净利润", value_num=100.0, value_text="100.0", unit="元")
+    official["statement_type"] = "dupont"
+
+    result = _compare(entry, east, official)
+    assert result["status"] == "DERIVED_MATCH"
+    assert result["comparison_method"] == "numeric"
+    assert result["root_cause"] == "VALUE_MATCH"
+'''
+              policy_test.write_text(policy_text, encoding="utf-8")
+
+          derived_test = Path("tests/test_cross_validation_derived.py")
+          derived_text = derived_test.read_text(encoding="utf-8")
+          import_line = "from ashare_f10.cross_validation.registry import FieldValidationRegistry\n"
+          if import_line not in derived_text:
+              anchor = "from ashare_f10.cross_validation.derived import (\n"
+              derived_text = derived_text.replace(anchor, import_line + anchor, 1)
+          marker = "def test_guard_speed_ratio_formula_matches_disclosed_quick_assets_definition"
+          if marker not in derived_text:
+              derived_text += '''
+
+
+def test_guard_speed_ratio_formula_matches_disclosed_quick_assets_definition() -> None:
+    formula = FieldValidationRegistry.load().formulas["GUARD_SPEED_RATIO"]
+    values = {
+        "TOTAL_CURRENT_ASSETS": 91_327_047_000.0,
+        "INVENTORY": 3_039_030_000.0,
+        "PREPAYMENT": 2_907_746_000.0,
+        "OTHER_CURRENT_ASSET": 9_620_165_000.0,
+        "CONTRACT_ASSET": 3_049_117_000.0,
+        "FINANCE_RECE": 244_734_000.0,
+        "CURRENT_ASSET_OTHER": 328_146_000.0,
+        "NONCURRENT_ASSET_1YEAR": 45_164_000.0,
+        "TOTAL_CURRENT_LIAB": 72_894_721_000.0,
+    }
+    result = evaluate_simple_formula(formula, values)
+    assert abs(result - 0.989000904469) < 1e-12
+'''
+              derived_test.write_text(derived_text, encoding="utf-8")
+
+          matrix = Path(".github/workflows/research-pack-matrix.yml")
+          matrix_text = matrix.read_text(encoding="utf-8")
+          anchor = '      - "src/ashare_f10/research_pack/**"\n'
+          additions = (
+              anchor
+              + '      - "src/ashare_f10/cross_validation/**"\n'
+              + '      - "src/ashare_f10/resources/field_validation_registry_v1.json"\n'
+              + '      - "tests/test_comparison_policy.py"\n'
+              + '      - "tests/test_cross_validation_derived.py"\n'
+          )
+          if '      - "src/ashare_f10/cross_validation/**"\n' not in matrix_text:
+              if anchor not in matrix_text:
+                  raise SystemExit("W08 workflow path insertion point not found")
+              matrix.write_text(matrix_text.replace(anchor, additions, 1), encoding="utf-8")
+          PY
+      - name: Commit repair and remove temporary workflow
+        run: |
+          git rm .github/workflows/temporary-w08-cninfo-repair.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src tests .github/workflows/research-pack-matrix.yml
+          git commit -m "Fix CNINFO derived numeric comparison and quick ratio"
+          git push origin HEAD:feature/f10-research-mapping-evidence-pack-v1
