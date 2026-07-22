@@ -1,0 +1,2 @@
+Stage 8 post-merge validation marker.
+This temporary file exists only on tmp/stage8-post-merge-validation to trigger the Raw Pack E2E workflow against the merged main baseline.
