@@ -1,2 +1,2 @@
 apply old-quarter summary and pending-period fixes
-revision: 2 materializer compatibility corrected
+revision: 3 text extractor signature corrected
