@@ -173,3 +173,6 @@ def test_partial_official_source_is_completed_with_review() -> None:
     assert outcome["display_status"] == "COMPLETED_WITH_REVIEW"
     assert outcome["warning_delta"] == 1
     assert "官方来源部分不可用" in outcome["message"]
+
+
+# Post-hotfix validation marker for main 434f31baca281e9eb4e38e9f2e1c3151cbee5c56.
