@@ -9,6 +9,7 @@ fetch_script = run_path(str(Path(__file__).resolve().parents[1] / "scripts" / "r
 command_script = run_path(str(Path(__file__).resolve().parents[1] / "scripts" / "run_resilient_command.py"))
 classify_failure = fetch_script["classify_failure"]
 run_streamed = command_script["run_streamed"]
+retryable_command_error = command_script["RETRYABLE"]
 
 
 def test_transient_http_502_is_retryable(tmp_path: Path) -> None:
@@ -47,6 +48,19 @@ def test_unclassified_configuration_error_stops(tmp_path: Path) -> None:
     retryable, reason, _ = classify_failure("unknown option --bad", tmp_path, 2)
     assert retryable is False
     assert "non-retryable" in reason
+
+
+def test_official_source_network_unreachable_is_retryable() -> None:
+    message = (
+        "OfficialSourceError: SSE公告查询失败: HTTPSConnectionPool(host='query.sse.com.cn', "
+        "port=443): Max retries exceeded (Caused by NewConnectionError: "
+        "Failed to establish a new connection: [Errno 101] Network is unreachable)"
+    )
+    assert retryable_command_error.search(message)
+
+
+def test_non_network_official_source_error_is_not_retryable() -> None:
+    assert retryable_command_error.search("OfficialSourceError: unsupported market mapping") is None
 
 
 def test_resilient_command_streams_heartbeats(capsys) -> None:
