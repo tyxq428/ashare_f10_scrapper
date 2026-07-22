@@ -112,6 +112,7 @@ def main(run_dir: Path) -> None:
             "logic_checks",
             "ttm_checks",
             "documents",
+            "report_period_lifecycle",
         }
         assert expected_tables.issubset(tables)
         assert connection.execute("SELECT count(*) FROM true_conflicts").fetchone()[0] == 0

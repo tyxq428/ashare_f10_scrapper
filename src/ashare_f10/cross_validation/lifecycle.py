@@ -41,9 +41,7 @@ def normalize_date(value: Any) -> str | None:
     )
     if match:
         candidate = (
-            f"{int(match.group('year')):04d}-"
-            f"{int(match.group('month')):02d}-"
-            f"{int(match.group('day')):02d}"
+            f"{int(match.group('year')):04d}-{int(match.group('month')):02d}-{int(match.group('day')):02d}"
         )
         try:
             date.fromisoformat(candidate)
@@ -129,16 +127,16 @@ def build_security_lifecycle(
     listing_date: str | None,
     listing_date_source: str,
 ) -> SecurityLifecycle:
-    requested = sorted({value for value in (normalize_date(item) for item in requested_report_dates) if value})
+    requested = sorted(
+        {value for value in (normalize_date(item) for item in requested_report_dates) if value}
+    )
     listing = normalize_date(listing_date)
     if listing:
         pre_listing = [item for item in requested if item < listing]
         expected = [item for item in requested if item >= listing]
         listing_year = listing[:4]
         transition = [
-            item
-            for item in expected
-            if item.startswith(listing_year) and item == min(expected, default="")
+            item for item in expected if item.startswith(listing_year) and item == min(expected, default="")
         ]
     else:
         pre_listing = []
@@ -154,3 +152,92 @@ def build_security_lifecycle(
         periodic_expected_report_dates=expected,
         listing_transition_report_dates=transition,
     )
+
+
+def apply_lifecycle_statuses(
+    comparison: pd.DataFrame,
+    source_status: dict[str, Any],
+) -> pd.DataFrame:
+    if comparison.empty or "status" not in comparison.columns:
+        return comparison
+    result = comparison.copy()
+    dates = result.get("report_date", pd.Series(index=result.index, dtype="object"))
+    date_values = dates.fillna("").astype(str).str[:10]
+    pre_listing = set(source_status.get("pre_listing_report_dates") or [])
+    zero_extraction = set(source_status.get("discovered_but_zero_extraction_dates") or [])
+    post_listing_missing = set(source_status.get("post_listing_missing_report_dates") or [])
+
+    pre_mask = date_values.isin(pre_listing) & result["status"].isin(
+        ["MISSING_OFFICIAL", "OFFICIAL_PERIOD_NOT_LOADED", "PERIOD_CONFLICT"]
+    )
+    result.loc[pre_mask, "status"] = "PRE_LISTING_OFFICIAL_SOURCE_NOT_LOADED"
+    result.loc[pre_mask, "verification_grade"] = "N/A"
+    result.loc[pre_mask, "notes"] = (
+        "该期间早于证券上市日期，不存在同代码上市公司定期报告；"
+        "应由招股说明书或发行上市申报文件验证，当前不判为来源冲突"
+    )
+
+    zero_mask = date_values.isin(zero_extraction) & result["status"].isin(
+        ["MISSING_OFFICIAL", "OFFICIAL_PERIOD_NOT_LOADED"]
+    )
+    result.loc[zero_mask, "status"] = "OFFICIAL_DOCUMENT_EXTRACTION_FAILED"
+    result.loc[zero_mask, "verification_grade"] = "E"
+    result.loc[zero_mask, "notes"] = "官方定期报告已发现并下载，但当前解析器未提取到可比事实"
+
+    missing_mask = date_values.isin(post_listing_missing) & result["status"].isin(
+        ["MISSING_OFFICIAL", "OFFICIAL_PERIOD_NOT_LOADED"]
+    )
+    result.loc[missing_mask, "status"] = "POST_LISTING_OFFICIAL_REPORT_NOT_FOUND"
+    result.loc[missing_mask, "verification_grade"] = "E"
+    result.loc[missing_mask, "notes"] = "证券已上市且该期间理论上应有定期报告，但官方查询未发现对应文件"
+    return result
+
+
+def lifecycle_period_frame(source_status: dict[str, Any]) -> pd.DataFrame:
+    lifecycle = source_status.get("security_lifecycle") or {}
+    requested = lifecycle.get("requested_report_dates") or source_status.get("requested_report_dates") or []
+    pre_listing = set(
+        lifecycle.get("pre_listing_report_dates") or source_status.get("pre_listing_report_dates") or []
+    )
+    transition = set(lifecycle.get("listing_transition_report_dates") or [])
+    available = set(source_status.get("available_report_dates") or [])
+    zero_extraction = set(source_status.get("discovered_but_zero_extraction_dates") or [])
+    post_missing = set(source_status.get("post_listing_missing_report_dates") or [])
+    extraction = source_status.get("extraction_by_report_date") or {}
+    rows: list[dict[str, Any]] = []
+    for report_date in requested:
+        if report_date in pre_listing:
+            period_class = "PRE_LISTING_PERIOD"
+            coverage_status = "PRE_LISTING_OFFICIAL_SOURCE_NOT_LOADED"
+        elif report_date in transition:
+            period_class = "LISTING_TRANSITION_PERIOD"
+            coverage_status = (
+                "OFFICIAL_DOCUMENT_EXTRACTION_FAILED"
+                if report_date in zero_extraction
+                else ("AVAILABLE" if report_date in available else "POST_LISTING_OFFICIAL_REPORT_NOT_FOUND")
+            )
+        else:
+            period_class = "POST_LISTING_PERIODIC_EXPECTED"
+            coverage_status = (
+                "OFFICIAL_DOCUMENT_EXTRACTION_FAILED"
+                if report_date in zero_extraction
+                else (
+                    "POST_LISTING_OFFICIAL_REPORT_NOT_FOUND"
+                    if report_date in post_missing
+                    else ("AVAILABLE" if report_date in available else "UNRESOLVED")
+                )
+            )
+        rows.append(
+            {
+                "security_code": lifecycle.get("security_code") or "",
+                "exchange": lifecycle.get("exchange") or source_status.get("exchange") or "",
+                "listing_date": lifecycle.get("listing_date"),
+                "listing_date_source": lifecycle.get("listing_date_source") or "",
+                "report_date": report_date,
+                "period_class": period_class,
+                "coverage_status": coverage_status,
+                "official_document_found": report_date in available,
+                "extracted_fact_count": int(extraction.get(report_date) or 0),
+            }
+        )
+    return pd.DataFrame(rows)

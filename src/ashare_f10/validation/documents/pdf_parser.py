@@ -380,7 +380,13 @@ def _unit_info(text: str) -> tuple[str, float]:
     return _row_unit_info(text) or ("元", 1.0)
 
 
-def _canonical_value(field_key: str, value: float) -> float:
+def _canonical_value(field_key: str, value: float, source: str = "") -> float:
+    # SSE reports preserve the sign of financial expense and cash-flow supplement
+    # finance expense.  CNINFO layouts sometimes present the same expense rows in
+    # parentheses/negative form while Eastmoney stores their presentation magnitude;
+    # retain the verified CNINFO behavior without changing SSE facts.
+    if field_key == "FINANCE_EXPENSE" and source.upper() == "SSE":
+        return value
     if (
         field_key in ABSOLUTE_PRESENTATION_FIELDS
         or field_key.startswith("PAY_")
@@ -388,6 +394,30 @@ def _canonical_value(field_key: str, value: float) -> float:
     ):
         return abs(value)
     return value
+
+
+def _bounded_alias_value_segment(
+    context: str,
+    alias: str,
+    all_aliases: Iterable[str],
+) -> tuple[str, bool]:
+    compact = _compact(context)
+    target = _compact(alias)
+    start = compact.find(target)
+    if start < 0:
+        return context, False
+    value_start = start + len(target)
+    value_end = len(compact)
+    bounded = False
+    for other in all_aliases:
+        candidate = _compact(other)
+        if not candidate or candidate == target:
+            continue
+        position = compact.find(candidate, value_start)
+        if position >= 0 and position < value_end:
+            value_end = position
+            bounded = True
+    return compact[value_start:value_end], bounded
 
 
 def _tolerance(scale: float, decimals: int) -> float:
@@ -536,6 +566,18 @@ class PdfStatementParser:
                 )
         self.targets = tuple(merged.values())
         self.summary_targets = tuple(target for target in self.targets if target.statement_type == "summary")
+        self.statement_aliases = tuple(
+            sorted(
+                {
+                    alias
+                    for target in self.targets
+                    if target.statement_type != "summary"
+                    for alias in target.aliases
+                },
+                key=len,
+                reverse=True,
+            )
+        )
 
     def extract(self, pdf_path: Path | str, document: OfficialDocument) -> list[OfficialFact]:
         pdf_path = Path(pdf_path)
@@ -711,7 +753,7 @@ class PdfStatementParser:
                 scope=scope,
                 field_key=target.field_key,
                 field_name_report=alias,
-                value=_canonical_value(target.field_key, current[0]) * row_unit[1],
+                value=_canonical_value(target.field_key, current[0], document.source) * row_unit[1],
                 unit=row_unit[0],
                 normalized_unit="元",
                 source_document=document.title,
@@ -761,8 +803,14 @@ class PdfStatementParser:
                     for line_index in range(start, end)
                     if _label_matches(_label_context(lines[line_index]), alias)
                 ]
+                value_segment, bounded_by_next_label = _bounded_alias_value_segment(
+                    context,
+                    alias,
+                    self.statement_aliases,
+                )
                 for numeric_index in range(start, end):
-                    amounts = _choose_amounts(_numeric_candidates([lines[numeric_index]]))
+                    numeric_source = value_segment if bounded_by_next_label else lines[numeric_index]
+                    amounts = _choose_amounts(_numeric_candidates([numeric_source]))
                     if not amounts:
                         continue
                     current, _previous = amounts
@@ -814,7 +862,7 @@ class PdfStatementParser:
             scope=scope,
             field_key=target.field_key,
             field_name_report=alias,
-            value=_canonical_value(target.field_key, current[0]) * row_unit[1],
+            value=_canonical_value(target.field_key, current[0], document.source) * row_unit[1],
             unit=row_unit[0],
             normalized_unit="元",
             source_document=document.title,

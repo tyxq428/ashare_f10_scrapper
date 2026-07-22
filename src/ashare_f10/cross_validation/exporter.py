@@ -10,6 +10,7 @@ from typing import Any
 import duckdb
 import pandas as pd
 
+from ashare_f10.cross_validation.lifecycle import lifecycle_period_frame
 from ashare_f10.cross_validation.models import CrossValidationArtifacts
 
 EXCEL_CELL_LIMIT = 32_000
@@ -200,6 +201,7 @@ def _write_duckdb(
     logic_checks: pd.DataFrame,
     ttm_checks: pd.DataFrame,
     documents: pd.DataFrame,
+    report_period_lifecycle: pd.DataFrame,
 ) -> None:
     path.unlink(missing_ok=True)
     connection = duckdb.connect(str(path))
@@ -218,6 +220,7 @@ def _write_duckdb(
             "logic_checks": logic_checks,
             "ttm_checks": ttm_checks,
             "documents": documents,
+            "report_period_lifecycle": report_period_lifecycle,
         }.items():
             frame = _table_frame(name, frame)
             connection.register("incoming", frame)
@@ -343,6 +346,7 @@ class CrossValidationExporter:
         )
 
         summary_frame = pd.DataFrame([summary])
+        period_lifecycle = lifecycle_period_frame(summary.get("official_source_status") or {})
         comparison_columns = [
             column
             for column in [
@@ -415,7 +419,16 @@ class CrossValidationExporter:
             .reset_index(name="fact_count")
         )
         unavailable_summary = (
-            comparison_excel_frame[comparison_excel_frame["status"] == "OFFICIAL_PERIOD_NOT_LOADED"]
+            comparison_excel_frame[
+                comparison_excel_frame["status"].isin(
+                    [
+                        "OFFICIAL_PERIOD_NOT_LOADED",
+                        "PRE_LISTING_OFFICIAL_SOURCE_NOT_LOADED",
+                        "OFFICIAL_DOCUMENT_EXTRACTION_FAILED",
+                        "POST_LISTING_OFFICIAL_REPORT_NOT_FOUND",
+                    ]
+                )
+            ]
             .groupby(
                 [
                     "report_date",
@@ -489,7 +502,8 @@ class CrossValidationExporter:
                 comparison_excel_frame[comparison_excel_frame["status"].isin(conflict_statuses)],
             ),
             ("05_官方未提取汇总", missing_official_summary),
-            ("06_未加载报告期汇总", unavailable_summary),
+            ("06_报告期生命周期", period_lifecycle),
+            ("06A_报告缺口汇总", unavailable_summary),
             ("07_不在官方范围目录", out_of_scope_registry),
             ("08_状态汇总", status_summary),
             ("09_事件覆盖缺口汇总", event_gap_summary),
@@ -510,6 +524,7 @@ class CrossValidationExporter:
             logic_checks,
             ttm_checks,
             documents,
+            period_lifecycle,
         )
         if eastmoney_source_duckdb and eastmoney_source_duckdb.is_file():
             shutil.copy2(eastmoney_source_duckdb, eastmoney_duckdb)
