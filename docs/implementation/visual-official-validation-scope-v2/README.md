@@ -31,13 +31,18 @@
 - [x] [W02](W02_plan.md)：后端官方验证范围、全历史Runner和兼容状态设计。结果见[W02_result.md](W02_result.md)。
 - [x] [W03](W03_plan.md)：前端信息架构、简化配置和监控展示。结果见[W03_result.md](W03_result.md)。
 - [x] [W04](W04_plan.md)：测试、Actions、并行分支同步和回归验证。结果见[W04_result.md](W04_result.md)。
-- [ ] [W05](W05_plan.md)：合并、post-merge验证、清理和复盘。
+- [x] [W05](W05_plan.md)：合并、post-merge验证、清理和复盘。结果见[W05_result.md](W05_result.md)。
 
-## 当前检查点
+## 最终检查点
 
-- 基线：`main`提交`02d92ae8e6670e75ecb935e3ff6b8e81019e3666`。
-- 实施分支：`feature/visual-official-validation-scope-v2`。
-- Draft PR：#24。
-- 当前阶段：W04完成，W05待合并与post-merge验证。
-- 代码门禁：Test #714、Visual #33、E2E #261、Raw Pack #111、Official Full-History #218全部通过。
-- 688521全历史验证：23份官方报告、2,975条官方事实、6,191条匹配记录、分类覆盖率100%，保留1项有证据支持的真实来源差异。
+- 任务状态：`COMPLETED`；
+- 完成度：`100%`；
+- 功能PR #24：已合并，提交`5167a91b8b17dc16326fa9d35d7301e80695e1ed`；
+- 网络重试热修复PR #26：已合并，提交`434f31baca281e9eb4e38e9f2e1c3151cbee5c56`；
+- 最终Post-hotfix门禁：Test #729、Visual #37、E2E #265、Raw Pack #114、Official Full-History #222全部通过；
+- 临时验证PR #25和#27：均已关闭且未合并，验证分支已重置到`main`；
+- 与Draft PR #21最终精确路径交集：0；
+- 688521全历史验证：23份官方报告、2,975条官方事实、135,956条对账记录、分类覆盖率100%，保留1项有证据支持的真实来源差异；
+- Windows正式入口：`scripts/start-web.ps1`，网页为`http://127.0.0.1:8000/run.html`；
+- 必须人工介入项：0；
+- 剩余必做项：0。
