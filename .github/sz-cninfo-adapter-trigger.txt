@@ -1,2 +1,0 @@
-validate 002352 official disclosure integration
-revision: 9 direct parser materializer
