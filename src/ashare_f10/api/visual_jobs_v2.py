@@ -69,12 +69,29 @@ def official_stage_outcome(result: dict[str, Any], scope: str) -> dict[str, Any]
     comparison_count = int(result.get("comparison_count") or result.get("reconciliation_count") or 0)
     conflict_count = int(result.get("true_conflict_count") or 0)
     acceptance = str(result.get("acceptance_status") or "UNKNOWN")
-    needs_review = bool(result.get("manual_review_required")) or acceptance.startswith("FAIL")
+    has_conflicts = conflict_count > 0 or bool(result.get("manual_review_required"))
+    coverage_gap = acceptance == "PASS_WITH_COVERAGE_GAPS"
+    partial_source = acceptance.startswith("PARTIAL")
+    needs_review = has_conflicts or coverage_gap or partial_source or acceptance != "PASS"
     scope_label = str(OFFICIAL_VALIDATION_SCOPES[scope]["label"])
-    if needs_review:
+    if has_conflicts:
         message = (
             f"{scope_label}验证完成：{document_count}份官方报告、{fact_count}条官方事实；"
             f"发现{conflict_count}项来源差异，需要复核"
+        )
+    elif coverage_gap:
+        message = (
+            f"{scope_label}验证完成：{document_count}份官方报告、{fact_count}条官方事实；"
+            "存在官方覆盖缺口，请查看报告期生命周期和状态说明"
+        )
+    elif partial_source:
+        message = (
+            f"{scope_label}验证完成：{document_count}份官方报告、{fact_count}条官方事实；"
+            "官方来源部分不可用，请查看来源状态"
+        )
+    elif needs_review:
+        message = (
+            f"{scope_label}验证完成：验收状态{acceptance}，需要复核"
         )
     else:
         message = (

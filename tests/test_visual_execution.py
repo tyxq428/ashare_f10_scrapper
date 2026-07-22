@@ -139,3 +139,37 @@ def test_official_source_conflict_is_completed_with_review() -> None:
     assert outcome["warning_delta"] == 1
     assert "23份官方报告" in outcome["message"]
     assert "需要复核" in outcome["message"]
+def test_official_coverage_gap_is_completed_with_review() -> None:
+    outcome = official_stage_outcome(
+        {
+  "acceptance_status": "PASS_WITH_COVERAGE_GAPS",
+  "manual_review_required": False,
+  "true_conflict_count": 0,
+  "official_fact_count": 1200,
+  "comparison_count": 4000,
+  "official_source_status": {"document_count": 18},
+        },
+        "full_history",
+    )
+    assert outcome["stored_status"] == "COMPLETED"
+    assert outcome["display_status"] == "COMPLETED_WITH_REVIEW"
+    assert outcome["warning_delta"] == 1
+    assert "覆盖缺口" in outcome["message"]
+
+
+def test_partial_official_source_is_completed_with_review() -> None:
+    outcome = official_stage_outcome(
+        {
+  "acceptance_status": "PARTIAL_OFFICIAL_SOURCE_UNAVAILABLE",
+  "manual_review_required": False,
+  "true_conflict_count": 0,
+  "official_fact_count": 0,
+  "comparison_count": 0,
+  "official_source_status": {"document_count": 0},
+        },
+        "latest",
+    )
+    assert outcome["stored_status"] == "COMPLETED"
+    assert outcome["display_status"] == "COMPLETED_WITH_REVIEW"
+    assert outcome["warning_delta"] == 1
+    assert "官方来源部分不可用" in outcome["message"]
