@@ -1,2 +1,2 @@
 validate 002352 official disclosure integration
-revision: 8 alphabetic note references
+revision: 9 direct parser materializer
