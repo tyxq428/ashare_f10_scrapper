@@ -90,6 +90,7 @@ jobs:
           OUTPUT="research-pack-matrix-002352-${{ github.run_id }}"
           STATUS=1
           for ATTEMPT in 1 2 3; do
+            LOG="research-pack-002352-attempt-${ATTEMPT}.log"
             echo "W08 live attempt ${ATTEMPT}/3"
             set +e
             ashare-f10 run-and-validate 002352 \
@@ -97,9 +98,10 @@ jobs:
               --workers 8 \
               --max-periods 2 \
               --as-of-date 2026-07-22 \
-              2>&1 | tee "research-pack-002352-attempt-${ATTEMPT}.log"
-            STATUS=${PIPESTATUS[0]}
+              >"$LOG" 2>&1
+            STATUS=$?
             set -e
+            tail -n 160 "$LOG" || true
             if [[ "$STATUS" -eq 0 ]]; then
               break
             fi
@@ -109,17 +111,25 @@ jobs:
             echo "002352 live dual-source pipeline failed after finite retries"
             exit "$STATUS"
           fi
-          python scripts/verify_full_cross_validation.py "$OUTPUT"
-          python scripts/verify_research_pack_e2e.py "$OUTPUT" 002352
+          python scripts/verify_full_cross_validation.py "$OUTPUT" \
+            | tee research-pack-002352-cross-validation-verifier.log
+          python scripts/verify_research_pack_e2e.py "$OUTPUT" 002352 \
+            | tee research-pack-002352-pack-verifier.log
           printf '%s\n' "$OUTPUT" > research-pack-matrix-output-dir.txt
-      - name: Upload W08 live evidence and performance report
+      - name: Upload compact W08 evidence and performance report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: research-pack-w08-002352-${{ github.run_id }}
           path: |
-            research-pack-matrix-002352-*/
             research-pack-002352-attempt-*.log
+            research-pack-002352-*-verifier.log
             research-pack-matrix-output-dir.txt
+            research-pack-matrix-002352-*/full-cross-validation-e2e-summary.json
+            research-pack-matrix-002352-*/research_pack_w08_e2e_summary.json
+            research-pack-matrix-002352-*/cross_validation/cross_validation_summary.json
+            research-pack-matrix-002352-*/research_pack_w08/summary.json
+            research-pack-matrix-002352-*/research_pack_w08/quality/research_pack_quality.json
+            research-pack-matrix-002352-*/research_pack_w08/checkpoint.json
           if-no-files-found: warn
           retention-days: 30
