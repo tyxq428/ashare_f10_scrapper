@@ -7,6 +7,13 @@ from ashare_f10.validation.documents.pdf_parser import (
 from ashare_f10.validation.models import OfficialDocument, TargetField
 
 
+MODERN_Q3_HEADER = "本报告期比上年同期增减 年初至报告期末"
+LEGACY_Q3_HEADER = (
+    "本报告期末 上年度末 本报告期末比上年度末增减 "
+    "年初至报告期末 上年初至上年报告期末 比上年同期增减"
+)
+
+
 def _document(report_kind: str) -> OfficialDocument:
     return OfficialDocument(
         source="SSE",
@@ -34,7 +41,13 @@ def _target(semantics: str = "flow") -> TargetField:
 
 def test_q3_flow_summary_selects_year_to_date_value() -> None:
     context = "营业收入 671,661,479.01 3.66 1,884,150,580.19 23.87"
-    selected = _select_summary_amount(_numeric_candidates([context]), _target(), _document("q3"), context)
+    selected = _select_summary_amount(
+        _numeric_candidates([context]),
+        _target(),
+        _document("q3"),
+        context,
+        page_text=MODERN_Q3_HEADER,
+    )
     assert selected is not None
     assert selected[0] == 1_884_150_580.19
 
@@ -50,7 +63,13 @@ def test_q3_flow_summary_with_unavailable_quarter_columns_uses_first_number() ->
         ("RPT_F10_FINANCE_GCASHFLOW",),
         "flow",
     )
-    selected = _select_summary_amount(_numeric_candidates([context]), target, _document("q3"), context)
+    selected = _select_summary_amount(
+        _numeric_candidates([context]),
+        target,
+        _document("q3"),
+        context,
+        page_text=MODERN_Q3_HEADER,
+    )
     assert selected is not None
     assert selected[0] == -306_604_109.75
 
@@ -58,14 +77,37 @@ def test_q3_flow_summary_with_unavailable_quarter_columns_uses_first_number() ->
 def test_q3_point_in_time_summary_keeps_period_end_value() -> None:
     context = "总资产 4,457,634,651.81 3,858,272,515.48 15.53"
     selected = _select_summary_amount(
-        _numeric_candidates([context]), _target("point_in_time"), _document("q3"), context
+        _numeric_candidates([context]),
+        _target("point_in_time"),
+        _document("q3"),
+        context,
+        page_text=MODERN_Q3_HEADER,
     )
     assert selected is not None
     assert selected[0] == 4_457_634_651.81
 
 
+def test_legacy_q3_summary_uses_first_year_to_date_amount() -> None:
+    context = "营业收入 1,060,887,323.03 950,580,713.27 11.60"
+    selected = _select_summary_amount(
+        _numeric_candidates([context]),
+        _target(),
+        _document("q3"),
+        context,
+        page_text=LEGACY_Q3_HEADER,
+    )
+    assert selected is not None
+    assert selected[0] == 1_060_887_323.03
+
+
 def test_q1_summary_keeps_first_value() -> None:
     context = "营业收入 580,891,974.65 -13.51"
-    selected = _select_summary_amount(_numeric_candidates([context]), _target(), _document("q1"), context)
+    selected = _select_summary_amount(
+        _numeric_candidates([context]),
+        _target(),
+        _document("q1"),
+        context,
+        page_text="第一季度主要财务数据",
+    )
     assert selected is not None
     assert selected[0] == 580_891_974.65
