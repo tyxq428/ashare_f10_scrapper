@@ -8,10 +8,10 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Sequence
 
 RETRYABLE_PATTERNS = (
     r"HTTP\s+(?:408|425|429|500|502|503|504)\b",

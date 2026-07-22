@@ -5,9 +5,9 @@ import json
 import re
 import subprocess
 import time
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Sequence
 
 RETRYABLE = re.compile(
     r"HTTP\s+(?:408|425|429|500|502|503|504)\b|timeout|connection\s+(?:reset|aborted|refused)|temporary failure",
