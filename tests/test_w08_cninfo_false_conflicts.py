@@ -5,6 +5,8 @@ import pandas as pd
 from ashare_f10.cross_validation.comparator import CrossSourceComparator
 from ashare_f10.cross_validation.derived import evaluate_simple_formula
 from ashare_f10.cross_validation.registry import FieldValidationRegistry
+from ashare_f10.validation.documents.pdf_parser import PdfStatementParser
+from ashare_f10.validation.models import OfficialDocument, TargetField
 
 
 def test_dupont_blank_unit_monetary_fact_uses_numeric_policy() -> None:
@@ -79,3 +81,36 @@ def test_quick_ratio_formula_matches_cninfo_disclosed_definition() -> None:
     }
     result = evaluate_simple_formula(formula, values)
     assert abs(result - 0.989000904469) < 1e-12
+
+
+def test_cninfo_eps_row_unit_is_not_scaled_by_page_thousand_yuan() -> None:
+    target = TargetField(
+        "BASIC_EPS",
+        "基本每股收益",
+        "summary",
+        ("基本每股收益",),
+        ("BASIC_EPS",),
+        ("RPT_F10_FINANCE_MAINFINADATA",),
+    )
+    document = OfficialDocument(
+        "CNINFO",
+        "002352",
+        "2026年一季度报告",
+        "2026-04-29",
+        "2026-03-31",
+        "q1",
+        "original",
+        "https://cninfo.invalid/q1.pdf",
+    )
+    fact = PdfStatementParser((target,))._extract_from_text(
+        "基本每股收益（元/股） 0.51 0.45 13.33%",
+        target,
+        document,
+        2,
+        ("千元", 1000.0),
+        "consolidated",
+    )
+    assert fact is not None
+    assert fact.value == 0.51
+    assert fact.unit == "元/股"
+    assert fact.normalized_unit == "元/股"
