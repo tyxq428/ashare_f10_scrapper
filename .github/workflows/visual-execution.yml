@@ -61,9 +61,9 @@ jobs:
           curl -fsS http://127.0.0.1:8765/run.html > visual-run.html
           curl -fsS http://127.0.0.1:8765/api/visual-execution/capabilities > visual-capabilities.json
           grep -q "可视化执行中心" visual-run.html
-          grep -q "上市以来全部报告" visual-run.html
           ! grep -q "年度报告年份" visual-run.html
           ! grep -q "一季度报告年份" visual-run.html
+          grep -q "上市以来全部报告" visual-capabilities.json
           grep -q '"official_validation_scope":"full_history"' <(tr -d ' ' < visual-capabilities.json)
           cleanup
           trap - EXIT
