@@ -1,0 +1,57 @@
+name: Materialize visual-first execution patch
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".visual-bootstrap/**"
+      - ".github/workflows/materialize-visual-patch.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: materialize-visual-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  materialize:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - name: Reconstruct and verify patch archive
+        run: |
+          set -euo pipefail
+          cat .visual-bootstrap/part_*.txt | base64 --decode > /tmp/visual-patch.tar.xz
+          echo "72a4cb48b8569dc789c441c4ae26301942216d546a1ebb01a6f70d6d5749b4eb  /tmp/visual-patch.tar.xz" | sha256sum -c -
+          tar -tJf /tmp/visual-patch.tar.xz | grep -q '^src/ashare_f10/api/visual_jobs.py$'
+          if tar -tJf /tmp/visual-patch.tar.xz | grep -q '^\.github/workflows/'; then
+            echo "Archive must not modify workflow files" >&2
+            exit 1
+          fi
+      - name: Materialize project files
+        run: |
+          set -euo pipefail
+          tar -xJf /tmp/visual-patch.tar.xz -C .
+          rm -rf .visual-bootstrap
+          test -f src/ashare_f10/api/visual_jobs.py
+          test -f src/ashare_f10/web/run.html
+          test -f scripts/start-web.ps1
+          python -m compileall -q src scripts
+          node --check src/ashare_f10/web/run.js
+      - name: Commit materialized files
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src scripts tests docs WINDOWS_START_HERE.md .visual-bootstrap
+          if git diff --cached --quiet; then
+            echo "Patch is already materialized"
+            exit 0
+          fi
+          git commit -m "Materialize visual-first execution controls [skip ci]"
+          git push origin HEAD:${{ github.head_ref }}
