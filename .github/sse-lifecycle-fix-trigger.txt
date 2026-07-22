@@ -1,2 +1,0 @@
-apply SSE lifecycle and false-conflict fixes
-revision: 4 summary-only quarterly reports and pending periods
