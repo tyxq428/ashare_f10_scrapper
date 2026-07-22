@@ -31,10 +31,15 @@ NON_COMPARABLE_STATUSES = {
     "FUTURE_FREE_SOURCE_REQUIRED",
     "OFFICIAL_PERIOD_NOT_LOADED",
     "OFFICIAL_SOURCE_UNAVAILABLE",
+    "PRE_LISTING_OFFICIAL_SOURCE_NOT_LOADED",
+    "OFFICIAL_REPORT_SUMMARY_SCOPE_GAP",
+    "OFFICIAL_REPORT_NOT_YET_DISCLOSED",
 }
 UNRESOLVED_STATUSES = {
     "MISSING_OFFICIAL",
     "MISSING_EASTMONEY",
+    "OFFICIAL_DOCUMENT_EXTRACTION_FAILED",
+    "POST_LISTING_OFFICIAL_REPORT_NOT_FOUND",
     "UNRESOLVED",
 }
 
@@ -412,6 +417,13 @@ class CrossSourceComparator:
                     _number(east.get("value_num")), str(east.get("unit") or "")
                 )
                 official_num, official_unit = _normalize_numeric(official_value_num, official_unit)
+                if (
+                    comparison_method == "text"
+                    and mode == "OFFICIAL_DERIVED"
+                    and east_num is not None
+                    and official_num is not None
+                ):
+                    comparison_method = "numeric"
                 is_text_method = comparison_method in {"date", "text", "set"}
                 if east_num is not None and official_num is not None and not is_text_method:
                     if east_unit.lower() in {"", "文本", "text", "none"}:
@@ -430,6 +442,11 @@ class CrossSourceComparator:
                             relative_tolerance,
                         ) = _numeric_match(east_num, official_num, entry, official_row)
                         grade = "A" if status in MATCH_STATUSES else "E"
+                        if status == "MISMATCH" and east_num == 0 and official_num != 0:
+                            notes = (
+                                f"{notes}；东方财富明确返回0，但免费官方正式披露为非零；"
+                                "保留为可追溯来源冲突，不自动覆盖或隐藏"
+                            )
                 else:
                     field_key = str(east.get("field_key") or "")
                     east_raw = east.get("value_text")

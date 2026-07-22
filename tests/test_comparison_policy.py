@@ -213,3 +213,32 @@ def test_summary_separates_coverage_from_accuracy() -> None:
     assert summary["unresolved_rate"] == 1 / 3
     assert summary["comparable_match_rate"] == 1.0
     assert summary["comparable_match_rate_deprecated"] is True
+
+
+
+def test_official_derived_numeric_values_override_accidental_text_policy() -> None:
+    entry = _registry_entry("NETPROFIT", "净利润")
+    entry.validation_mode = "OFFICIAL_DERIVED"
+    entry.family = "RPT_F10_FINANCE_DUPONT"
+    entry.dataset = "dupont"
+    entry.statement_type = "dupont"
+    entry.data_semantics = "event"
+    entry.comparison_method = "text"
+    entry.absolute_tolerance = 1.0
+
+    east = _eastmoney_row("NETPROFIT", "净利润", value_num=100.0, value_text="100")
+    east.update(
+        family="RPT_F10_FINANCE_DUPONT",
+        dataset="dupont",
+        statement_type="dupont",
+        data_semantics="event",
+    )
+    official = _official_row(
+        "NETPROFIT", "净利润", value_num=100.0, value_text="100.0", unit="元"
+    )
+    official["statement_type"] = "dupont"
+
+    result = _compare(entry, east, official)
+    assert result["status"] == "DERIVED_MATCH"
+    assert result["comparison_method"] == "numeric"
+    assert result["root_cause"] == "VALUE_MATCH"
