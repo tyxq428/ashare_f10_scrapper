@@ -6,10 +6,12 @@ from pathlib import Path
 from ashare_f10.api.visual_jobs_v2 import (
     DEFAULT_VISUAL_OPTIONS,
     OFFICIAL_VALIDATION_SCOPES,
-    VisualJobManager as VisualJobManagerV2,
     normalize_visual_options,
     official_max_periods,
     official_stage_outcome,
+)
+from ashare_f10.api.visual_jobs_v2 import (
+    VisualJobManager as VisualJobManagerV2,
 )
 from ashare_f10.config import Settings
 from ashare_f10.models import JobState
