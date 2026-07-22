@@ -80,7 +80,6 @@ def _optional_float(value: Any) -> float | None:
 
 
 def _normalize_report_label(text: str) -> str:
-    """Normalize report labels without conflating cumulative and single-quarter periods."""
     if not text:
         return ""
     if any(token in text for token in ("四季度", "第4季度", "第四季度", "q4")):
@@ -120,8 +119,12 @@ def _normalize_text(value: Any, field_key: str = "") -> str:
 def _normalize_set(value: Any, field_key: str = "") -> set[str]:
     if value is None or (isinstance(value, float) and math.isnan(value)):
         return set()
-    tokens = re.split(r"[,，;；、|\n]+", str(value))
-    return {_normalize_text(token, field_key) for token in tokens if _normalize_text(token, field_key)}
+    result: set[str] = set()
+    for token in re.split(r"[,，;；、|\n]+", str(value)):
+        normalized = _normalize_text(token, field_key)
+        if normalized:
+            result.add(normalized)
+    return result
 
 
 def _normalize_numeric(value: float | None, unit: str) -> tuple[float | None, str]:
@@ -409,7 +412,8 @@ class CrossSourceComparator:
                     _number(east.get("value_num")), str(east.get("unit") or "")
                 )
                 official_num, official_unit = _normalize_numeric(official_value_num, official_unit)
-                if east_num is not None and official_num is not None and comparison_method not in {"date", "text", "set"}:
+                is_text_method = comparison_method in {"date", "text", "set"}
+                if east_num is not None and official_num is not None and not is_text_method:
                     if east_unit.lower() in {"", "文本", "text", "none"}:
                         east_unit = official_unit
                     if official_unit.lower() in {"", "文本", "text", "none"}:
@@ -581,13 +585,23 @@ class CrossSourceComparator:
         true_conflicts = int(frame["status"].isin(TRUE_CONFLICT_STATUSES).sum())
         unresolved = frame[frame["status"].isin(UNRESOLVED_STATUSES)]
         official_observed = eligible[eligible["status"] != "MISSING_OFFICIAL"]
+
+        source_document = attempted.get(
+            "source_document", pd.Series("", index=attempted.index, dtype="object")
+        ).fillna("")
+        source_url = attempted.get(
+            "source_url", pd.Series("", index=attempted.index, dtype="object")
+        ).fillna("")
+        source_page = attempted.get(
+            "source_page", pd.Series(None, index=attempted.index, dtype="object")
+        )
+        source_row = attempted.get(
+            "source_row", pd.Series("", index=attempted.index, dtype="object")
+        ).fillna("")
         evidence_complete = attempted[
-            attempted["source_document"].fillna("").astype(str).ne("")
-            & attempted["source_url"].fillna("").astype(str).ne("")
-            & (
-                attempted["source_page"].notna()
-                | attempted["source_row"].fillna("").astype(str).ne("")
-            )
+            source_document.astype(str).ne("")
+            & source_url.astype(str).ne("")
+            & (source_page.notna() | source_row.astype(str).ne(""))
         ]
         comparison_accuracy = None if len(attempted) == 0 else len(matched) / len(attempted)
         return {
