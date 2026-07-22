@@ -16,16 +16,29 @@ _LISTING_DATE_KEY_HINTS = {
     "LISTINGDATE",
     "LISTDATE",
 }
+_LISTING_FAMILY_PRIORITY = {
+    "RPT_F10_ORG_BASICINFO": 0,
+    "RPT_F10_BASIC_ORGINFO": 0,
+    "RPT_PCF10_ORG_ISSUEINFO": 1,
+}
 
 
 def normalize_date(value: Any) -> str | None:
     if value in (None, ""):
         return None
     text = str(value).strip()
-    match = re.search(r"(?:19|20)\d{2}[-/.年](?:0?[1-9]|1[0-2])[-/.月](?:0?[1-9]|[12]\d|3[01])", text)
+    match = re.search(
+        r"(?:19|20)\d{2}[-/.年](?:1[0-2]|0?[1-9])[-/.月](?:3[01]|[12]\d|0?[1-9])",
+        text,
+    )
     if match:
         digits = re.sub(r"\D", "", match.group(0))
-        return f"{digits[:4]}-{digits[4:6]}-{digits[6:8]}"
+        candidate = f"{digits[:4]}-{digits[4:6]}-{digits[6:8]}"
+        try:
+            date.fromisoformat(candidate)
+        except ValueError:
+            return None
+        return candidate
     digits = re.sub(r"\D", "", text)
     if len(digits) >= 8 and digits[:4].isdigit():
         candidate = f"{digits[:4]}-{digits[4:6]}-{digits[6:8]}"
@@ -52,12 +65,19 @@ def infer_listing_date_from_eastmoney(frame: pd.DataFrame) -> tuple[str | None, 
     candidates = frame[frame["field_key"].map(_is_listing_date_key)].copy()
     if candidates.empty:
         return None, ""
+    parsed: list[tuple[int, str, str]] = []
     for row in candidates.to_dict("records"):
+        family = str(row.get("family") or "")
         for column in ("value_text", "value_num"):
-            parsed = normalize_date(row.get(column))
-            if parsed:
-                return parsed, f"EASTMONEY:{row.get('family', '')}:{row.get('field_key', '')}"
-    return None, ""
+            value = normalize_date(row.get(column))
+            if value:
+                priority = _LISTING_FAMILY_PRIORITY.get(family, 100)
+                parsed.append((priority, value, f"EASTMONEY:{family}:{row.get('field_key', '')}"))
+                break
+    if not parsed:
+        return None, ""
+    parsed.sort(key=lambda item: (item[0], item[1]))
+    return parsed[0][1], parsed[0][2]
 
 
 @dataclass(slots=True)
