@@ -7,14 +7,15 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
+from ashare_f10.fetch.security import parse_security
 from ashare_f10.validation.documents import pdf_parser as pdf_parser_module
 from ashare_f10.validation.documents.pdf_parser import PdfStatementParser
+from ashare_f10.validation.point_in_time import normalize_date, select_report_versions
 from ashare_f10.validation.reconcile.engine import (
     build_logic_checks,
     build_ttm_checks,
     reconcile_official_facts,
 )
-from ashare_f10.fetch.security import parse_security
 from ashare_f10.validation.reporting import ValidationReportWriter
 from ashare_f10.validation.sources.cninfo import CNInfoOfficialSource
 from ashare_f10.validation.sources.sse import SSEOfficialSource
@@ -28,12 +29,14 @@ class OfficialValidationRunner:
         output_dir: Path | str | None = None,
         annual_year: int = 2025,
         quarter_year: int = 2026,
+        as_of_date: str | None = None,
     ) -> None:
         self.stock_code = stock_code
         self.run_dir = Path(run_dir)
         self.output_dir = Path(output_dir) if output_dir else self.run_dir / "validation"
         self.annual_year = annual_year
         self.quarter_year = quarter_year
+        self.as_of_date = normalize_date(as_of_date, default_today=True)
 
     @property
     def duckdb_path(self) -> Path:
@@ -44,7 +47,7 @@ class OfficialValidationRunner:
         """Distinguish an explicitly disclosed yuan unit from a missing unit marker.
 
         The PDF parser carries a prior page's unit forward only when the current page
-        has no explicit unit.  Its legacy condition compares the numeric scale with
+        has no explicit unit. Its legacy condition compares the numeric scale with
         ``1.0``, so explicit ``单位：元`` and an absent unit are otherwise indistinguishable.
         A next-representable float preserves the monetary value within sub-micro-yuan
         precision while making the explicit unit observable to that condition.
@@ -74,11 +77,18 @@ class OfficialValidationRunner:
             source = CNInfoOfficialSource()
         else:
             raise RuntimeError(f"{exchange}官方披露适配器尚未接入")
-        documents = source.select_reports(
+        begin_year = min(self.annual_year + 1, self.quarter_year)
+        available = source.list_reports(
             self.stock_code,
-            report_dates,
-            begin_date=f"{self.quarter_year}-01-01",
+            begin_date=f"{begin_year}-01-01",
+            end_date=self.as_of_date,
         )
+        selection = select_report_versions(available, report_dates, as_of_date=self.as_of_date)
+        if selection.missing_report_dates:
+            raise RuntimeError(
+                f"截至{self.as_of_date}未找到报告期：{', '.join(selection.missing_report_dates)}"
+            )
+        documents = selection.selected
         document_dir = self.output_dir / "source_documents"
         downloaded = [source.download(document, document_dir) for document in documents]
 
@@ -89,6 +99,10 @@ class OfficialValidationRunner:
             extraction_by_document: dict[str, int] = {}
             for document in downloaded:
                 facts = parser.extract(document.local_path, document)
+                for fact in facts:
+                    fact.document_id = document.document_id
+                    fact.available_at = document.available_at
+                    fact.effective_at = document.effective_at
                 extraction_by_document[document.title] = len(facts)
                 official_facts.extend(facts)
         finally:
@@ -110,8 +124,11 @@ class OfficialValidationRunner:
             ttm_checks,
         )
         summary = json.loads(artifacts.summary_json.read_text(encoding="utf-8"))
+        summary["as_of_date"] = self.as_of_date
         summary["extraction_by_document"] = extraction_by_document
         summary["documents"] = [asdict(document) for document in downloaded]
+        summary["boundary_documents"] = [asdict(document) for document in selection.boundary]
+        summary["document_selection_decisions"] = selection.decisions
         artifacts.summary_json.write_text(
             json.dumps(summary, ensure_ascii=False, indent=2),
             encoding="utf-8",
@@ -125,6 +142,7 @@ def run_official_validation(
     output_dir: Path | str | None = None,
     annual_year: int = 2025,
     quarter_year: int = 2026,
+    as_of_date: str | None = None,
 ) -> dict[str, Any]:
     return OfficialValidationRunner(
         stock_code,
@@ -132,4 +150,5 @@ def run_official_validation(
         output_dir,
         annual_year,
         quarter_year,
+        as_of_date,
     ).run()
