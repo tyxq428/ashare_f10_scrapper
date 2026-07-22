@@ -1,8 +1,8 @@
-4 files reformatted, 7 files left unchanged
+8 files left unchanged
 All checks passed!
 All checks passed!
-........................................................................ [ 74%]
-.........................                                                [100%]
+........................................................................ [ 69%]
+................................                                         [100%]
 =============================== warnings summary ===============================
 ../../../../../opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/fastapi/testclient.py:1
   /opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
@@ -21,7 +21,7 @@ src/ashare_f10/api/app.py                                     180     64    64% 
 src/ashare_f10/api/app_with_raw_pack.py                        10     10     0%   1-15
 src/ashare_f10/api/jobs.py                                    608    308    49%   39, 42-43, 50, 56, 73, 235, 337-354, 361-363, 398-417, 424-431, 439, 446-458, 460, 463-486, 489-510, 513-554, 586, 615-618, 621-633, 642-643, 672-673, 688, 701, 709-710, 712-713, 715-717, 733-736, 739-744, 747-759, 762-793, 796-887, 891, 894, 897, 911-917, 922, 932-935, 940, 945-949, 956, 962, 964, 967, 984-989, 998-1000, 1003-1007, 1011-1022
 src/ashare_f10/api/jobs_v2.py                                 223    100    55%   44, 46-49, 52, 62, 64, 66, 81, 88, 132-136, 140-150, 154-160, 172, 181-199, 226, 250-265, 267, 270-272, 275-302, 305-323
-src/ashare_f10/api/raw_pack.py                                169     64    62%   40, 44, 52, 68-90, 95-111, 116-117, 122-126, 131-135, 152-153, 160, 162, 165, 167, 181-185, 195-196, 211-212, 220, 228, 231, 239-240, 245-254
+src/ashare_f10/api/raw_pack.py                                169     64    62%   40, 44, 52, 68-90, 95-111, 116-117, 122-126, 131-135, 152-153, 160, 162, 165, 167, 181-185, 195-196, 211-212, 220, 228, 231, 239-240, 245-252
 src/ashare_f10/api/search.py                                  337     87    74%   82-89, 103, 105, 107, 111, 113, 117-118, 129, 137-139, 149-152, 156-157, 159-160, 162-163, 168-169, 171-173, 177-180, 193-215, 272, 340, 414, 419-420, 459-460, 483-492, 494, 496, 498, 500, 507-536, 540-547
 src/ashare_f10/calculate/__init__.py                            0      0   100%
 src/ashare_f10/calculate/formula.py                           139     66    53%   74, 94-109, 112-122, 125-149, 152-169, 172-194, 200, 205-207, 209, 211-212, 219, 221, 223, 226, 228-229, 243, 248-253, 255
@@ -31,14 +31,14 @@ src/ashare_f10/config.py                                       17      0   100%
 src/ashare_f10/cross_validation/__init__.py                     7      4    43%   9-19
 src/ashare_f10/cross_validation/adapters.py                    75     35    53%   34, 36-41, 43, 45, 48, 58, 85-132, 136-166
 src/ashare_f10/cross_validation/api.py                        170    128    25%   32, 36, 40-42, 46, 50-53, 57-61, 65-84, 88-144, 155-170, 175-178, 192-230, 235-239, 257-271, 276-292
-src/ashare_f10/cross_validation/comparator.py                 211     52    75%   57, 60-61, 67, 73, 75, 77, 82, 95-100, 105, 109, 135, 211, 245-265, 304, 306, 308-309, 311-313, 339, 341, 343, 352-367, 415-416
+src/ashare_f10/cross_validation/comparator.py                 213     54    75%   57, 60-61, 67, 73, 75, 77, 82, 95-100, 105, 109, 135, 211, 245-265, 304, 306, 308-309, 311-313, 339, 341, 343, 352-372, 420-421
 src/ashare_f10/cross_validation/derived.py                     94     27    71%   34, 36, 39, 56, 62, 83, 103-144, 156, 183-184, 204
-src/ashare_f10/cross_validation/exporter.py                   190    133    30%   20-24, 70-72, 77, 79, 82-87, 112-127, 135-149, 206-259, 264-265, 282-614
-src/ashare_f10/cross_validation/lifecycle.py                  134     16    88%   28, 48-49, 56-57, 73, 76, 87, 104, 108, 113, 115, 142-144, 162
-src/ashare_f10/cross_validation/models.py                     104      2    98%   128, 155
+src/ashare_f10/cross_validation/exporter.py                   190    133    30%   20-24, 70-72, 77, 79, 82-87, 112-127, 135-149, 206-259, 264-265, 282-616
+src/ashare_f10/cross_validation/lifecycle.py                  167     26    84%   28, 48-49, 56-57, 73, 76, 87, 104, 108, 113, 115, 142-144, 162, 243, 246-249, 251-252, 256, 258, 260, 264
+src/ashare_f10/cross_validation/models.py                     104      2    98%   130, 157
 src/ashare_f10/cross_validation/process_policy.py              37     28    24%   12-15, 19-38, 42-48
 src/ashare_f10/cross_validation/registry.py                    80     17    79%   33, 43-49, 64-68, 104, 132, 146, 162-167, 199
-src/ashare_f10/cross_validation/runner.py                     263    221    16%   47-51, 55, 59-75, 79-92, 105-110, 113-114, 118, 122-129, 134-350, 353-495, 499-527, 538
+src/ashare_f10/cross_validation/runner.py                     268    226    16%   50-54, 58, 62-78, 82-95, 108-113, 116-117, 121, 125-132, 137-365, 368-522, 526-554, 565
 src/ashare_f10/cross_validation/targets.py                     36     27    25%   37-94
 src/ashare_f10/export/__init__.py                               0      0   100%
 src/ashare_f10/export/bundle.py                                15      0   100%
@@ -70,7 +70,7 @@ src/ashare_f10/resources/__init__.py                            0      0   100%
 src/ashare_f10/validation/__init__.py                           3      0   100%
 src/ashare_f10/validation/accounting/__init__.py                0      0   100%
 src/ashare_f10/validation/documents/__init__.py                 2      0   100%
-src/ashare_f10/validation/documents/pdf_parser.py             362    123    66%   239, 246, 253, 258, 261-262, 274, 299, 308, 376, 456-463, 466, 527, 551, 583-696, 706-719, 730-767, 786, 818, 824, 828, 840, 855
+src/ashare_f10/validation/documents/pdf_parser.py             401    134    67%   239, 246, 253, 258, 261-262, 274, 299, 308, 376, 456-463, 466, 497, 519, 536, 551-557, 610, 634, 666-784, 794-807, 818-855, 876, 909, 914, 920, 924, 936, 951
 src/ashare_f10/validation/models.py                           109      6    94%   22, 56, 80, 98, 116, 130
 src/ashare_f10/validation/reconcile/__init__.py                 2      0   100%
 src/ashare_f10/validation/reconcile/engine.py                 100      4    96%   70, 79, 243, 275
@@ -80,5 +80,5 @@ src/ashare_f10/validation/sources/__init__.py                   3      0   100%
 src/ashare_f10/validation/sources/cninfo.py                   202     58    71%   45, 52-59, 84, 92, 124-141, 144-163, 167, 175, 182, 192, 232, 236, 240, 248, 253, 272, 275, 289, 302-303, 306-307, 337, 347-351
 src/ashare_f10/validation/sources/sse.py                      250    126    50%   74, 79-82, 102, 115, 118, 126, 137-146, 153-155, 183-203, 206-230, 233, 243-262, 353, 363-364, 367-369, 376-452
 -----------------------------------------------------------------------------------------
-TOTAL                                                        6658   2822    58%
-97 passed, 1 warning in 14.29s
+TOTAL                                                        6737   2850    58%
+104 passed, 1 warning in 16.74s
