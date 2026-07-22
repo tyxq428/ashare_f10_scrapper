@@ -361,10 +361,14 @@ def _page_unit_info(text: str) -> tuple[str, float] | None:
 
 
 def _row_unit_info(text: str) -> tuple[str, float] | None:
+    compact = _compact(text)
+    # Per-share rows override the page-level monetary presentation unit.  CNINFO
+    # commonly presents the statement in 千元 while EPS remains 元/股.
+    if re.search(r"[（(](?:人民币)?元[/／]股[）)]", compact):
+        return "元/股", 1.0
     page_unit = _page_unit_info(text)
     if page_unit is not None:
         return page_unit
-    compact = _compact(text)
     match = re.search(r"[（(](?:人民币)?(亿元|万元|千元|元)[）)]", compact)
     if match is None:
         return None
@@ -420,7 +424,9 @@ def _bounded_alias_value_segment(
     return compact[value_start:value_end], bounded
 
 
-def _tolerance(scale: float, decimals: int) -> float:
+def _tolerance(scale: float, decimals: int, unit: str = "元") -> float:
+    if unit == "元/股":
+        return max(1e-9, 0.5 * (10 ** (-decimals)))
     return max(1.0, scale * 0.5 * (10 ** (-decimals)))
 
 
@@ -855,13 +861,13 @@ class PdfStatementParser:
                 field_name_report=alias,
                 value=_canonical_value(target.field_key, current[0], document.source) * row_unit[1],
                 unit=row_unit[0],
-                normalized_unit="元",
+                normalized_unit=row_unit[0] if row_unit[0] == "元/股" else "元",
                 source_document=document.title,
                 source_url=document.url,
                 source_page=page_number,
                 source_row=joined,
                 extraction_method="PDF_TABLE",
-                precision_tolerance=_tolerance(row_unit[1], current[1]),
+                precision_tolerance=_tolerance(row_unit[1], current[1], row_unit[0]),
                 confidence="high",
             )
         return None
@@ -978,12 +984,12 @@ class PdfStatementParser:
             field_name_report=alias,
             value=_canonical_value(target.field_key, current[0], document.source) * row_unit[1],
             unit=row_unit[0],
-            normalized_unit="元",
+            normalized_unit=row_unit[0] if row_unit[0] == "元/股" else "元",
             source_document=document.title,
             source_url=document.url,
             source_page=page_number,
             source_row=context,
             extraction_method=("PDF_SUMMARY_TEXT_WINDOW" if summary_direct else "PDF_TEXT_WINDOW"),
-            precision_tolerance=_tolerance(row_unit[1], current[1]),
+            precision_tolerance=_tolerance(row_unit[1], current[1], row_unit[0]),
             confidence="high" if target.statement_type != "summary" else "medium",
         )
