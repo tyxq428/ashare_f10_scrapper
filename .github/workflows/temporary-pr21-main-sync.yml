@@ -1,17 +1,16 @@
 name: Temporary PR21 Main Sync
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - ".github/workflows/temporary-pr21-main-sync.yml"
+  issue_comment:
+    types: [created]
 
 permissions:
   contents: write
+  pull-requests: read
 
 jobs:
   sync-pr21:
+    if: github.event.issue.pull_request && github.event.issue.number == 21 && contains(github.event.comment.body, '/sync-pr21')
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
