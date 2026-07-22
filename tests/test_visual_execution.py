@@ -139,15 +139,17 @@ def test_official_source_conflict_is_completed_with_review() -> None:
     assert outcome["warning_delta"] == 1
     assert "23份官方报告" in outcome["message"]
     assert "需要复核" in outcome["message"]
+
+
 def test_official_coverage_gap_is_completed_with_review() -> None:
     outcome = official_stage_outcome(
         {
-  "acceptance_status": "PASS_WITH_COVERAGE_GAPS",
-  "manual_review_required": False,
-  "true_conflict_count": 0,
-  "official_fact_count": 1200,
-  "comparison_count": 4000,
-  "official_source_status": {"document_count": 18},
+            "acceptance_status": "PASS_WITH_COVERAGE_GAPS",
+            "manual_review_required": False,
+            "true_conflict_count": 0,
+            "official_fact_count": 1200,
+            "comparison_count": 4000,
+            "official_source_status": {"document_count": 18},
         },
         "full_history",
     )
@@ -160,12 +162,12 @@ def test_official_coverage_gap_is_completed_with_review() -> None:
 def test_partial_official_source_is_completed_with_review() -> None:
     outcome = official_stage_outcome(
         {
-  "acceptance_status": "PARTIAL_OFFICIAL_SOURCE_UNAVAILABLE",
-  "manual_review_required": False,
-  "true_conflict_count": 0,
-  "official_fact_count": 0,
-  "comparison_count": 0,
-  "official_source_status": {"document_count": 0},
+            "acceptance_status": "PARTIAL_OFFICIAL_SOURCE_UNAVAILABLE",
+            "manual_review_required": False,
+            "true_conflict_count": 0,
+            "official_fact_count": 0,
+            "comparison_count": 0,
+            "official_source_status": {"document_count": 0},
         },
         "latest",
     )
@@ -173,3 +175,6 @@ def test_partial_official_source_is_completed_with_review() -> None:
     assert outcome["display_status"] == "COMPLETED_WITH_REVIEW"
     assert outcome["warning_delta"] == 1
     assert "官方来源部分不可用" in outcome["message"]
+
+
+# Post-merge validation marker: PR #24 / main 5167a91b8b17dc16326fa9d35d7301e80695e1ed
