@@ -42,6 +42,10 @@ if old in text:
 elif "classify downloaded report scope before cache lookup" not in text:
     raise SystemExit("runner cache marker not found in SSE summary materializer")
 
-compatibility = Path(__file__).with_name("patch_sse_summary_materializer_v2.py")
-exec(compile(compatibility.read_text(encoding="utf-8"), str(compatibility), "exec"))
-compatibility.unlink(missing_ok=True)
+for helper_name in (
+    "patch_sse_summary_materializer_v2.py",
+    "patch_sse_summary_materializer_v3.py",
+):
+    helper = Path(__file__).with_name(helper_name)
+    exec(compile(helper.read_text(encoding="utf-8"), str(helper), "exec"))
+    helper.unlink(missing_ok=True)
