@@ -1,0 +1,106 @@
+name: Research Pack W08 Matrix
+
+on:
+  pull_request:
+    paths:
+      - "src/ashare_f10/research_pack/**"
+      - "src/ashare_f10/research_mapping/**"
+      - "src/ashare_f10/evidence/**"
+      - "tests/test_research_pack*.py"
+      - "scripts/verify_research_pack_e2e.py"
+      - ".github/workflows/research-pack-matrix.yml"
+      - "docs/implementation/f10-research-mapping-evidence-pack-v1/W08_plan.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  deterministic-matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e ".[dev]"
+      - name: Static checks
+        run: |
+          set -euo pipefail
+          python -m compileall -q src scripts
+          ruff check \
+            src/ashare_f10/research_pack \
+            src/ashare_f10/research_mapping \
+            src/ashare_f10/evidence \
+            tests/test_research_pack.py \
+            tests/test_research_pack_acceptance_matrix.py \
+            scripts/verify_research_pack_e2e.py
+      - name: Deterministic multi-market and portability tests
+        run: |
+          set -euo pipefail
+          pytest -q \
+            tests/test_research_pack.py \
+            tests/test_research_pack_acceptance_matrix.py \
+            tests/test_point_in_time.py \
+            tests/test_research_mapping.py \
+            tests/test_research_extractors.py \
+            tests/test_evidence_graph.py
+
+  live-cninfo-002352:
+    needs: deterministic-matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e ".[dev]"
+      - name: Run live CNINFO dual-source thin slice with finite recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUTPUT="research-pack-matrix-002352-${{ github.run_id }}"
+          STATUS=1
+          for ATTEMPT in 1 2 3; do
+            echo "W08 live attempt ${ATTEMPT}/3"
+            set +e
+            ashare-f10 run-and-validate 002352 \
+              --output "$OUTPUT" \
+              --workers 8 \
+              --max-periods 2 \
+              --as-of-date 2026-07-22 \
+              2>&1 | tee "research-pack-002352-attempt-${ATTEMPT}.log"
+            STATUS=${PIPESTATUS[0]}
+            set -e
+            if [[ "$STATUS" -eq 0 ]]; then
+              break
+            fi
+            sleep $((ATTEMPT * 20))
+          done
+          if [[ "$STATUS" -ne 0 ]]; then
+            echo "002352 live dual-source pipeline failed after finite retries"
+            exit "$STATUS"
+          fi
+          python scripts/verify_full_cross_validation.py "$OUTPUT"
+          python scripts/verify_research_pack_e2e.py "$OUTPUT" 002352
+          printf '%s\n' "$OUTPUT" > research-pack-matrix-output-dir.txt
+      - name: Upload W08 live evidence and performance report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-pack-w08-002352-${{ github.run_id }}
+          path: |
+            research-pack-matrix-002352-*/
+            research-pack-002352-attempt-*.log
+            research-pack-matrix-output-dir.txt
+          if-no-files-found: warn
+          retention-days: 30
