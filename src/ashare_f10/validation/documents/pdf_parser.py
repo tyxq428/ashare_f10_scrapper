@@ -380,7 +380,13 @@ def _unit_info(text: str) -> tuple[str, float]:
     return _row_unit_info(text) or ("元", 1.0)
 
 
-def _canonical_value(field_key: str, value: float) -> float:
+def _canonical_value(field_key: str, value: float, source: str = "") -> float:
+    # SSE reports preserve the sign of financial expense and cash-flow supplement
+    # finance expense.  CNINFO layouts sometimes present the same expense rows in
+    # parentheses/negative form while Eastmoney stores their presentation magnitude;
+    # retain the verified CNINFO behavior without changing SSE facts.
+    if field_key == "FINANCE_EXPENSE" and source.upper() == "SSE":
+        return value
     if (
         field_key in ABSOLUTE_PRESENTATION_FIELDS
         or field_key.startswith("PAY_")
@@ -388,6 +394,30 @@ def _canonical_value(field_key: str, value: float) -> float:
     ):
         return abs(value)
     return value
+
+
+def _bounded_alias_value_segment(
+    context: str,
+    alias: str,
+    all_aliases: Iterable[str],
+) -> tuple[str, bool]:
+    compact = _compact(context)
+    target = _compact(alias)
+    start = compact.find(target)
+    if start < 0:
+        return context, False
+    value_start = start + len(target)
+    value_end = len(compact)
+    bounded = False
+    for other in all_aliases:
+        candidate = _compact(other)
+        if not candidate or candidate == target:
+            continue
+        position = compact.find(candidate, value_start)
+        if position >= 0 and position < value_end:
+            value_end = position
+            bounded = True
+    return compact[value_start:value_end], bounded
 
 
 def _tolerance(scale: float, decimals: int) -> float:
@@ -445,6 +475,100 @@ def _section_from_text(text: str) -> tuple[str | None, str | None]:
     return (events[-1][1], events[-1][2]) if events else (None, None)
 
 
+SUMMARY_DIRECT_ALIASES = {
+    "总资产",
+    "资产总计",
+    "归属于上市公司股东的净资产",
+    "归属于母公司股东的净资产",
+    "经营活动产生的现金流量净额",
+    "营业收入",
+    "归属于上市公司股东的净利润",
+    "归属于母公司股东的净利润",
+    "归属于上市公司股东的扣除非经常性损益的净利润",
+    "归属于母公司股东的扣除非经常性损益的净利润",
+    "基本每股收益",
+    "稀释每股收益",
+    "加权平均净资产收益率",
+    "研发投入占营业收入的比例",
+}
+
+
+def _is_summary_direct_target(target: TargetField) -> bool:
+    return any(
+        _compact(alias) in {_compact(item) for item in SUMMARY_DIRECT_ALIASES} for alias in target.aliases
+    )
+
+
+def _select_summary_amount(
+    values: list[tuple[float, int, str]],
+    target: TargetField,
+    document: OfficialDocument,
+    context: str,
+    page_text: str = "",
+) -> tuple[float, int, str] | None:
+    """Select the comparable amount from SSE key-financial-data summary rows.
+
+    Legacy Q3 summaries expose ``YTD / prior YTD / change`` and therefore use the
+    first amount. Modern Q3 summaries expose ``current quarter / change / YTD /
+    change`` and therefore use the third numeric token. PDF text extraction can
+    interleave column headings, so the decision is based on the row's value shape
+    rather than fragile header word order. Point-in-time facts always use the first
+    period-end amount.
+    """
+
+    del page_text  # Retained for backward-compatible callers and evidence tests.
+    if not values:
+        return None
+    usable = [
+        value
+        for value in values
+        if not (abs(value[0]) < 100 and bool(re.fullmatch(r"[（(]\s*\d{1,2}\s*[）)]", value[2].strip())))
+    ]
+    usable = usable or values
+    if document.report_kind != "q3" or target.semantics == "point_in_time":
+        return usable[0]
+
+    # Four numeric tokens unambiguously identify the modern Q3 layout:
+    # current-quarter amount, current-quarter change, YTD amount, YTD change.
+    if len(usable) >= 4:
+        return usable[2]
+
+    compact = _compact(context)
+    if len(usable) == 3 and "不适用" in compact:
+        # One modern current-quarter column can be unavailable.  When the marker
+        # sits between the first and second numeric token, the second amount is YTD.
+        first_pos = compact.find(_compact(usable[0][2]))
+        second_pos = compact.find(_compact(usable[1][2]), max(first_pos + 1, 0))
+        unavailable_pos = compact.find("不适用", max(first_pos + 1, 0))
+        if first_pos >= 0 and second_pos > first_pos and first_pos < unavailable_pos < second_pos:
+            return usable[1]
+
+    # Legacy Q3: YTD, prior-year YTD, change.  Modern rows with both current-quarter
+    # columns unavailable also leave the YTD amount as the first numeric token.
+    return usable[0]
+
+
+def financial_scope_from_texts(texts: Iterable[str]) -> str:
+    has_summary = False
+    for text in texts:
+        compact = _compact(text)
+        if _heading_events(None, text):
+            return "FULL_STATEMENTS"
+        if "主要财务数据" in compact:
+            has_summary = True
+    return "SUMMARY_ONLY" if has_summary else "UNRESOLVED"
+
+
+def classify_pdf_financial_scope(pdf_path: Path | str) -> str:
+    texts: list[str] = []
+    with pdfplumber.open(Path(pdf_path)) as pdf:
+        for page in pdf.pages:
+            texts.append(
+                page.extract_text(x_tolerance=1.5, y_tolerance=3, layout=True) or page.extract_text() or ""
+            )
+    return financial_scope_from_texts(texts)
+
+
 def _normalized_label(value: Any) -> str:
     label = _compact(value).replace(":", "：")
     label = re.sub(r"^[一二三四五六七八九十百]+、", "", label)
@@ -474,6 +598,7 @@ class PdfStatementParser:
             aliases = target.aliases
             special_aliases = {
                 ("balance_sheet", "TOTAL_LIAB_EQUITY"): ("负债及股东权益总计",),
+                ("balance_sheet", "TOTAL_ASSETS"): ("总资产",),
                 ("income_statement", "FINANCE_EXPENSE"): ("财务（费用）/收入", "财务（费用）收入"),
                 ("income_statement", "PARENT_NETPROFIT"): ("归属于母公司所有者的净利润",),
                 ("cash_flow", "NETCASH_OPERATE"): (
@@ -536,6 +661,18 @@ class PdfStatementParser:
                 )
         self.targets = tuple(merged.values())
         self.summary_targets = tuple(target for target in self.targets if target.statement_type == "summary")
+        self.statement_aliases = tuple(
+            sorted(
+                {
+                    alias
+                    for target in self.targets
+                    if target.statement_type != "summary"
+                    for alias in target.aliases
+                },
+                key=len,
+                reverse=True,
+            )
+        )
 
     def extract(self, pdf_path: Path | str, document: OfficialDocument) -> list[OfficialFact]:
         pdf_path = Path(pdf_path)
@@ -579,6 +716,7 @@ class PdfStatementParser:
                     previous_unit = unit
 
                 compact_text = _compact(text)
+                is_key_financial_summary_page = "主要财务数据" in compact_text and page_number <= 5
                 has_summary_alias = "扣除非经常性损益" in compact_text or any(
                     _compact(alias) in compact_text
                     for target in self.summary_targets
@@ -620,10 +758,12 @@ class PdfStatementParser:
                         and target.field_key == "FINANCE_EXPENSE"
                         and _compact("财务费用（收益以“－”号填列）") in compact_text
                     )
+                    is_summary_direct = is_key_financial_summary_page and _is_summary_direct_target(target)
                     allowed_text = (
                         target.statement_type == "summary"
                         or (page_section == target.statement_type and page_scope != "parent")
                         or is_cashflow_supplement
+                        or is_summary_direct
                     )
                     if not allowed_text:
                         continue
@@ -634,6 +774,8 @@ class PdfStatementParser:
                         page_number,
                         unit,
                         page_scope or "consolidated",
+                        max_width=6 if is_summary_direct else 3,
+                        summary_direct=is_summary_direct,
                     )
                     if extracted:
                         base_score = 140 if document.source == "CNINFO" else 60
@@ -711,7 +853,7 @@ class PdfStatementParser:
                 scope=scope,
                 field_key=target.field_key,
                 field_name_report=alias,
-                value=_canonical_value(target.field_key, current[0]) * row_unit[1],
+                value=_canonical_value(target.field_key, current[0], document.source) * row_unit[1],
                 unit=row_unit[0],
                 normalized_unit="元",
                 source_document=document.title,
@@ -732,13 +874,15 @@ class PdfStatementParser:
         page_number: int,
         unit: tuple[str, float],
         scope: str,
+        max_width: int = 3,
+        summary_direct: bool = False,
     ) -> OfficialFact | None:
         lines = [_clean_row(line) for line in text.splitlines() if _clean_row(line)]
         candidates: list[tuple[int, int, str, tuple[float, int, str], tuple[str, float], str]] = []
         seen: set[tuple[int, int, str, int]] = set()
 
         for start in range(len(lines)):
-            for width in (1, 2, 3):
+            for width in range(1, max_width + 1):
                 end = min(len(lines), start + width)
                 if end <= start:
                     continue
@@ -761,11 +905,29 @@ class PdfStatementParser:
                     for line_index in range(start, end)
                     if _label_matches(_label_context(lines[line_index]), alias)
                 ]
+                value_segment, bounded_by_next_label = _bounded_alias_value_segment(
+                    context,
+                    alias,
+                    self.statement_aliases,
+                )
                 for numeric_index in range(start, end):
-                    amounts = _choose_amounts(_numeric_candidates([lines[numeric_index]]))
+                    numeric_source = value_segment if bounded_by_next_label else lines[numeric_index]
+                    numeric_values = _numeric_candidates([numeric_source])
+                    amounts = _choose_amounts(numeric_values)
                     if not amounts:
                         continue
                     current, _previous = amounts
+                    if summary_direct:
+                        current = (
+                            _select_summary_amount(
+                                numeric_values,
+                                target,
+                                document,
+                                numeric_source,
+                                page_text=text,
+                            )
+                            or current
+                        )
                     if not math.isfinite(current[0]):
                         continue
 
@@ -794,7 +956,7 @@ class PdfStatementParser:
                     normalized_context = _normalized_label(label_context)
                     normalized_alias = _normalized_label(alias)
                     exact_bonus = 40 if normalized_context == normalized_alias else 20
-                    width_bonus = {1: 30, 2: 20, 3: 10}[width]
+                    width_bonus = max(0, 40 - 10 * width)
                     score = relation_score + exact_bonus + width_bonus
                     identity = (start, end, alias, numeric_index)
                     if identity in seen:
@@ -814,14 +976,14 @@ class PdfStatementParser:
             scope=scope,
             field_key=target.field_key,
             field_name_report=alias,
-            value=_canonical_value(target.field_key, current[0]) * row_unit[1],
+            value=_canonical_value(target.field_key, current[0], document.source) * row_unit[1],
             unit=row_unit[0],
             normalized_unit="元",
             source_document=document.title,
             source_url=document.url,
             source_page=page_number,
             source_row=context,
-            extraction_method="PDF_TEXT_WINDOW",
+            extraction_method=("PDF_SUMMARY_TEXT_WINDOW" if summary_direct else "PDF_TEXT_WINDOW"),
             precision_tolerance=_tolerance(row_unit[1], current[1]),
             confidence="high" if target.statement_type != "summary" else "medium",
         )

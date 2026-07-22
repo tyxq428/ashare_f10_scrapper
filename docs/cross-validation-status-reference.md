@@ -1,6 +1,6 @@
 # 双源交叉验证状态与指标说明
 
-本页解释网页、JSON、Excel、Parquet和DuckDB中使用的验证模式、对账状态和顶部指标。
+本页解释网页、JSON、Excel、Parquet和DuckDB中使用的验证模式、对账状态、证券生命周期状态和顶部指标。
 
 ## 一、验证模式（validation_mode）
 
@@ -44,9 +44,9 @@
 | `PERIOD_CONFLICT` | 年度累计、季度累计和独立单季度口径混用 |
 | `UNIT_CONFLICT` | 元、千元、万元、亿元或百分比等单位无法统一 |
 
-### 覆盖缺口状态
+### 覆盖缺口与生命周期状态
 
-这些状态不是“数据冲突”：
+这些状态不是“两个来源已经比较后发现数值冲突”：
 
 | 状态 | 含义 |
 |---|---|
@@ -54,12 +54,31 @@
 | `MISSING_EASTMONEY` | 官方文件中存在事实，但东方财富标准事实表中没有对应记录 |
 | `OFFICIAL_PERIOD_NOT_LOADED` | 该历史报告期的官方PDF本轮没有加载；不参与一致性判断 |
 | `OFFICIAL_SOURCE_UNAVAILABLE` | 当前市场的免费官方来源适配器尚未接入或暂不可用 |
+| `PRE_LISTING_OFFICIAL_SOURCE_NOT_LOADED` | 报告期早于该证券上市日期，同一上市代码不存在定期报告；应改用招股说明书或发行上市申报文件验证 |
+| `OFFICIAL_REPORT_SUMMARY_SCOPE_GAP` | 官方文件已经发现并提取，但旧版报告只披露“主要财务数据”摘要，没有完整三张报表；摘要未披露项目不判为冲突 |
+| `OFFICIAL_DOCUMENT_EXTRACTION_FAILED` | 官方完整报告已经发现和下载，但当前解析器没有提取到可比事实，需要修复解析器 |
+| `POST_LISTING_OFFICIAL_REPORT_NOT_FOUND` | 证券已上市、该期间理论上应有报告，但官方查询没有发现文件，需要继续调查来源或版本 |
+| `OFFICIAL_REPORT_NOT_YET_DISCLOSED` | 报告期已经出现在上游数据中，但截至任务运行时对应官方定期报告尚未披露 |
 | `NOT_IN_OFFICIAL_SCOPE` | 该字段不属于定期报告验证范围 |
 | `SOURCE_SPECIFIC` | 东方财富特有字段，官方报告不存在同口径项目 |
 | `FUTURE_FREE_SOURCE_REQUIRED` | 需要后续接入其他免费官方来源 |
 | `UNRESOLVED` | 现有规则无法可靠判断，不能使用推测值补齐 |
 
-## 三、顶部指标
+## 三、报告期生命周期表
+
+比较数据库新增`report_period_lifecycle`表，按报告期记录：
+
+- 证券代码和交易所；
+- 上市日期及其来源；
+- 报告期；
+- `PRE_LISTING_PERIOD`、`LISTING_TRANSITION_PERIOD`、`POST_LISTING_PERIODIC_EXPECTED`或`POST_LISTING_PERIOD_NOT_YET_DISCLOSED`；
+- 官方文件是否发现；
+- 官方事实提取数量；
+- 最终覆盖状态。
+
+这张表用于区分“官方网站缺文件”“证券当时尚未上市”“报告尚未披露”和“文件存在但解析失败”。
+
+## 四、顶部指标
 
 ### 东方财富事实
 
@@ -78,12 +97,17 @@
 - `FUTURE_FREE_SOURCE_REQUIRED`
 - `OFFICIAL_PERIOD_NOT_LOADED`
 - `OFFICIAL_SOURCE_UNAVAILABLE`
+- `PRE_LISTING_OFFICIAL_SOURCE_NOT_LOADED`
+- `OFFICIAL_REPORT_SUMMARY_SCOPE_GAP`
+- `OFFICIAL_REPORT_NOT_YET_DISCLOSED`
 
 因此，理论可比记录仍包含：
 
 - 已匹配记录；
 - `MISSING_OFFICIAL`；
 - `MISSING_EASTMONEY`；
+- `OFFICIAL_DOCUMENT_EXTRACTION_FAILED`；
+- `POST_LISTING_OFFICIAL_REPORT_NOT_FOUND`；
 - 真正冲突。
 
 它表示“应该尝试比较的记录数”，不是“已经取得两边数值的记录数”。
@@ -98,30 +122,32 @@
 - `TEXT_MATCH_NORMALIZED`
 - `SET_MATCH`
 
-### 688521示例
+## 五、688521完整历史示例
 
-某次688521任务中：
-
-```text
-理论可比记录：44,009
-已形成双源匹配：548
-MISSING_OFFICIAL：43,443
-MISSING_EASTMONEY：18
-真正冲突：0
-```
-
-关系为：
+完成生命周期修复后的688521全历史任务：
 
 ```text
-44,009 = 548 + 43,443 + 18 + 0
+上市日期：2020-08-18（SSE公司概况）
+上市前报告期：9个
+上市后官方报告发现缺口：0
+旧版摘要式报告：2020Q3、2021Q1
+尚未披露报告期：2026H1
+官方直接及派生事实：2,975
+已形成双源匹配：6,191
+真正冲突：1
 ```
 
-差额很大的主要原因：
+唯一保留冲突为：
 
-1. 东方财富事实是记录级长表，同一字段会在财务主表、主要指标、比率、杜邦等多个接口中重复出现；
-2. 本轮只加载最近两个官方报告期，而官方解析器生成的是去重后的规范事实；
-3. 大量理论上可验证的字段尚未在PDF解析目标中覆盖，状态为`MISSING_OFFICIAL`；
-4. 匹配率是“记录级官方提取覆盖率”，不是数据准确率评分。
+```text
+报告期：2020-12-31
+字段：INVEST_PAY_CASH（投资支付的现金）
+东方财富：0元
+上交所2020年年度报告：53,000,000元
+官方证据：年报第146页“投资支付的现金 53,000,000.00”
+```
+
+东方财富明确返回0、官方正式报告明确为非零，因此系统保留`MISMATCH`，不会为了让验收状态变成PASS而覆盖或隐藏来源差异。
 
 判断准确性时应优先看：
 
@@ -129,16 +155,17 @@ MISSING_EASTMONEY：18
 - `MISMATCH`及口径冲突；
 - 会计逻辑检查；
 - TTM双公式检查；
-- 具体字段的PDF页码和原始行证据。
+- 具体字段的PDF页码和原始行证据；
+- `report_period_lifecycle`中的报告期覆盖分类。
 
-## 四、验收状态
+## 六、验收状态
 
 | 验收状态 | 含义 |
 |---|---|
 | `PASS` | 分类完整、没有真实冲突，也没有未解决覆盖缺口 |
 | `PASS_WITH_COVERAGE_GAPS` | 已纳入比较的事实没有真实冲突，但仍存在未加载报告期、未提取项目或来源专有字段 |
 | `PARTIAL_OFFICIAL_SOURCE_UNAVAILABLE` | 东方财富任务完成，但当前市场没有可用官方适配器；不能解释为双源验证通过 |
-| `FAIL_SOURCE_CONFLICT` | 存在真实来源冲突 |
+| `FAIL_SOURCE_CONFLICT` | 存在一个或多个有来源证据支持的真实差异；数据包仍然完整可用，但必须保留冲突并提示人工审阅 |
 | `FAIL_CLASSIFICATION_COVERAGE` | 有字段没有验证模式 |
 
-`PASS_WITH_COVERAGE_GAPS`表示当前已验证部分通过，不表示所有东方财富字段都已被官方报告覆盖。
+`PASS_WITH_COVERAGE_GAPS`表示当前已验证部分通过，不表示所有东方财富字段都已被官方报告覆盖。`FAIL_SOURCE_CONFLICT`也不等于任务执行失败：它表示系统成功发现并保留了真实来源差异。
