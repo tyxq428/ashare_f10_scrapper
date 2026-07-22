@@ -92,6 +92,12 @@ def select_report_versions(
             )
             continue
         chosen = max(eligible, key=version_sort_key)
+        predecessors = sorted(
+            [item for item in eligible if item.document_id != chosen.document_id],
+            key=lambda item: (normalize_date(item.available_at or item.publish_date), version_sort_key(item)),
+        )
+        if predecessors:
+            chosen.supersedes_document_id = predecessors[-1].document_id
         selected.append(chosen)
         decisions.append(
             {
@@ -101,6 +107,7 @@ def select_report_versions(
                 "document_id": chosen.document_id,
                 "version_label": chosen.version_label,
                 "available_at": chosen.available_at or chosen.publish_date,
+                "supersedes_document_id": chosen.supersedes_document_id,
                 "candidate_count": str(len(candidates)),
                 "eligible_candidate_count": str(len(eligible)),
             }
