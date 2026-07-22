@@ -183,7 +183,7 @@ def _write_excel(path: Path, sheets: list[tuple[str, pd.DataFrame]]) -> None:
     with pd.ExcelWriter(
         path,
         engine="xlsxwriter",
-        engine_kwargs={"options": {"constant_memory": True, "strings_to_urls": False}},
+        engine_kwargs={"options": {"strings_to_urls": False}},
     ) as writer:
         for sheet_name, frame in sheets:
             safe = _safe_frame(frame)
