@@ -1,2 +1,2 @@
 validate 002352 official disclosure integration
-revision: 5 canonical signs row association units
+revision: 6 corrected v2 compatibility
