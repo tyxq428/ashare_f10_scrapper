@@ -31,11 +31,12 @@ from ashare_f10.cross_validation.targets import build_dynamic_targets
 from ashare_f10.fetch.security import parse_security
 from ashare_f10.validation.documents.pdf_parser import PdfStatementParser
 from ashare_f10.validation.models import OfficialFact
+from ashare_f10.validation.point_in_time import normalize_date, select_report_versions
 from ashare_f10.validation.reconcile.engine import build_logic_checks, build_ttm_checks
 from ashare_f10.validation.sources.cninfo import CNInfoOfficialSource
 from ashare_f10.validation.sources.sse import SSEOfficialSource
 
-PARSER_CACHE_VERSION = "1.6.0"
+PARSER_CACHE_VERSION = "1.7.0"
 
 
 def _sha256_file(path: Path) -> str:
@@ -70,7 +71,12 @@ def _load_artifact_path(run_dir: Path, key: str, fallback: str) -> Path:
     return path
 
 
-def _official_report_dates(eastmoney: pd.DataFrame, max_periods: int | None = None) -> list[str]:
+def _official_report_dates(
+    eastmoney: pd.DataFrame,
+    max_periods: int | None = None,
+    as_of_date: str | None = None,
+) -> list[str]:
+    cutoff = normalize_date(as_of_date, default_today=True)
     frame = eastmoney[
         eastmoney["family"].isin(
             [
@@ -81,7 +87,13 @@ def _official_report_dates(eastmoney: pd.DataFrame, max_periods: int | None = No
         )
         & eastmoney["report_date"].notna()
     ]
-    dates = sorted({str(value)[:10] for value in frame["report_date"] if value})
+    dates = sorted(
+        {
+            str(value)[:10]
+            for value in frame["report_date"]
+            if value and str(value)[:10] <= cutoff
+        }
+    )
     if max_periods:
         dates = dates[-max_periods:]
     return dates
@@ -96,6 +108,7 @@ class FullCrossValidationRunner:
         max_periods: int | None = None,
         registry_path: Path | str | None = None,
         progress: Callable[[dict[str, Any]], None] | None = None,
+        as_of_date: str | None = None,
     ) -> None:
         self.stock_code = stock_code
         self.run_dir = Path(run_dir)
@@ -103,6 +116,7 @@ class FullCrossValidationRunner:
         self.max_periods = max_periods
         self.registry_path = registry_path
         self.progress = progress
+        self.as_of_date = normalize_date(as_of_date, default_today=True)
 
     def _notify(self, stage: str, **details: Any) -> None:
         if self.progress is not None:
@@ -126,7 +140,7 @@ class FullCrossValidationRunner:
     def _build_official_source_package(
         self, eastmoney: pd.DataFrame
     ) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, Any]]:
-        report_dates = _official_report_dates(eastmoney, self.max_periods)
+        report_dates = _official_report_dates(eastmoney, self.max_periods, self.as_of_date)
         if not report_dates:
             raise RuntimeError("东方财富事实表中没有可用于官方报告发现的财务报告期")
 
@@ -147,6 +161,7 @@ class FullCrossValidationRunner:
                     "requested_report_dates": report_dates,
                     "available_report_dates": [],
                     "missing_report_dates": report_dates,
+                    "as_of_date": self.as_of_date,
                     "message": (
                         f"{identity.exchange}官方披露适配器尚未接入；"
                         "字段完成分类，但官方数值不可用，不参与双源匹配"
@@ -158,6 +173,7 @@ class FullCrossValidationRunner:
             "OFFICIAL_DISCOVERY",
             requested_report_dates=report_dates,
             official_source=source_name,
+            as_of_date=self.as_of_date,
         )
         source_class = type(source)
         available = source.list_reports(
@@ -165,23 +181,12 @@ class FullCrossValidationRunner:
             begin_date=f"{min(report_dates)[:4]}-01-01",
             end_date=utc_now()[:10],
         )
-        selected = []
-        for report_date in report_dates:
-            candidates = [
-                item
-                for item in available
-                if item.report_date == report_date and item.version_label != "withdrawn"
-            ]
-            if not candidates:
-                continue
-            candidates.sort(
-                key=lambda item: (
-                    {"corrected": 3, "original": 2}.get(item.version_label, 1),
-                    item.publish_date,
-                ),
-                reverse=True,
-            )
-            selected.append(candidates[0])
+        selection = select_report_versions(
+            available,
+            report_dates,
+            as_of_date=self.as_of_date,
+        )
+        selected = selection.selected
 
         document_dir = self.output_dir / "source_documents"
         document_dir.mkdir(parents=True, exist_ok=True)
@@ -229,6 +234,10 @@ class FullCrossValidationRunner:
                     cache_path.unlink(missing_ok=True)
             parser = PdfStatementParser(targets)
             facts = parser.extract(document.local_path, document)
+            for fact in facts:
+                fact.document_id = document.document_id
+                fact.available_at = document.available_at
+                fact.effective_at = document.effective_at
             temporary = cache_path.with_suffix(".json.tmp")
             temporary.write_text(
                 json.dumps([fact.to_dict() for fact in facts], ensure_ascii=False, indent=2),
@@ -257,9 +266,12 @@ class FullCrossValidationRunner:
                 )
 
         official_raw = pd.DataFrame(official_records)
+        parse_suspect_count = 0
         if official_raw.empty:
             official = official_fact_columns(pd.DataFrame())
         else:
+            if "source_status" in official_raw:
+                parse_suspect_count = int((official_raw["source_status"] == "PARSE_SUSPECT").sum())
             temporary = self.output_dir / "official_direct_facts.parquet"
             self.output_dir.mkdir(parents=True, exist_ok=True)
             official_raw.to_parquet(temporary, index=False)
@@ -268,7 +280,9 @@ class FullCrossValidationRunner:
             registry = FieldValidationRegistry.load(self.registry_path)
             names = {
                 str(row.field_key): str(row.field_name_cn)
-                for row in eastmoney[["field_key", "field_name_cn"]].drop_duplicates().itertuples(index=False)
+                for row in eastmoney[["field_key", "field_name_cn"]]
+                .drop_duplicates()
+                .itertuples(index=False)
             }
             formulas = derive_formula_facts(official, registry.formulas, names)
             official = pd.concat([official, quarters, formulas], ignore_index=True, sort=False)
@@ -280,11 +294,16 @@ class FullCrossValidationRunner:
         source_status = {
             "source": source_name,
             "exchange": identity.exchange,
+            "as_of_date": self.as_of_date,
             "requested_report_dates": report_dates,
             "available_report_dates": sorted({item.report_date for item in downloaded}),
-            "missing_report_dates": sorted(set(report_dates) - {item.report_date for item in downloaded}),
+            "missing_report_dates": selection.missing_report_dates,
             "document_count": len(downloaded),
+            "boundary_document_count": len(selection.boundary),
+            "boundary_documents": [asdict(item) for item in selection.boundary],
+            "document_selection_decisions": selection.decisions,
             "official_fact_count": len(official),
+            "parse_suspect_count": parse_suspect_count,
             "extraction_by_document": extraction_by_document,
             "parser_cache_hits": parser_cache_hits,
             "parser_cache_version": PARSER_CACHE_VERSION,
@@ -300,6 +319,7 @@ class FullCrossValidationRunner:
         checkpoint = {
             "task_id": f"full-cross-validation-{self.stock_code}",
             "stock_code": self.stock_code,
+            "as_of_date": self.as_of_date,
             "status": "RUNNING",
             "last_successful_step": "PROCESS_POLICY_CHECK",
             "process_policy": str(policy_path),
@@ -344,7 +364,7 @@ class FullCrossValidationRunner:
             {
                 str(value)[:10]
                 for value in eastmoney.loc[eastmoney["report_date"].notna(), "report_date"]
-                if str(value)[:10].endswith("03-31")
+                if str(value)[:10].endswith("03-31") and str(value)[:10] <= self.as_of_date
             }
         )
         ttm_objects = build_ttm_checks(self.eastmoney_db, self.stock_code, q1_dates[-1]) if q1_dates else []
@@ -353,8 +373,9 @@ class FullCrossValidationRunner:
 
         mode_counts = dict(Counter(registry_frame["validation_mode"]))
         summary = {
-            "schema_version": "1.0.0",
+            "schema_version": "1.1.0",
             "security_code": self.stock_code,
+            "as_of_date": self.as_of_date,
             "registry_version": registry_engine.schema_version,
             "eastmoney_fact_count": len(eastmoney),
             "official_fact_count": len(official),
@@ -385,7 +406,7 @@ class FullCrossValidationRunner:
             summary["acceptance_status"] = "FAIL_CLASSIFICATION_COVERAGE"
         elif source_unavailable:
             summary["acceptance_status"] = "PARTIAL_OFFICIAL_SOURCE_UNAVAILABLE"
-        elif unresolved:
+        elif unresolved or source_status.get("parse_suspect_count"):
             summary["acceptance_status"] = "PASS_WITH_COVERAGE_GAPS"
         else:
             summary["acceptance_status"] = "PASS"
@@ -435,34 +456,40 @@ class FullCrossValidationRunner:
 
 
 def build_logic_checks_from_frame(official: pd.DataFrame) -> list[Any]:
-    from ashare_f10.validation.models import OfficialFact
-
     facts = []
-    required = set(OfficialFact.__dataclass_fields__)
     for row in official.to_dict("records"):
-        if row.get("source_status") == "FACT_CALCULATED":
+        if row.get("source_status") in {"FACT_CALCULATED", "PARSE_SUSPECT", "UNRESOLVED"}:
             continue
-        payload = {
-            "security_code": row.get("security_code"),
-            "report_date": row.get("report_date"),
-            "statement_type": row.get("statement_type"),
-            "scope": row.get("scope"),
-            "field_key": row.get("field_key"),
-            "field_name_report": row.get("field_name_cn"),
-            "value": row.get("value_num"),
-            "unit": row.get("unit"),
-            "normalized_unit": row.get("normalized_unit"),
-            "source_document": row.get("source_document"),
-            "source_url": row.get("source_url"),
-            "source_page": int(row.get("source_page") or 0),
-            "source_row": row.get("source_row"),
-            "extraction_method": row.get("extraction_method") or "PDF_TABLE",
-            "precision_tolerance": float(row.get("precision_tolerance") or 1.0),
-            "confidence": row.get("confidence") or "high",
-        }
-        if payload["value"] is None:
+        if row.get("value_num") is None:
             continue
-        facts.append(OfficialFact(**{key: payload[key] for key in required}))
+        facts.append(
+            OfficialFact(
+                security_code=str(row.get("security_code") or ""),
+                report_date=str(row.get("report_date") or ""),
+                statement_type=str(row.get("statement_type") or ""),
+                scope=str(row.get("scope") or ""),
+                field_key=str(row.get("field_key") or ""),
+                field_name_report=str(row.get("field_name_cn") or row.get("field_key") or ""),
+                value=float(row.get("value_num")),
+                unit=str(row.get("unit") or ""),
+                normalized_unit=str(row.get("normalized_unit") or row.get("unit") or ""),
+                source_document=str(row.get("source_document") or ""),
+                source_url=str(row.get("source_url") or ""),
+                source_page=int(row.get("source_page") or 0),
+                source_row=str(row.get("source_row") or ""),
+                extraction_method=str(row.get("extraction_method") or "PDF_TABLE"),
+                precision_tolerance=float(row.get("precision_tolerance") or 1.0),
+                confidence=str(row.get("confidence") or "high"),
+                source_status=str(row.get("source_status") or "FACT_DIRECT"),
+                quality_flags=tuple(row.get("quality_flags") or ()),
+                parse_notes=str(row.get("parse_notes") or ""),
+                raw_value=float(row.get("raw_value")) if row.get("raw_value") is not None else None,
+                document_id=str(row.get("document_id") or ""),
+                effective_at=str(row.get("effective_at") or row.get("report_date") or ""),
+                available_at=str(row.get("available_at") or ""),
+                extracted_at=str(row.get("extracted_at") or ""),
+            )
+        )
     return build_logic_checks(facts)
 
 
@@ -473,7 +500,14 @@ def run_full_cross_validation(
     max_periods: int | None = None,
     registry_path: Path | str | None = None,
     progress: Callable[[dict[str, Any]], None] | None = None,
+    as_of_date: str | None = None,
 ) -> dict[str, Any]:
     return FullCrossValidationRunner(
-        stock_code, run_dir, output_dir, max_periods, registry_path, progress
+        stock_code,
+        run_dir,
+        output_dir,
+        max_periods,
+        registry_path,
+        progress,
+        as_of_date,
     ).run()
