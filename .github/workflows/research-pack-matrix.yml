@@ -116,6 +116,63 @@ jobs:
           python scripts/verify_research_pack_e2e.py "$OUTPUT" 002352 \
             | tee research-pack-002352-pack-verifier.log
           printf '%s\n' "$OUTPUT" > research-pack-matrix-output-dir.txt
+      - name: Extract compact conflict diagnostics
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from __future__ import annotations
+
+          import json
+          from pathlib import Path
+
+          import pandas as pd
+
+          statuses = {
+              "MISMATCH",
+              "VERSION_CONFLICT",
+              "SCOPE_CONFLICT",
+              "PERIOD_CONFLICT",
+              "UNIT_CONFLICT",
+          }
+          output = []
+          for path in sorted(Path(".").glob("research-pack-matrix-002352-*/cross_validation/*_cross_validation.parquet")):
+              frame = pd.read_parquet(path)
+              conflicts = frame[frame["status"].isin(statuses)].copy()
+              columns = [
+                  name
+                  for name in (
+                      "comparison_key",
+                      "report_date",
+                      "period_type",
+                      "family",
+                      "dataset",
+                      "field_key",
+                      "field_name_cn",
+                      "eastmoney_value_num",
+                      "eastmoney_value_text",
+                      "eastmoney_unit",
+                      "official_value_num",
+                      "official_value_text",
+                      "official_unit",
+                      "difference",
+                      "relative_difference",
+                      "comparison_method",
+                      "root_cause",
+                      "source_document",
+                      "source_page",
+                      "source_row",
+                  )
+                  if name in conflicts.columns
+              ]
+              output.extend(conflicts[columns].where(pd.notna(conflicts[columns]), None).to_dict("records"))
+          Path("research-pack-002352-conflicts.json").write_text(
+              json.dumps(output, ensure_ascii=False, indent=2, default=str),
+              encoding="utf-8",
+          )
+          print(json.dumps(output, ensure_ascii=False, indent=2, default=str))
+          PY
       - name: Upload compact W08 evidence and performance report
         if: always()
         uses: actions/upload-artifact@v4
@@ -124,6 +181,7 @@ jobs:
           path: |
             research-pack-002352-attempt-*.log
             research-pack-002352-*-verifier.log
+            research-pack-002352-conflicts.json
             research-pack-matrix-output-dir.txt
             research-pack-matrix-002352-*/full-cross-validation-e2e-summary.json
             research-pack-matrix-002352-*/research_pack_w08_e2e_summary.json
