@@ -196,7 +196,9 @@ def _record_facts(
     report_date = normalize_date(record.get("REPORT_DATE"))
     event_date = _record_date(record)
     period_type = derive_period_type(record, report_date, family)
-    semantics = "flow" if family in FLOW_FAMILIES else "point_in_time" if family in POINT_FAMILIES else "event"
+    semantics = (
+        "flow" if family in FLOW_FAMILIES else "point_in_time" if family in POINT_FAMILIES else "event"
+    )
 
     record_key_parts = [security_code, family, report_date or event_date or ""]
     for candidate in ("art_code", "INFO_CODE", "MXID", "HOLDER_RANK", "RANK", "PERSON_CODE"):
@@ -241,9 +243,23 @@ def build_data_store(combined: dict[str, Any], output_dir: Path) -> dict[str, st
     if frame.empty:
         frame = pd.DataFrame(
             columns=[
-                "security_code", "theme", "family", "dataset", "record_key", "report_date",
-                "event_date", "period_type", "data_semantics", "field_key", "field_name_cn",
-                "field_category", "value_text", "value_num", "unit", "source_url", "source_status",
+                "security_code",
+                "theme",
+                "family",
+                "dataset",
+                "record_key",
+                "report_date",
+                "event_date",
+                "period_type",
+                "data_semantics",
+                "field_key",
+                "field_name_cn",
+                "field_category",
+                "value_text",
+                "value_num",
+                "unit",
+                "source_url",
+                "source_status",
             ]
         )
     frame.to_parquet(facts_path, index=False)

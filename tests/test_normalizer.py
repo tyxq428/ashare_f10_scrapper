@@ -8,9 +8,7 @@ def test_normalize_financial_record():
             {
                 "theme": "财务报表与指标",
                 "family": "RPT_F10_FINANCE_GBALANCE",
-                "records": [
-                    {"REPORT_DATE": "2026-03-31 00:00:00", "TOTAL_ASSETS": 100, "CIP": 5}
-                ],
+                "records": [{"REPORT_DATE": "2026-03-31 00:00:00", "TOTAL_ASSETS": 100, "CIP": 5}],
                 "requests": [],
             }
         ],

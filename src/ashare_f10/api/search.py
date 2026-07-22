@@ -139,7 +139,9 @@ def _build_sql_filters(filters: list[SearchColumnFilter]) -> tuple[list[str], li
                 continue
             placeholders = ",".join("?" for _ in values)
             keyword = "IN" if operator == "in" else "NOT IN"
-            list_expression = expression if column in NUMERIC_COLUMNS else f"coalesce(cast({expression} AS VARCHAR), '')"
+            list_expression = (
+                expression if column in NUMERIC_COLUMNS else f"coalesce(cast({expression} AS VARCHAR), '')"
+            )
             conditions.append(f"{list_expression} {keyword} ({placeholders})")
             params.extend(values)
         elif operator in {"contains", "not_contains", "exact", "not_equal", "prefix"}:
@@ -183,9 +185,7 @@ def _build_sql_filters(filters: list[SearchColumnFilter]) -> tuple[list[str], li
 
 def _score_filters(rows: list[dict[str, Any]], filters: list[SearchColumnFilter]) -> list[dict[str, Any]]:
     score_filters = [
-        item
-        for item in filters
-        if item.enabled and item.column in {"score", "base_score", "secondary_score"}
+        item for item in filters if item.enabled and item.column in {"score", "base_score", "secondary_score"}
     ]
     if not score_filters:
         return rows
@@ -223,7 +223,7 @@ def _fetch_scope(
     conditions, params = _build_sql_filters(filters)
     where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
     sql = f"""
-        SELECT row_number() OVER () AS row_id, {', '.join(RESULT_COLUMNS)}
+        SELECT row_number() OVER () AS row_id, {", ".join(RESULT_COLUMNS)}
         FROM facts
         {where}
     """
@@ -259,7 +259,13 @@ def _apply_search_chain(
                 score_lists[row_id].append(score)
                 matched.append(row)
         current = matched
-        stage_counts.append({"stage": "base_query", "label": request.base_query or request.base_match_type, "count": len(current)})
+        stage_counts.append(
+            {
+                "stage": "base_query",
+                "label": request.base_query or request.base_match_type,
+                "count": len(current),
+            }
+        )
 
     for index, step in enumerate(request.search_steps, 1):
         if not step.enabled:
@@ -347,7 +353,9 @@ def _sort_rows(rows: list[dict[str, Any]], request: SearchQueryRequest) -> list[
     sorts = request.sort
     if not sorts:
         sorts = []
-        if request.base_query or any(step.enabled and step.operation != "exclude" for step in request.search_steps):
+        if request.base_query or any(
+            step.enabled and step.operation != "exclude" for step in request.search_steps
+        ):
             from ashare_f10.models import SearchSort
 
             sorts.append(SearchSort(column="score", direction="desc"))
@@ -473,7 +481,11 @@ def search_facts(
     filters: list[SearchColumnFilter] = []
     if start_date or end_date:
         if start_date and end_date:
-            filters.append(SearchColumnFilter(column="effective_date", operator="between", lower=start_date, upper=end_date))
+            filters.append(
+                SearchColumnFilter(
+                    column="effective_date", operator="between", lower=start_date, upper=end_date
+                )
+            )
         elif start_date:
             filters.append(SearchColumnFilter(column="effective_date", operator="gte", value=start_date))
         else:

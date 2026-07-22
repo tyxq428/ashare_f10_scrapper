@@ -258,9 +258,7 @@ class JobManager(BaseJobManager):
                 state.message = "服务重启后原执行进程已结束，可重新执行或重试失败子任务"
             self._sync_group_files(state)
             if state.status == "COMPLETED" and (
-                state.failed_groups
-                or not state.total_groups
-                or state.completed_groups != state.total_groups
+                state.failed_groups or not state.total_groups or state.completed_groups != state.total_groups
             ):
                 state.status = "PARTIAL" if state.completed_groups else "FAILED"
                 state.message = "历史任务状态与子任务文件不一致，请重新执行或重试失败子任务"

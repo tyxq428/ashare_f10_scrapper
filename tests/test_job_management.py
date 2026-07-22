@@ -24,7 +24,9 @@ def make_manager(tmp_path: Path) -> JobManager:
     return JobManager(Settings(data_dir=tmp_path, max_workers=2, page_workers=1, retries=1))
 
 
-def make_state(manager: JobManager, job_id: str, code: str, name: str, *, status: str = "COMPLETED") -> JobState:
+def make_state(
+    manager: JobManager, job_id: str, code: str, name: str, *, status: str = "COMPLETED"
+) -> JobState:
     output_dir = manager.settings.data_dir / code / job_id
     output_dir.mkdir(parents=True, exist_ok=True)
     state = JobState(

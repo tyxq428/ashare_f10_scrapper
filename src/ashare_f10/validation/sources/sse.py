@@ -142,7 +142,7 @@ def _calculate_acw_cookie(arg1: str) -> str:
                 break
     unsboxed = "".join(reordered)
     return "".join(
-        f"{int(unsboxed[index:index + 2], 16) ^ int(_ACW_XOR_KEY[index:index + 2], 16):02x}"
+        f"{int(unsboxed[index : index + 2], 16) ^ int(_ACW_XOR_KEY[index : index + 2], 16):02x}"
         for index in range(0, len(unsboxed), 2)
     )
 
@@ -388,6 +388,4 @@ class SSEOfficialSource:
                     if attempt < 3:
                         time.sleep(2**attempt)
         detail = "；".join(diagnostics[-8:])
-        raise OfficialSourceError(
-            f"下载官方报告失败：{document.title}：{last_error}；尝试详情：{detail}"
-        )
+        raise OfficialSourceError(f"下载官方报告失败：{document.title}：{last_error}；尝试详情：{detail}")

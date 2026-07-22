@@ -158,7 +158,9 @@ class JobManager:
             connection.execute("CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)")
             connection.execute("CREATE INDEX IF NOT EXISTS idx_jobs_current ON jobs(stock_code, is_current)")
             connection.execute("CREATE INDEX IF NOT EXISTS idx_job_groups_job ON job_groups(job_id)")
-            connection.execute("CREATE INDEX IF NOT EXISTS idx_job_groups_status ON job_groups(job_id, status)")
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_job_groups_status ON job_groups(job_id, status)"
+            )
             connection.execute("CREATE INDEX IF NOT EXISTS idx_job_groups_family ON job_groups(family)")
 
     def _save(self, state: JobState) -> None:
@@ -222,7 +224,9 @@ class JobManager:
         state.failed_groups = int(row["failed_groups"] or state.failed_groups)
         state.started_at_utc = row["started_at_utc"] or state.started_at_utc
         state.completed_at_utc = row["completed_at_utc"] or state.completed_at_utc
-        state.duration_seconds = row["duration_seconds"] if row["duration_seconds"] is not None else state.duration_seconds
+        state.duration_seconds = (
+            row["duration_seconds"] if row["duration_seconds"] is not None else state.duration_seconds
+        )
         state.is_current = bool(row["is_current"])
         state.retry_count = int(row["retry_count"] or state.retry_count)
         state.last_retry_at_utc = row["last_retry_at_utc"] or state.last_retry_at_utc
@@ -360,7 +364,9 @@ class JobManager:
         group = JobGroupState(
             job_id=job_id,
             group_id=result.group_id,
-            definition_index=int(definition.get("definition_index", existing.definition_index if existing else 0)),
+            definition_index=int(
+                definition.get("definition_index", existing.definition_index if existing else 0)
+            ),
             theme=result.theme,
             family=result.family,
             strategy=result.strategy,
@@ -403,7 +409,9 @@ class JobManager:
         combined = root / "combined.json"
         if combined.exists():
             try:
-                return extract_security_name(json.loads(combined.read_text(encoding="utf-8")), state.stock_code)
+                return extract_security_name(
+                    json.loads(combined.read_text(encoding="utf-8")), state.stock_code
+                )
             except Exception:
                 return ""
         return ""
@@ -420,9 +428,9 @@ class JobManager:
                     continue
                 self._save_result_group(state.job_id, result)
                 if not state.stock_name:
-                    state.stock_name = extract_security_name(result.records, state.stock_code) or extract_security_name(
-                        result.payloads, state.stock_code
-                    )
+                    state.stock_name = extract_security_name(
+                        result.records, state.stock_code
+                    ) or extract_security_name(result.payloads, state.stock_code)
         completed, successful, failed = self._group_counts(state.job_id)
         state.completed_groups = completed
         state.successful_groups = successful
@@ -465,7 +473,9 @@ class JobManager:
                     existing.record_count = int(update.get("record_count", 0))
                     existing.used_fallback = bool(update.get("used_fallback"))
                     existing.completed_at_utc = utc_now()
-                    existing.duration_seconds = elapsed_seconds(existing.started_at_utc, existing.completed_at_utc)
+                    existing.duration_seconds = elapsed_seconds(
+                        existing.started_at_utc, existing.completed_at_utc
+                    )
                     self._save_group_state(existing)
                 completed, successful, failed = self._group_counts(state.job_id)
                 state.completed_groups = completed
@@ -707,7 +717,9 @@ class JobManager:
             params.extend([like, like, like, like])
         where = " AND ".join(conditions)
         with self._connect() as connection:
-            total = int(connection.execute(f"SELECT count(*) FROM job_groups WHERE {where}", params).fetchone()[0])
+            total = int(
+                connection.execute(f"SELECT count(*) FROM job_groups WHERE {where}", params).fetchone()[0]
+            )
             rows = connection.execute(
                 f"""
                 SELECT * FROM job_groups WHERE {where}
@@ -775,7 +787,9 @@ class JobManager:
         }
         output = Path(state.output_dir)
         output.mkdir(parents=True, exist_ok=True)
-        (output / "combined.json").write_text(json.dumps(combined, ensure_ascii=False, indent=2), encoding="utf-8")
+        (output / "combined.json").write_text(
+            json.dumps(combined, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
         return combined
 
     def _run_retry(self, job_id: str, group_ids: list[str]) -> None:
@@ -783,11 +797,20 @@ class JobManager:
         if not state:
             return
         try:
-            standard = [group_id for group_id in group_ids if "dynamic_source" not in self.group_definitions[group_id]]
-            dynamic = [group_id for group_id in group_ids if "dynamic_source" in self.group_definitions[group_id]]
+            standard = [
+                group_id for group_id in group_ids if "dynamic_source" not in self.group_definitions[group_id]
+            ]
+            dynamic = [
+                group_id for group_id in group_ids if "dynamic_source" in self.group_definitions[group_id]
+            ]
             if standard:
-                with ThreadPoolExecutor(max_workers=min(self.settings.max_workers, len(standard))) as executor:
-                    futures = {executor.submit(self._retry_one_group, state, group_id): group_id for group_id in standard}
+                with ThreadPoolExecutor(
+                    max_workers=min(self.settings.max_workers, len(standard))
+                ) as executor:
+                    futures = {
+                        executor.submit(self._retry_one_group, state, group_id): group_id
+                        for group_id in standard
+                    }
                     for future in as_completed(futures):
                         group_id = futures[future]
                         try:
@@ -807,7 +830,9 @@ class JobManager:
                             failed.status = "FAILED"
                             failed.errors = [str(exc)]
                             failed.completed_at_utc = utc_now()
-                            failed.duration_seconds = elapsed_seconds(failed.started_at_utc, failed.completed_at_utc)
+                            failed.duration_seconds = elapsed_seconds(
+                                failed.started_at_utc, failed.completed_at_utc
+                            )
                             self._save_group_state(failed)
             for group_id in dynamic:
                 try:
@@ -836,7 +861,9 @@ class JobManager:
             self._save(state)
             state.artifacts = build_exports(combined, Path(state.output_dir))
             state.completed_at_utc = utc_now()
-            state.duration_seconds = elapsed_seconds(state.started_at_utc or state.created_at_utc, state.completed_at_utc)
+            state.duration_seconds = elapsed_seconds(
+                state.started_at_utc or state.created_at_utc, state.completed_at_utc
+            )
             if state.failed_groups == 0 and state.completed_groups == state.total_groups:
                 state.status = "COMPLETED"
                 state.message = "失败子任务已全部恢复，任务完整"
@@ -872,7 +899,9 @@ class JobManager:
         state.status = "RETRYING"
         state.retry_count += 1
         state.last_retry_at_utc = utc_now()
-        state.current_group = ", ".join(self.group_definitions[group_id]["family"] for group_id in group_ids[:3])
+        state.current_group = ", ".join(
+            self.group_definitions[group_id]["family"] for group_id in group_ids[:3]
+        )
         state.message = f"正在重试{len(group_ids)}个子任务"
         self._save(state)
         self.pool.submit(self._run_retry, state.job_id, group_ids)
