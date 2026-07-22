@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Research Pack · A股 F10 投研平台</title>
+  <link rel="stylesheet" href="./app.css" />
+  <link rel="stylesheet" href="./research-pack.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>F10 Research Pack</h1>
+      <p>规范事实 · 研究专题 · 官方证据穿透 · Point-in-Time版本链</p>
+    </div>
+    <div class="top-actions">
+      <a class="header-link" href="./index.html">返回主平台</a>
+      <span id="serviceBadge" class="badge">等待加载</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="panel hero-panel research-hero">
+      <div>
+        <h2>生成或打开Research Pack</h2>
+        <p>薄切片验证最近两期；全历史模式验证全部可用报告期。任务可从阶段检查点恢复。</p>
+      </div>
+      <div class="controls">
+        <label>股票代码
+          <input id="stockCode" maxlength="6" value="688521" placeholder="例如：688521" />
+        </label>
+        <label>运行模式
+          <select id="modeSelect">
+            <option value="thin-slice">最近两期薄切片</option>
+            <option value="research-full">全历史研究包</option>
+          </select>
+        </label>
+        <label>研究截止日
+          <input id="asOfDate" type="date" />
+        </label>
+        <button id="startJob" class="primary">生成Research Pack</button>
+        <button id="loadLatest">打开最新结果</button>
+      </div>
+    </section>
+
+    <section id="jobPanel" class="panel" hidden>
+      <div class="panel-header">
+        <div>
+          <h3>当前任务</h3>
+          <div id="jobMessage" class="muted"></div>
+        </div>
+        <span id="jobStatus" class="status PENDING">PENDING</span>
+      </div>
+      <div class="progress"><div id="jobProgress" style="width:0%"></div></div>
+      <pre id="jobDetails" class="compact-pre"></pre>
+    </section>
+
+    <section>
+      <div id="qualityCards" class="metric-grid"></div>
+      <div class="panel pack-meta-grid">
+        <div><span class="meta-label">标的</span><strong id="metaCode">—</strong></div>
+        <div><span class="meta-label">模式</span><strong id="metaMode">—</strong></div>
+        <div><span class="meta-label">截止日</span><strong id="metaAsOf">—</strong></div>
+        <div><span class="meta-label">Schema</span><strong id="metaSchema">—</strong></div>
+        <div><span class="meta-label">生成时间</span><strong id="metaGenerated">—</strong></div>
+        <div><span class="meta-label">质量状态</span><strong id="metaQuality">—</strong></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header wrap-header">
+        <div>
+          <h3>规范事实浏览器</h3>
+          <div id="factCount" class="muted">尚未加载</div>
+        </div>
+        <div class="controls fact-controls">
+          <label>搜索
+            <input id="factQuery" placeholder="指标名称 / metric_id / 文本值" />
+          </label>
+          <label>研究模块
+            <select id="moduleFilter"><option value="">全部模块</option></select>
+          </label>
+          <label>规范状态
+            <select id="statusFilter">
+              <option value="">全部状态</option>
+              <option value="VERIFIED_MULTI_SOURCE">多源验证</option>
+              <option value="SINGLE_SOURCE">单一来源</option>
+              <option value="SOURCE_CONFLICT">来源冲突</option>
+              <option value="UNRESOLVED">未解决</option>
+            </select>
+          </label>
+          <label>问题队列
+            <select id="issueFilter">
+              <option value="">全部记录</option>
+              <option value="parse_suspect">可疑解析</option>
+              <option value="source_conflict">来源冲突</option>
+              <option value="unresolved">未解决</option>
+            </select>
+          </label>
+          <button id="searchFacts" class="primary">筛选</button>
+        </div>
+      </div>
+      <div id="factTable" class="table-wrap"></div>
+      <div class="pager">
+        <button id="prevPage">上一页</button>
+        <span id="pageInfo" class="muted">—</span>
+        <button id="nextPage">下一页</button>
+      </div>
+    </section>
+
+    <section class="two-columns evidence-layout">
+      <div class="panel">
+        <div class="panel-header">
+          <h3>事实证据穿透</h3>
+          <span id="evidenceBadge" class="muted">点击上方事实</span>
+        </div>
+        <div id="evidenceDetail" class="evidence-detail empty">尚未选择规范事实</div>
+      </div>
+      <div class="panel">
+        <div class="panel-header">
+          <h3>文档版本链</h3>
+          <button id="refreshVersions">刷新</button>
+        </div>
+        <div id="versionList" class="version-list empty">尚未加载</div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h3>交付文件</h3>
+          <div class="muted">下载路径由最新Research Pack指针解析，不暴露任意本地路径。</div>
+        </div>
+      </div>
+      <div id="downloadCards" class="download-grid"></div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast"></div>
+  <script src="./research-pack.js"></script>
+</body>
+</html>
