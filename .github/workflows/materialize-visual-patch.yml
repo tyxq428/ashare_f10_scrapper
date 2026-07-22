@@ -28,8 +28,9 @@ jobs:
           set -euo pipefail
           cat .visual-bootstrap/part_*.txt | base64 --decode > /tmp/visual-patch.tar.xz
           echo "72a4cb48b8569dc789c441c4ae26301942216d546a1ebb01a6f70d6d5749b4eb  /tmp/visual-patch.tar.xz" | sha256sum -c -
-          tar -tJf /tmp/visual-patch.tar.xz | grep -q '^src/ashare_f10/api/visual_jobs.py$'
-          if tar -tJf /tmp/visual-patch.tar.xz | grep -q '^\.github/workflows/'; then
+          tar -tJf /tmp/visual-patch.tar.xz > /tmp/visual-patch-files.txt
+          grep -qx 'src/ashare_f10/api/visual_jobs.py' /tmp/visual-patch-files.txt
+          if grep -q '^\.github/workflows/' /tmp/visual-patch-files.txt; then
             echo "Archive must not modify workflow files" >&2
             exit 1
           fi
@@ -48,7 +49,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src scripts tests docs WINDOWS_START_HERE.md .visual-bootstrap
+          git add -A -- src scripts tests docs WINDOWS_START_HERE.md .visual-bootstrap
           if git diff --cached --quiet; then
             echo "Patch is already materialized"
             exit 0
