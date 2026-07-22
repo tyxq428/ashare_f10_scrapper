@@ -109,3 +109,16 @@ def test_q1_summary_keeps_first_value() -> None:
     )
     assert selected is not None
     assert selected[0] == 580_891_974.65
+
+
+def test_modern_q3_with_one_unavailable_change_column_uses_second_amount() -> None:
+    context = "营业收入 671,661,479.01 不适用 1,884,150,580.19 23.87"
+    selected = _select_summary_amount(
+        _numeric_candidates([context]),
+        _target(),
+        _document("q3"),
+        context,
+        page_text="交错列标题不影响基于行形状的选择",
+    )
+    assert selected is not None
+    assert selected[0] == 1_884_150_580.19
