@@ -1,2 +1,2 @@
 apply SSE lifecycle and false-conflict fixes
-revision: 3 Chinese date parsing corrected
+revision: 4 summary-only quarterly reports and pending periods
