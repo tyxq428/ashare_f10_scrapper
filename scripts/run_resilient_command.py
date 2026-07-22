@@ -15,7 +15,11 @@ RETRYABLE = re.compile(
     r"(?:Connect|Read|Write)?Timeout|timed?\s*out|"
     r"connection\s+(?:reset|aborted|refused|closed)|"
     r"remote\s+disconnected|server\s+disconnected|"
-    r"temporary\s+failure|name\s+resolution|TLS|SSL",
+    r"temporary\s+failure|name\s+resolution|TLS|SSL|"
+    r"network\s+is\s+unreachable|"
+    r"failed\s+to\s+establish\s+a\s+new\s+connection|"
+    r"max\s+retries\s+exceeded|NewConnectionError|"
+    r"\[Errno\s+(?:101|110|111|113)\]",
     re.IGNORECASE,
 )
 
