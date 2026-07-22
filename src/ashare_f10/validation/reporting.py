@@ -52,15 +52,24 @@ class ValidationReportWriter:
         extracted_by_report = Counter(item.report_date for item in official_facts)
         logic_counts = Counter(item.status for item in logic_checks)
         ttm_counts = Counter(item.status for item in ttm_checks)
+        fact_status_counts = Counter(item.source_status for item in official_facts)
+        quality_flag_counts = Counter(
+            flag for item in official_facts for flag in item.quality_flags
+        )
+        suspicious_facts = [item for item in official_facts if not item.usable_for_reconciliation]
         high_severity = [item for item in reconciliation if item.status == "MISMATCH"]
         summary: dict[str, Any] = {
-            "schema_version": "1.0.0",
+            "schema_version": "1.1.0",
             "security_code": security_code,
             "validation_scope": "FREE_OFFICIAL_SOURCES_THIN_SLICE",
             "paid_sources_used": False,
             "official_sources": sorted({item.source for item in documents}),
             "document_count": len(documents),
             "official_fact_count": len(official_facts),
+            "usable_official_fact_count": len(official_facts) - len(suspicious_facts),
+            "parse_suspect_count": len(suspicious_facts),
+            "official_fact_status_counts": dict(fact_status_counts),
+            "quality_flag_counts": dict(quality_flag_counts),
             "reconciliation_count": len(reconciliation),
             "status_counts": dict(status_counts),
             "verification_grade_counts": dict(grade_counts),
@@ -84,6 +93,7 @@ class ValidationReportWriter:
         evidence = {
             "documents": [item.to_dict() for item in documents],
             "official_facts": [item.to_dict() for item in official_facts],
+            "parse_suspects": [item.to_dict() for item in suspicious_facts],
             "reconciliation": [item.to_dict() for item in reconciliation],
             "logic_checks": [item.to_dict() for item in logic_checks],
             "ttm_checks": [item.to_dict() for item in ttm_checks],
@@ -105,6 +115,9 @@ class ValidationReportWriter:
             pd.DataFrame([summary]).to_excel(writer, sheet_name="Summary", index=False)
             detail_frame.to_excel(writer, sheet_name="Reconciliation", index=False)
             official_frame.to_excel(writer, sheet_name="OfficialFacts", index=False)
+            pd.DataFrame([item.to_dict() for item in suspicious_facts]).to_excel(
+                writer, sheet_name="ParseSuspects", index=False
+            )
             logic_frame.to_excel(writer, sheet_name="LogicChecks", index=False)
             ttm_frame.to_excel(writer, sheet_name="TTMChecks", index=False)
             document_frame.to_excel(writer, sheet_name="Documents", index=False)
@@ -121,13 +134,14 @@ class ValidationReportWriter:
         logic_checks: list[LogicCheck],
         ttm_checks: list[TTMValidation],
     ) -> str:
+        usable_facts = [item for item in official_facts if item.usable_for_reconciliation]
         if len(documents) < 2:
             return "FAIL_DOCUMENT_DISCOVERY"
         if not {item.report_date for item in documents}.issubset(
-            {item.report_date for item in official_facts}
+            {item.report_date for item in usable_facts}
         ):
             return "FAIL_EXTRACTION"
-        if len(official_facts) < 20:
+        if len(usable_facts) < 20:
             return "PARTIAL_EXTRACTION"
         if any(item.status == "MISMATCH" for item in reconciliation):
             return "FAIL_SOURCE_CONFLICT"
@@ -135,6 +149,8 @@ class ValidationReportWriter:
             return "FAIL_ACCOUNTING_LOGIC"
         if any(item.status == "FAIL" for item in ttm_checks):
             return "FAIL_TTM_CONSISTENCY"
+        if len(usable_facts) != len(official_facts):
+            return "PASS_WITH_PARSE_GAPS"
         return "PASS"
 
     @staticmethod
@@ -155,9 +171,9 @@ class ValidationReportWriter:
                 sheet.column_dimensions[letter].width = max(
                     12, min(60, max((len(str(cell.value or "")) for cell in column), default=10) + 2)
                 )
-            if sheet.title in {"Reconciliation", "LogicChecks", "TTMChecks"}:
+            if sheet.title in {"Reconciliation", "LogicChecks", "TTMChecks", "ParseSuspects"}:
                 headers = {cell.value: cell.column for cell in sheet[1]}
-                status_column = headers.get("status")
+                status_column = headers.get("status") or headers.get("source_status")
                 if status_column:
                     for row in range(2, sheet.max_row + 1):
                         cell = sheet.cell(row=row, column=status_column)

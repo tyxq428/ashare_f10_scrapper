@@ -57,6 +57,11 @@ class RegistryEntry:
     reason: str = ""
     registry_rule: str = ""
     confidence: str = "high"
+    comparison_method: str = "auto"
+    canonical_unit: str = ""
+    absolute_tolerance: float | None = None
+    relative_tolerance: float | None = None
+    display_decimals: int | None = None
 
     @property
     def expected_official(self) -> bool:
@@ -103,6 +108,10 @@ class ComparisonRecord:
     source_row: str = ""
     eastmoney_source_url: str = ""
     notes: str = ""
+    comparison_method: str = ""
+    root_cause: str = ""
+    absolute_tolerance: float | None = None
+    relative_tolerance: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -147,6 +156,11 @@ class CrossValidationSummary:
     comparable_count: int = 0
     matched_count: int = 0
     comparable_match_rate: float | None = None
+    comparison_coverage: float | None = None
+    comparison_accuracy: float | None = None
+    evidence_completeness: float | None = None
+    unresolved_rate: float | None = None
+    suspicious_extraction_rate: float | None = None
     paid_sources_used: bool = False
     manual_review_required: bool = False
     acceptance_status: str = "UNKNOWN"

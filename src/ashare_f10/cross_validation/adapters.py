@@ -48,6 +48,19 @@ def canonical_period_type(report_date: Any, family: str = "", explicit: Any = No
     return label or "OTHER"
 
 
+def _plain_collection(value: Any) -> Any:
+    """Convert Arrow/Numpy collection scalars into JSON-safe Python collections."""
+
+    if value is None:
+        return []
+    if hasattr(value, "tolist"):
+        converted = value.tolist()
+        return converted if converted is not None else []
+    if isinstance(value, tuple):
+        return list(value)
+    return value
+
+
 def load_eastmoney_facts(db_path: Path | str) -> pd.DataFrame:
     connection = duckdb.connect(str(db_path), read_only=True)
     try:
@@ -81,11 +94,19 @@ def load_eastmoney_facts(db_path: Path | str) -> pd.DataFrame:
     return frame
 
 
-def load_official_facts(parquet_path: Path | str) -> pd.DataFrame:
+def load_official_facts(parquet_path: Path | str, *, include_suspect: bool = False) -> pd.DataFrame:
     frame = pd.read_parquet(parquet_path)
     if frame.empty:
         return frame
     frame = frame.copy()
+    if "source_status" not in frame:
+        frame["source_status"] = "FACT_DIRECT"
+    else:
+        frame["source_status"] = frame["source_status"].fillna("FACT_DIRECT")
+    if "quality_flags" in frame:
+        frame["quality_flags"] = frame["quality_flags"].map(_plain_collection)
+    if not include_suspect:
+        frame = frame[~frame["source_status"].isin({"PARSE_SUSPECT", "UNRESOLVED"})].copy()
     frame["source"] = "OFFICIAL_DISCLOSURE"
     frame["family"] = "OFFICIAL_DISCLOSURE"
     frame["theme"] = (
@@ -128,7 +149,6 @@ def load_official_facts(parquet_path: Path | str) -> pd.DataFrame:
     frame["value_num"] = frame["value"]
     frame["value_text"] = frame["value"].map(lambda value: None if pd.isna(value) else str(value))
     frame["source_url"] = frame["source_url"].fillna("")
-    frame["source_status"] = "FACT_DIRECT"
     return frame
 
 
@@ -159,6 +179,13 @@ def official_fact_columns(frame: pd.DataFrame) -> pd.DataFrame:
         "precision_tolerance",
         "confidence",
         "source_status",
+        "quality_flags",
+        "parse_notes",
+        "raw_value",
+        "document_id",
+        "effective_at",
+        "available_at",
+        "extracted_at",
     ]
     for column in columns:
         if column not in frame:

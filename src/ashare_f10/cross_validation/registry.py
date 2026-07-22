@@ -9,6 +9,7 @@ from typing import Any
 
 import pandas as pd
 
+from ashare_f10.cross_validation.comparison_policy import infer_comparison_policy
 from ashare_f10.cross_validation.models import RegistryEntry, ValidationMode
 
 
@@ -23,6 +24,9 @@ class FieldValidationRegistry:
         self.not_periodic_patterns = tuple(self.config.get("not_periodic_family_patterns", []))
         self.technical_tokens = tuple(self.config.get("technical_category_tokens", []))
         self.formulas: dict[str, str] = dict(self.config.get("formula_overrides", {}))
+        self.comparison_overrides: dict[str, dict[str, Any]] = dict(
+            self.config.get("comparison_overrides", {})
+        )
 
     @classmethod
     def load(cls, path: Path | str | None = None) -> FieldValidationRegistry:
@@ -48,6 +52,60 @@ class FieldValidationRegistry:
             return "cash_flow"
         return ""
 
+    def _entry(
+        self,
+        theme: str,
+        family: str,
+        dataset: str,
+        key: str,
+        name: str,
+        mode: ValidationMode,
+        *,
+        statement_type: str = "",
+        scope: str = "",
+        data_semantics: str = "",
+        unit: str = "",
+        formula: str = "",
+        reason: str = "",
+        registry_rule: str = "",
+        confidence: str = "high",
+    ) -> RegistryEntry:
+        policy = infer_comparison_policy(key, name, unit, data_semantics)
+        override = self.comparison_overrides.get(key, {})
+        return RegistryEntry(
+            theme,
+            family,
+            dataset,
+            key,
+            name,
+            mode,
+            statement_type=statement_type,
+            scope=scope,
+            data_semantics=data_semantics,
+            unit=unit,
+            formula=formula,
+            reason=reason,
+            registry_rule=registry_rule,
+            confidence=confidence,
+            comparison_method=str(override.get("comparison_method") or policy.method),
+            canonical_unit=str(override.get("canonical_unit") or policy.canonical_unit),
+            absolute_tolerance=(
+                float(override["absolute_tolerance"])
+                if override.get("absolute_tolerance") is not None
+                else policy.absolute_tolerance
+            ),
+            relative_tolerance=(
+                float(override["relative_tolerance"])
+                if override.get("relative_tolerance") is not None
+                else policy.relative_tolerance
+            ),
+            display_decimals=(
+                int(override["display_decimals"])
+                if override.get("display_decimals") is not None
+                else policy.display_decimals
+            ),
+        )
+
     def classify(self, fact: Mapping[str, Any]) -> RegistryEntry:
         theme = str(fact.get("theme") or "")
         family = str(fact.get("family") or "")
@@ -65,7 +123,7 @@ class FieldValidationRegistry:
                 metadata_mode: ValidationMode = (
                     "OFFICIAL_DERIVED" if family_mode == "OFFICIAL_DERIVED" else "OFFICIAL_METADATA"
                 )
-                return RegistryEntry(
+                return self._entry(
                     theme,
                     family,
                     dataset,
@@ -84,7 +142,7 @@ class FieldValidationRegistry:
                     registry_rule="statement_family_metadata",
                 )
             mode: ValidationMode = family_rule["mode"]
-            return RegistryEntry(
+            return self._entry(
                 theme,
                 family,
                 dataset,
@@ -101,7 +159,7 @@ class FieldValidationRegistry:
             )
 
         if self._contains_any(category, self.technical_tokens) or key.startswith("_"):
-            return RegistryEntry(
+            return self._entry(
                 theme,
                 family,
                 dataset,
@@ -115,7 +173,7 @@ class FieldValidationRegistry:
             )
 
         if self._contains_any(family, self.not_periodic_patterns):
-            return RegistryEntry(
+            return self._entry(
                 theme,
                 family,
                 dataset,
@@ -129,7 +187,7 @@ class FieldValidationRegistry:
             )
 
         if self._contains_any(family, self.source_specific_patterns):
-            return RegistryEntry(
+            return self._entry(
                 theme,
                 family,
                 dataset,
@@ -143,7 +201,7 @@ class FieldValidationRegistry:
             )
 
         if key in self.official_metadata_keys:
-            return RegistryEntry(
+            return self._entry(
                 theme,
                 family,
                 dataset,
@@ -164,7 +222,7 @@ class FieldValidationRegistry:
                 if self._contains_any(family, ("BASICINFO", "ORGINFO"))
                 else "OFFICIAL_DOCUMENT_EVENT"
             )
-            return RegistryEntry(
+            return self._entry(
                 theme,
                 family,
                 dataset,
@@ -179,7 +237,7 @@ class FieldValidationRegistry:
                 registry_rule="official_event_family",
             )
 
-        return RegistryEntry(
+        return self._entry(
             theme,
             family,
             dataset,
@@ -209,5 +267,6 @@ class FieldValidationRegistry:
             "classified_field_contexts": classified,
             "classification_coverage": 1.0 if total == 0 else classified / total,
             "mode_counts": dict(Counter(registry_frame.get("validation_mode", []))),
+            "comparison_method_counts": dict(Counter(registry_frame.get("comparison_method", []))),
             "registry_version": self.schema_version,
         }

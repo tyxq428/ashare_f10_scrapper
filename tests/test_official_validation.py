@@ -67,6 +67,43 @@ def test_pdf_number_parsing_and_section_detection() -> None:
     assert _section_from_text("母公司利润表") == ("income_statement", "parent")
 
 
+def _official_fact(source_row: str, value: float) -> OfficialFact:
+    return OfficialFact(
+        "688521",
+        "2025-12-31",
+        "balance_sheet",
+        "consolidated",
+        "DEFER_TAX_ASSET",
+        "递延所得税资产",
+        value,
+        "元",
+        "元",
+        "芯原股份2025年年度报告",
+        "https://example.invalid/report.pdf",
+        88,
+        source_row,
+        "PDF_TABLE",
+        1.0,
+        "high",
+    )
+
+
+def test_note_reference_without_amount_is_quarantined() -> None:
+    fact = _official_fact("递延所得税资产 七、29", 29.0)
+    assert fact.source_status == "PARSE_SUSPECT"
+    assert fact.confidence == "low"
+    assert fact.quality_flags == ("NOTE_REFERENCE_AS_AMOUNT",)
+    assert not fact.usable_for_reconciliation
+    assert fact.raw_value == 29.0
+
+
+def test_note_reference_with_real_amount_is_not_quarantined() -> None:
+    fact = _official_fact("递延所得税资产 七、29 1,234,567.89 1,000,000.00", 1234567.89)
+    assert fact.source_status == "FACT_DIRECT"
+    assert fact.quality_flags == ()
+    assert fact.usable_for_reconciliation
+
+
 def _build_fact_db(path: Path) -> None:
     connection = duckdb.connect(str(path))
     connection.execute(
@@ -159,9 +196,11 @@ def test_reconciliation_logic_and_ttm(tmp_path: Path) -> None:
             ("TOTAL_LIAB_EQUITY", "负债和所有者权益总计", 1000.0),
         )
     ]
+    official.append(_official_fact("递延所得税资产 七、29", 29.0))
     reconciled = reconcile_official_facts(db_path, official)
     balance_results = [item for item in reconciled if item.statement_type == "balance_sheet"]
     assert all(item.status == "EXACT_MATCH" for item in balance_results)
+    assert all(item.field_key != "DEFER_TAX_ASSET" for item in reconciled)
     assert [item.status for item in build_logic_checks(official)[:2]] == ["PASS", "PASS"]
     ttm = build_ttm_checks(db_path, "688521", "2026-03-31")
     assert all(item.status == "PASS" for item in ttm)

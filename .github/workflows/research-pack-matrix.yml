@@ -1,0 +1,193 @@
+name: Research Pack W08 Matrix
+
+on:
+  push:
+    branches:
+      - feature/f10-research-mapping-evidence-pack-v1
+    paths:
+      - "src/ashare_f10/research_pack/**"
+      - "src/ashare_f10/research_mapping/**"
+      - "src/ashare_f10/evidence/**"
+      - "src/ashare_f10/cross_validation/**"
+      - "src/ashare_f10/resources/field_validation_registry_v1.json"
+      - "tests/test_research_pack*.py"
+      - "tests/test_w08_cninfo_false_conflicts.py"
+      - "scripts/verify_research_pack_e2e.py"
+      - ".github/workflows/research-pack-matrix.yml"
+  pull_request:
+    paths:
+      - "src/ashare_f10/research_pack/**"
+      - "src/ashare_f10/research_mapping/**"
+      - "src/ashare_f10/evidence/**"
+      - "src/ashare_f10/cross_validation/**"
+      - "src/ashare_f10/resources/field_validation_registry_v1.json"
+      - "tests/test_research_pack*.py"
+      - "tests/test_w08_cninfo_false_conflicts.py"
+      - "scripts/verify_research_pack_e2e.py"
+      - ".github/workflows/research-pack-matrix.yml"
+      - "docs/implementation/f10-research-mapping-evidence-pack-v1/W08_plan.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  deterministic-matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e ".[dev]"
+      - name: Static checks
+        run: |
+          set -euo pipefail
+          python -m compileall -q src scripts
+          ruff check \
+            src/ashare_f10/research_pack \
+            src/ashare_f10/research_mapping \
+            src/ashare_f10/evidence \
+            src/ashare_f10/cross_validation \
+            tests/test_research_pack.py \
+            tests/test_research_pack_acceptance_matrix.py \
+            tests/test_w08_cninfo_false_conflicts.py \
+            scripts/verify_research_pack_e2e.py
+      - name: Deterministic multi-market and portability tests
+        run: |
+          set -euo pipefail
+          pytest -q \
+            tests/test_research_pack.py \
+            tests/test_research_pack_acceptance_matrix.py \
+            tests/test_w08_cninfo_false_conflicts.py \
+            tests/test_point_in_time.py \
+            tests/test_research_mapping.py \
+            tests/test_research_extractors.py \
+            tests/test_evidence_graph.py
+
+  live-cninfo-002352:
+    needs: deterministic-matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e ".[dev]"
+      - name: Run live CNINFO dual-source thin slice with finite recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUTPUT="research-pack-matrix-002352-${{ github.run_id }}"
+          STATUS=1
+          for ATTEMPT in 1 2 3; do
+            LOG="research-pack-002352-attempt-${ATTEMPT}.log"
+            echo "W08 live attempt ${ATTEMPT}/3"
+            set +e
+            ashare-f10 run-and-validate 002352 \
+              --output "$OUTPUT" \
+              --workers 8 \
+              --max-periods 2 \
+              --as-of-date 2026-07-22 \
+              >"$LOG" 2>&1
+            STATUS=$?
+            set -e
+            tail -n 160 "$LOG" || true
+            if [[ "$STATUS" -eq 0 ]]; then
+              break
+            fi
+            sleep $((ATTEMPT * 20))
+          done
+          if [[ "$STATUS" -ne 0 ]]; then
+            echo "002352 live dual-source pipeline failed after finite retries"
+            exit "$STATUS"
+          fi
+          python scripts/verify_full_cross_validation.py "$OUTPUT" \
+            | tee research-pack-002352-cross-validation-verifier.log
+          python scripts/verify_research_pack_e2e.py "$OUTPUT" 002352 \
+            | tee research-pack-002352-pack-verifier.log
+          printf '%s\n' "$OUTPUT" > research-pack-matrix-output-dir.txt
+      - name: Extract compact conflict diagnostics
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from __future__ import annotations
+
+          import json
+          from pathlib import Path
+
+          import pandas as pd
+
+          statuses = {
+              "MISMATCH",
+              "VERSION_CONFLICT",
+              "SCOPE_CONFLICT",
+              "PERIOD_CONFLICT",
+              "UNIT_CONFLICT",
+          }
+          output = []
+          for path in sorted(Path(".").glob("research-pack-matrix-002352-*/cross_validation/*_cross_validation.parquet")):
+              frame = pd.read_parquet(path)
+              conflicts = frame[frame["status"].isin(statuses)].copy()
+              columns = [
+                  name
+                  for name in (
+                      "comparison_key",
+                      "report_date",
+                      "period_type",
+                      "family",
+                      "dataset",
+                      "field_key",
+                      "field_name_cn",
+                      "eastmoney_value_num",
+                      "eastmoney_value_text",
+                      "eastmoney_unit",
+                      "official_value_num",
+                      "official_value_text",
+                      "official_unit",
+                      "difference",
+                      "relative_difference",
+                      "comparison_method",
+                      "root_cause",
+                      "source_document",
+                      "source_page",
+                      "source_row",
+                  )
+                  if name in conflicts.columns
+              ]
+              output.extend(conflicts[columns].where(pd.notna(conflicts[columns]), None).to_dict("records"))
+          Path("research-pack-002352-conflicts.json").write_text(
+              json.dumps(output, ensure_ascii=False, indent=2, default=str),
+              encoding="utf-8",
+          )
+          print(json.dumps(output, ensure_ascii=False, indent=2, default=str))
+          PY
+      - name: Upload compact W08 evidence and performance report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-pack-w08-002352-${{ github.run_id }}
+          path: |
+            research-pack-002352-attempt-*.log
+            research-pack-002352-*-verifier.log
+            research-pack-002352-conflicts.json
+            research-pack-matrix-output-dir.txt
+            research-pack-matrix-002352-*/full-cross-validation-e2e-summary.json
+            research-pack-matrix-002352-*/research_pack_w08_e2e_summary.json
+            research-pack-matrix-002352-*/cross_validation/cross_validation_summary.json
+            research-pack-matrix-002352-*/research_pack_w08/summary.json
+            research-pack-matrix-002352-*/research_pack_w08/quality/research_pack_quality.json
+            research-pack-matrix-002352-*/research_pack_w08/checkpoint.json
+          if-no-files-found: warn
+          retention-days: 30

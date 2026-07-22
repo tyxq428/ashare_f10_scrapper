@@ -1,8 +1,67 @@
 from __future__ import annotations
 
+import hashlib
+import re
 from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+_NOTE_REFERENCE_AT_END = re.compile(
+    r"(?:附注\s*)?[一二三四五六七八九十百]+\s*[、.．]\s*(?P<note>\d{1,3})"
+    r"(?:\s*[（(]\s*\d{1,3}\s*[）)])?\s*$"
+)
+_MONETARY_STATEMENTS = {"balance_sheet", "income_statement", "cash_flow", "summary"}
+
+
+def _quality_flags_for_fact(
+    source_row: str,
+    value: float,
+    statement_type: str,
+) -> tuple[str, ...]:
+    """Detect high-risk parser outputs without guessing a replacement value.
+
+    Official financial statements often place note references between the row label and
+    the amount columns. When PDF table extraction drops the amount cells, a line such as
+    ``递延所得税资产 七、29`` can leave ``29`` as the only numeric token. That token is a
+    note number, not an amount. The quality gate marks the fact as suspicious so that it
+    remains auditable but cannot enter reconciliation, logic checks or canonical facts.
+    """
+
+    if statement_type not in _MONETARY_STATEMENTS:
+        return ()
+    row = str(source_row or "").strip()
+    match = _NOTE_REFERENCE_AT_END.search(row)
+    if match is None:
+        return ()
+    try:
+        note_number = float(match.group("note"))
+    except (TypeError, ValueError):
+        return ()
+    prefix = row[: match.start()]
+    if re.search(r"[-−(（]?\d[\d,，]*(?:\.\d+)?", prefix):
+        return ()
+    if abs(float(value) - note_number) > 1e-12:
+        return ()
+    return ("NOTE_REFERENCE_AS_AMOUNT",)
+
+
+def _stable_document_id(
+    source: str,
+    security_code: str,
+    report_date: str,
+    report_kind: str,
+    version_label: str,
+    url: str,
+) -> str:
+    payload = "|".join(
+        (source, security_code, report_date, report_kind, version_label, url)
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()[:24]
+
+
+def _utc_now() -> str:
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 @dataclass(slots=True)
@@ -17,6 +76,29 @@ class OfficialDocument:
     url: str
     local_path: str = ""
     sha256: str = ""
+    document_id: str = ""
+    effective_at: str = ""
+    available_at: str = ""
+    retrieved_at: str = ""
+    supersedes_document_id: str = ""
+    is_boundary: bool = False
+
+    def __post_init__(self) -> None:
+        if not self.document_id:
+            self.document_id = _stable_document_id(
+                self.source,
+                self.security_code,
+                self.report_date,
+                self.report_kind,
+                self.version_label,
+                self.url,
+            )
+        if not self.effective_at:
+            self.effective_at = self.report_date
+        if not self.available_at:
+            self.available_at = self.publish_date
+        if not self.retrieved_at:
+            self.retrieved_at = _utc_now()
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -51,6 +133,36 @@ class OfficialFact:
     extraction_method: str
     precision_tolerance: float
     confidence: str
+    source_status: str = "FACT_DIRECT"
+    quality_flags: tuple[str, ...] = ()
+    parse_notes: str = ""
+    raw_value: float | None = None
+    document_id: str = ""
+    effective_at: str = ""
+    available_at: str = ""
+    extracted_at: str = ""
+
+    def __post_init__(self) -> None:
+        if self.raw_value is None:
+            self.raw_value = self.value
+        if not self.effective_at:
+            self.effective_at = self.report_date
+        if not self.extracted_at:
+            self.extracted_at = _utc_now()
+        detected = _quality_flags_for_fact(self.source_row, self.value, self.statement_type)
+        if detected:
+            self.quality_flags = tuple(dict.fromkeys((*self.quality_flags, *detected)))
+            self.source_status = "PARSE_SUSPECT"
+            self.confidence = "low"
+            if not self.parse_notes:
+                self.parse_notes = (
+                    "Only a financial-statement note reference was available as the numeric token; "
+                    "the value is quarantined pending row reconstruction or manual review."
+                )
+
+    @property
+    def usable_for_reconciliation(self) -> bool:
+        return self.source_status not in {"PARSE_SUSPECT", "UNRESOLVED"}
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

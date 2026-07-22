@@ -1,0 +1,48 @@
+.top-actions { display: flex; align-items: center; gap: 10px; }
+.header-link {
+  color: white; text-decoration: none; border: 1px solid rgba(255,255,255,.45);
+  border-radius: 7px; padding: 8px 12px; font-weight: 700;
+}
+.research-hero { align-items: flex-end; }
+.pack-meta-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px;
+}
+.pack-meta-grid > div { display: flex; flex-direction: column; gap: 5px; }
+.meta-label { color: #758394; font-size: 12px; }
+.wrap-header { align-items: flex-end; flex-wrap: wrap; }
+.fact-controls { justify-content: flex-end; }
+.fact-controls input { min-width: 240px; }
+.fact-row { cursor: pointer; }
+.fact-row:hover td { background: #edf6fd !important; }
+.fact-row.selected td { background: #dceeff !important; }
+.issue-pill {
+  display: inline-block; padding: 3px 7px; border-radius: 12px; font-size: 11px;
+  font-weight: 800; margin-right: 4px;
+}
+.issue-pill.conflict { background: #fff0ef; color: var(--red); }
+.issue-pill.unresolved { background: #fff5d6; color: var(--amber); }
+.issue-pill.verified { background: #e5f6ee; color: var(--green); }
+.pager { display: flex; justify-content: center; align-items: center; gap: 12px; margin-top: 14px; }
+.evidence-layout { align-items: start; }
+.evidence-detail { max-height: 720px; overflow: auto; }
+.evidence-card, .version-card {
+  border: 1px solid var(--border); border-radius: 9px; padding: 12px; margin-bottom: 10px;
+  background: #fbfcfe;
+}
+.evidence-card h4, .version-card h4 { margin: 0 0 7px; }
+.evidence-grid { display: grid; grid-template-columns: 140px 1fr; gap: 5px 10px; font-size: 13px; }
+.evidence-grid dt { color: #6f7d8c; }
+.evidence-grid dd { margin: 0; overflow-wrap: anywhere; }
+.version-list { max-height: 720px; overflow: auto; }
+.version-chain { color: var(--blue); font-weight: 700; font-size: 12px; }
+.compact-pre {
+  max-height: 220px; overflow: auto; background: #101923; color: #d5e7f7;
+  border-radius: 8px; padding: 10px; white-space: pre-wrap;
+}
+.download-card a { margin-right: 8px; }
+.metric.warning { border-color: #e4c46c; background: #fffaf0; }
+.metric.failure { border-color: #e4a29d; background: #fff7f6; }
+@media (max-width: 850px) {
+  .top-actions { align-items: flex-start; }
+  .fact-controls { justify-content: flex-start; }
+}

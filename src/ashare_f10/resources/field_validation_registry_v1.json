@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "description": "Rule-based registry that classifies every Eastmoney field context without forcing unavailable official values.",
   "statement_families": {
     "RPT_F10_FINANCE_GBALANCE": {"mode": "OFFICIAL_DIRECT", "statement_type": "balance_sheet", "scope": "consolidated"},
@@ -41,8 +41,23 @@
   "formula_overrides": {
     "ZCFZL": "TOTAL_LIABILITIES / TOTAL_ASSETS * 100",
     "CURRENT_RATIO": "TOTAL_CURRENT_ASSETS / TOTAL_CURRENT_LIAB",
-    "GUARD_SPEED_RATIO": "(TOTAL_CURRENT_ASSETS - INVENTORY) / TOTAL_CURRENT_LIAB",
+    "GUARD_SPEED_RATIO": "(TOTAL_CURRENT_ASSETS - INVENTORY - PREPAYMENT - OTHER_CURRENT_ASSET - CONTRACT_ASSET - FINANCE_RECE - CURRENT_ASSET_OTHER - NONCURRENT_ASSET_1YEAR) / TOTAL_CURRENT_LIAB",
     "XSMLL": "(OPERATE_INCOME - OPERATE_COST) / OPERATE_INCOME * 100",
     "XSJLL": "NETPROFIT / OPERATE_INCOME * 100"
+  },
+  "comparison_overrides": {
+    "ASSET_DISPOSAL_INCOME": {"comparison_method": "numeric", "canonical_unit": "元", "absolute_tolerance": 1.0, "relative_tolerance": 1e-10, "display_decimals": 2},
+    "FAIRVALUE_CHANGE_INCOME": {"comparison_method": "numeric", "canonical_unit": "元", "absolute_tolerance": 1.0, "relative_tolerance": 1e-10, "display_decimals": 2},
+    "FINANCE_EXPENSE": {"comparison_method": "numeric", "canonical_unit": "元", "absolute_tolerance": 1.0, "relative_tolerance": 1e-10, "display_decimals": 2},
+    "INCOME_TAX": {"comparison_method": "numeric", "canonical_unit": "元", "absolute_tolerance": 1.0, "relative_tolerance": 1e-10, "display_decimals": 2},
+    "INVEST_INCOME": {"comparison_method": "numeric", "canonical_unit": "元", "absolute_tolerance": 1.0, "relative_tolerance": 1e-10, "display_decimals": 2},
+    "INVEST_REALESTATE": {"comparison_method": "numeric", "canonical_unit": "元", "absolute_tolerance": 1.0, "relative_tolerance": 1e-10, "display_decimals": 2},
+    "MANAGE_EXPENSE": {"comparison_method": "numeric", "canonical_unit": "元", "absolute_tolerance": 1.0, "relative_tolerance": 1e-10, "display_decimals": 2},
+    "NETPROFIT": {"comparison_method": "numeric", "canonical_unit": "元", "absolute_tolerance": 1.0, "relative_tolerance": 1e-10, "display_decimals": 2},
+    "NONBUSINESS_EXPENSE": {"comparison_method": "numeric", "canonical_unit": "元", "absolute_tolerance": 1.0, "relative_tolerance": 1e-10, "display_decimals": 2},
+    "OPERATE_COST": {"comparison_method": "numeric", "canonical_unit": "元", "absolute_tolerance": 1.0, "relative_tolerance": 1e-10, "display_decimals": 2},
+    "OPERATE_TAX_ADD": {"comparison_method": "numeric", "canonical_unit": "元", "absolute_tolerance": 1.0, "relative_tolerance": 1e-10, "display_decimals": 2},
+    "RESEARCH_EXPENSE": {"comparison_method": "numeric", "canonical_unit": "元", "absolute_tolerance": 1.0, "relative_tolerance": 1e-10, "display_decimals": 2},
+    "SALE_EXPENSE": {"comparison_method": "numeric", "canonical_unit": "元", "absolute_tolerance": 1.0, "relative_tolerance": 1e-10, "display_decimals": 2}
   }
 }
