@@ -44,3 +44,4 @@ elif "classify downloaded report scope before cache lookup" not in text:
 
 compatibility = Path(__file__).with_name("patch_sse_summary_materializer_v2.py")
 exec(compile(compatibility.read_text(encoding="utf-8"), str(compatibility), "exec"))
+compatibility.unlink(missing_ok=True)
