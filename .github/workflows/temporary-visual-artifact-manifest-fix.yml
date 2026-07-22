@@ -1,3 +1,4 @@
+# Retriggered after the final parallel-artifact race review.
 name: Temporary Visual Artifact Manifest Patch
 
 on:
