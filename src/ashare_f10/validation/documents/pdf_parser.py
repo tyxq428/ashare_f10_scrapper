@@ -225,7 +225,13 @@ _SECTION_HEADINGS = {
     "cash_flow": ("合并现金流量表", "现金流量表"),
 }
 _PARENT_HEADINGS = ("母公司资产负债表", "母公司利润表", "母公司现金流量表")
-_NUMBER_PATTERN = re.compile(r"(?:[-−]?\(?\d[\d,， ]*(?:\.\d+)?\)?|[-−]?\(\d+(?:\.\d+)?\))")
+_NUMBER_PATTERN = re.compile(
+    r"(?:[-−]?\(\s*\d+(?:[,，]\d{3})*(?:\.\d+)?\s*\)|"
+    r"[-−]?\d+(?:[,，]\d{3})*(?:\.\d+)?)"
+)
+_NOTE_REFERENCE_PATTERN = re.compile(
+    r"[一二三四五六七八九十百]+(?:[（(]\d+(?:[-—]\d+)?[）)])+(?:[（(][A-Za-z][）)])?"
+)
 
 
 def _compact(value: Any) -> str:
@@ -266,9 +272,10 @@ def _numeric_candidates(cells: Iterable[str]) -> list[tuple[float, int, str]]:
         clean = _clean_row(cell)
         if not clean:
             continue
-        direct = _parse_number(clean)
-        if direct is not None:
-            values.append((direct[0], direct[1], clean))
+        if _NUMBER_PATTERN.fullmatch(clean):
+            direct = _parse_number(clean)
+            if direct is not None:
+                values.append((direct[0], direct[1], clean))
             continue
         for token in _NUMBER_PATTERN.findall(clean):
             parsed = _parse_number(token)
@@ -282,51 +289,136 @@ def _choose_amounts(
 ) -> tuple[tuple[float, int, str], tuple[float, int, str] | None] | None:
     if not values:
         return None
+
+    def is_note_token(value: tuple[float, int, str]) -> bool:
+        number, _decimals, raw = value
+        return abs(number) < 100 and bool(re.fullmatch(r"[（(]\s*\d{1,2}\s*[）)]", raw.strip()))
+
+    non_note = [value for value in values if not is_note_token(value)]
+    if not non_note:
+        return None
     plausible: list[tuple[float, int, str]] = []
-    for value in values:
+    for value in non_note:
         number, _, raw = value
-        # Notes usually appear as tiny integers.  Financial statement amounts are
-        # normally larger or contain comma/decimal formatting.
-        if abs(number) >= 100 or "," in raw or "." in raw or "(" in raw:
+        if abs(number) >= 100 or "," in raw or "." in raw or "(" in raw or "（" in raw:
             plausible.append(value)
-    selected = plausible or values
+    selected = plausible or non_note
     if len(selected) >= 2:
         return selected[0], selected[1]
     return selected[0], None
 
 
-def _unit_info(text: str) -> tuple[str, float]:
+def _label_context(value: Any) -> str:
+    text = _clean_row(value)
+    text = _NOTE_REFERENCE_PATTERN.sub(" ", text)
+    text = _NUMBER_PATTERN.sub(" ", text)
+    text = re.sub(r"[（(][A-Za-z][）)]", " ", text)
+    text = re.sub(r"(^|\s)[一二三四五六七八九十百]+(?=\s|$)", " ", text)
+    text = re.sub(r"[/／]+", " ", text)
+    text = re.sub(r"[—–-]+", " ", text)
+    text = text.replace("%", " ")
+    text = re.sub(r"[一二三四五六七八九十百]+$", " ", text)
+    return _clean_row(text)
+
+
+ABSOLUTE_PRESENTATION_FIELDS = {
+    "TREASURY_SHARES",
+    "OPERATE_COST",
+    "TOTAL_OPERATE_COST",
+    "OPERATE_TAX_ADD",
+    "SALE_EXPENSE",
+    "MANAGE_EXPENSE",
+    "RESEARCH_EXPENSE",
+    "FINANCE_EXPENSE",
+    "FE_INTEREST_EXPENSE",
+    "INTEREST_EXPENSE",
+    "INCOME_TAX",
+    "NONBUSINESS_EXPENSE",
+    "BUY_SERVICES",
+    "CONSTRUCT_LONG_ASSET",
+    "INVEST_PAY_CASH",
+    "REPAY_DEBT_CASH",
+    "ASSIGN_DIVIDEND_PORFIT",
+    "DISTRIBUTE_DIVIDEND_CASH",
+    "SUBSIDIARY_PAY_DIVIDEND",
+}
+
+
+def _unit_scale(unit: str) -> float:
+    return {"元": 1.0, "千元": 1_000.0, "万元": 10_000.0, "亿元": 100_000_000.0}[unit]
+
+
+def _page_unit_info(text: str) -> tuple[str, float] | None:
     compact = _compact(text)
-    if "单位：亿元" in compact or "单位:亿元" in compact:
-        return "亿元", 100_000_000.0
-    if "单位：万元" in compact or "单位:万元" in compact:
-        return "万元", 10_000.0
-    if "单位：千元" in compact or "单位:千元" in compact:
-        return "千元", 1_000.0
-    return "元", 1.0
+    match = re.search(
+        r"(?:单位[：:]?|金额单位(?:为|[：:]))(?:人民币)?(亿元|万元|千元|元)",
+        compact,
+    )
+    if match is None:
+        return None
+    unit = match.group(1)
+    return unit, _unit_scale(unit)
+
+
+def _row_unit_info(text: str) -> tuple[str, float] | None:
+    page_unit = _page_unit_info(text)
+    if page_unit is not None:
+        return page_unit
+    compact = _compact(text)
+    match = re.search(r"[（(](?:人民币)?(亿元|万元|千元|元)[）)]", compact)
+    if match is None:
+        return None
+    unit = match.group(1)
+    return unit, _unit_scale(unit)
+
+
+def _explicit_unit_info(text: str) -> tuple[str, float] | None:
+    return _row_unit_info(text)
+
+
+def _unit_info(text: str) -> tuple[str, float]:
+    return _row_unit_info(text) or ("元", 1.0)
+
+
+def _canonical_value(field_key: str, value: float) -> float:
+    if (
+        field_key in ABSOLUTE_PRESENTATION_FIELDS
+        or field_key.startswith("PAY_")
+        or field_key.endswith("_OUTFLOW")
+    ):
+        return abs(value)
+    return value
 
 
 def _tolerance(scale: float, decimals: int) -> float:
     return max(1.0, scale * 0.5 * (10 ** (-decimals)))
 
 
+def _heading_context(line: str) -> tuple[str, str] | None:
+    compact = _compact(line).replace("(", "（").replace(")", "）")
+    compact = re.sub(r"^\d+[、.．]", "", compact)
+    match = re.search(
+        r"(?P<scope>合并及公司|合并|母公司|公司)?"
+        r"(?P<statement>资产负债表|利润表|现金流量表)(?:（续）)?$",
+        compact,
+    )
+    if match is None:
+        return None
+    statement = {
+        "资产负债表": "balance_sheet",
+        "利润表": "income_statement",
+        "现金流量表": "cash_flow",
+    }[match.group("statement")]
+    scope = "parent" if match.group("scope") in {"母公司", "公司"} else "consolidated"
+    return statement, scope
+
+
 def _heading_events(page: Any | None, text: str) -> list[tuple[float, str, str]]:
-    heading_map = {
-        "合并资产负债表": ("balance_sheet", "consolidated"),
-        "资产负债表": ("balance_sheet", "consolidated"),
-        "母公司资产负债表": ("balance_sheet", "parent"),
-        "合并利润表": ("income_statement", "consolidated"),
-        "利润表": ("income_statement", "consolidated"),
-        "母公司利润表": ("income_statement", "parent"),
-        "合并现金流量表": ("cash_flow", "consolidated"),
-        "现金流量表": ("cash_flow", "consolidated"),
-        "母公司现金流量表": ("cash_flow", "parent"),
-    }
-    lines = [_compact(line) for line in text.splitlines() if _compact(line)]
+    lines = [_clean_row(line) for line in text.splitlines() if _clean_row(line)]
     events: list[tuple[float, str, str]] = []
     used: set[tuple[str, float]] = set()
     for line_index, line in enumerate(lines):
-        context = heading_map.get(line)
+        context = _heading_context(line)
         if context is None:
             continue
         approximate_top = float(line_index)
@@ -339,7 +431,7 @@ def _heading_events(page: Any | None, text: str) -> list[tuple[float, str, str]]
                 approximate_top = float(matches[0].get("top", approximate_top))
             else:
                 approximate_top = (line_index / max(len(lines), 1)) * float(page.height)
-        identity = (line, approximate_top)
+        identity = (_compact(line), approximate_top)
         if identity in used:
             continue
         used.add(identity)
@@ -380,6 +472,29 @@ class PdfStatementParser:
         for target in targets:
             identity = (target.statement_type, target.field_key)
             aliases = target.aliases
+            special_aliases = {
+                ("balance_sheet", "TOTAL_LIAB_EQUITY"): ("负债及股东权益总计",),
+                ("income_statement", "FINANCE_EXPENSE"): ("财务（费用）/收入", "财务（费用）收入"),
+                ("income_statement", "PARENT_NETPROFIT"): ("归属于母公司所有者的净利润",),
+                ("cash_flow", "NETCASH_OPERATE"): (
+                    "经营活动产生/（使用）的现金流量净额",
+                    "经营活动产生（使用）的现金流量净额",
+                ),
+                ("cash_flow", "NETCASH_INVEST"): (
+                    "投资活动（使用）/产生的现金流量净额",
+                    "投资活动（使用）产生的现金流量净额",
+                    "投资活动使用的现金流量净额",
+                ),
+                ("cash_flow", "NETCASH_FINANCE"): ("筹资活动使用的现金流量净额",),
+                ("cash_flow", "CCE_ADD"): (
+                    "现金及现金等价物净（减少）/增加额",
+                    "现金及现金等价物净（减少）增加额",
+                ),
+                ("cash_flow", "BEGIN_CCE"): ("年初现金及现金等价物余额",),
+                ("cash_flow", "END_CCE"): ("年末现金及现金等价物余额",),
+            }
+            if identity in special_aliases:
+                aliases = tuple(dict.fromkeys((*special_aliases[identity], *aliases)))
             if identity == ("income_statement", "OTHER_COMPRE_INCOME"):
                 aliases = tuple(dict.fromkeys(("其他综合收益的税后净额", *aliases)))
             if identity == ("cash_flow", "FINANCE_EXPENSE"):
@@ -449,9 +564,15 @@ class PdfStatementParser:
                 # heading starts a new table after the preceding statement table.
                 if events and events[0][0] <= float(page.height) * 0.45:
                     page_section, page_scope = events[0][1], events[0][2]
+                elif not events and any(
+                    token in _compact(text)
+                    for token in ("股东权益变动表", "所有者权益变动表", "财务报表附注")
+                ):
+                    page_section, page_scope = None, None
+                    active_section, active_scope = None, None
 
                 unit = _unit_info(text)
-                explicit_unit = bool(re.search(r"单位[：:](?:亿元|万元|千元|元)", _compact(text)))
+                explicit_unit = _page_unit_info(text) is not None
                 if not explicit_unit and unit[1] == 1.0 and previous_unit[1] != 1.0 and page_section:
                     unit = previous_unit
                 elif explicit_unit or unit[1] != 1.0 or page_section:
@@ -491,7 +612,8 @@ class PdfStatementParser:
                     if extracted:
                         score = 100 + (15 if extracted.scope == "consolidated" else 0)
                         candidates[(target.statement_type, target.field_key)].append((score, extracted))
-                        continue
+                        if document.source != "CNINFO":
+                            continue
 
                     is_cashflow_supplement = (
                         target.statement_type == "cash_flow"
@@ -514,7 +636,8 @@ class PdfStatementParser:
                         page_scope or "consolidated",
                     )
                     if extracted:
-                        score = 60 + (15 if page_scope == "consolidated" else 0)
+                        base_score = 140 if document.source == "CNINFO" else 60
+                        score = base_score + (15 if page_scope == "consolidated" else 0)
                         candidates[(target.statement_type, target.field_key)].append((score, extracted))
 
                 if events:
@@ -580,6 +703,7 @@ class PdfStatementParser:
                 continue
             current, _previous = amounts
             joined = " ".join(cells)
+            row_unit = _row_unit_info(joined) or unit
             return OfficialFact(
                 security_code=document.security_code,
                 report_date=document.report_date,
@@ -587,15 +711,15 @@ class PdfStatementParser:
                 scope=scope,
                 field_key=target.field_key,
                 field_name_report=alias,
-                value=current[0] * unit[1],
-                unit=unit[0],
+                value=_canonical_value(target.field_key, current[0]) * row_unit[1],
+                unit=row_unit[0],
                 normalized_unit="元",
                 source_document=document.title,
                 source_url=document.url,
                 source_page=page_number,
                 source_row=joined,
                 extraction_method="PDF_TABLE",
-                precision_tolerance=_tolerance(unit[1], current[1]),
+                precision_tolerance=_tolerance(row_unit[1], current[1]),
                 confidence="high",
             )
         return None
@@ -610,53 +734,94 @@ class PdfStatementParser:
         scope: str,
     ) -> OfficialFact | None:
         lines = [_clean_row(line) for line in text.splitlines() if _clean_row(line)]
-        for index, line in enumerate(lines):
-            normalized_line = _normalized_label(line)
-            alias = next(
-                (
-                    name
-                    for name in target.aliases
-                    if _label_matches(line, name)
-                    or (
-                        target.statement_type == "cash_flow"
-                        and target.field_key == "FINANCE_EXPENSE"
-                        and name == "财务费用（收益以“－”号填列）"
-                        and normalized_line.startswith(_normalized_label(name))
-                    )
-                ),
-                None,
-            )
-            if not alias:
-                continue
-            context_lines = lines[index : min(index + 3, len(lines))]
-            context = " ".join(context_lines)
-            compact_context = _compact(context)
-            position = compact_context.find(_compact(alias))
-            after_alias = (
-                compact_context[position + len(_compact(alias)) :] if position >= 0 else compact_context
-            )
-            amounts = _choose_amounts(_numeric_candidates([after_alias]))
-            if not amounts:
-                continue
-            current, _previous = amounts
-            if not math.isfinite(current[0]):
-                continue
-            return OfficialFact(
-                security_code=document.security_code,
-                report_date=document.report_date,
-                statement_type=target.statement_type,
-                scope=scope,
-                field_key=target.field_key,
-                field_name_report=alias,
-                value=current[0] * unit[1],
-                unit=unit[0],
-                normalized_unit="元",
-                source_document=document.title,
-                source_url=document.url,
-                source_page=page_number,
-                source_row=context,
-                extraction_method="PDF_TEXT_LINE",
-                precision_tolerance=_tolerance(unit[1], current[1]),
-                confidence="medium",
-            )
-        return None
+        candidates: list[tuple[int, int, str, tuple[float, int, str], tuple[str, float], str]] = []
+        seen: set[tuple[int, int, str, int]] = set()
+
+        for start in range(len(lines)):
+            for width in (1, 2, 3):
+                end = min(len(lines), start + width)
+                if end <= start:
+                    continue
+                context_lines = lines[start:end]
+                context = " ".join(context_lines)
+                label_context = _label_context(context)
+                alias = next(
+                    (
+                        name
+                        for name in sorted(target.aliases, key=len, reverse=True)
+                        if _label_matches(label_context, name)
+                    ),
+                    None,
+                )
+                if alias is None:
+                    continue
+
+                label_lines = [
+                    line_index
+                    for line_index in range(start, end)
+                    if _label_matches(_label_context(lines[line_index]), alias)
+                ]
+                for numeric_index in range(start, end):
+                    amounts = _choose_amounts(_numeric_candidates([lines[numeric_index]]))
+                    if not amounts:
+                        continue
+                    current, _previous = amounts
+                    if not math.isfinite(current[0]):
+                        continue
+
+                    if label_lines:
+                        first_label = min(label_lines)
+                        last_label = max(label_lines)
+                        if numeric_index in label_lines:
+                            relation_score = 500
+                        elif numeric_index < first_label:
+                            relation_score = 460 - 10 * (first_label - numeric_index)
+                        elif first_label < numeric_index < last_label:
+                            relation_score = 450
+                        else:
+                            relation_score = 340 - 10 * (numeric_index - last_label)
+                    else:
+                        textual = [
+                            line_index
+                            for line_index in range(start, end)
+                            if not _numeric_candidates([lines[line_index]])
+                        ]
+                        if textual and min(textual) < numeric_index < max(textual):
+                            relation_score = 455
+                        else:
+                            relation_score = 380
+
+                    normalized_context = _normalized_label(label_context)
+                    normalized_alias = _normalized_label(alias)
+                    exact_bonus = 40 if normalized_context == normalized_alias else 20
+                    width_bonus = {1: 30, 2: 20, 3: 10}[width]
+                    score = relation_score + exact_bonus + width_bonus
+                    identity = (start, end, alias, numeric_index)
+                    if identity in seen:
+                        continue
+                    seen.add(identity)
+                    row_unit = _row_unit_info(context) or unit
+                    candidates.append((score, start, alias, current, row_unit, context))
+
+        if not candidates:
+            return None
+        candidates.sort(key=lambda item: (-item[0], item[1], -len(item[2])))
+        _score, _start, alias, current, row_unit, context = candidates[0]
+        return OfficialFact(
+            security_code=document.security_code,
+            report_date=document.report_date,
+            statement_type=target.statement_type,
+            scope=scope,
+            field_key=target.field_key,
+            field_name_report=alias,
+            value=_canonical_value(target.field_key, current[0]) * row_unit[1],
+            unit=row_unit[0],
+            normalized_unit="元",
+            source_document=document.title,
+            source_url=document.url,
+            source_page=page_number,
+            source_row=context,
+            extraction_method="PDF_TEXT_WINDOW",
+            precision_tolerance=_tolerance(row_unit[1], current[1]),
+            confidence="high" if target.statement_type != "summary" else "medium",
+        )
