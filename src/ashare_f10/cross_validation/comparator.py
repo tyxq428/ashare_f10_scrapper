@@ -353,6 +353,11 @@ class CrossSourceComparator:
                             status, grade = "WITHIN_ROUNDING", "A"
                         else:
                             status, grade = "MISMATCH", "E"
+                            if east_num == 0 and official_num != 0:
+                                notes = (
+                                    f"{notes}；东方财富明确返回0，但免费官方正式披露为非零；"
+                                    "保留为可追溯来源冲突，不自动覆盖或隐藏"
+                                )
                 else:
                     field_key = str(east.get("field_key") or "")
                     east_text = _normalize_text(east.get("value_text"), field_key)
@@ -459,6 +464,9 @@ class CrossSourceComparator:
                     "FUTURE_FREE_SOURCE_REQUIRED",
                     "OFFICIAL_PERIOD_NOT_LOADED",
                     "OFFICIAL_SOURCE_UNAVAILABLE",
+                    "PRE_LISTING_OFFICIAL_SOURCE_NOT_LOADED",
+                    "OFFICIAL_REPORT_SUMMARY_SCOPE_GAP",
+                    "OFFICIAL_REPORT_NOT_YET_DISCLOSED",
                 ]
             )
         ]

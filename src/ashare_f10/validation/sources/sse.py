@@ -15,6 +15,8 @@ import requests
 from ashare_f10.validation.models import OfficialDocument
 
 SSE_QUERY_URL = "https://query.sse.com.cn/security/stock/queryCompanyBulletin.do"
+SSE_COMMON_QUERY_URL = "https://query.sse.com.cn/commonQuery.do"
+SSE_COMPANY_PROFILE_SQL_ID = "COMMON_SSE_CP_GPJCTPZ_GPLB_GPGK_GSGK_C"
 SSE_HOME = "https://www.sse.com.cn/"
 SSE_ANNOUNCEMENT_PAGE = "http://www.sse.com.cn/disclosure/listedinfo/announcement/"
 REPORT_TYPE_CODES = ("YEARLY", "QUATER1", "QUATER2", "QUATER3")
@@ -199,6 +201,65 @@ class SSEOfficialSource:
                 if attempt < 3:
                     time.sleep(2**attempt)
         raise OfficialSourceError(f"SSE公告查询失败：{last_error}")
+
+    def _get_common_json(self, params: dict[str, str]) -> dict[str, Any]:
+        last_error: Exception | None = None
+        for attempt in range(1, 4):
+            try:
+                response = self.session.get(
+                    SSE_COMMON_QUERY_URL,
+                    params=params,
+                    timeout=self.timeout,
+                )
+                response.raise_for_status()
+                text = response.text.strip()
+                try:
+                    payload = response.json()
+                except ValueError:
+                    match = re.search(r"\((\{.*\})\)\s*;?\s*$", text, flags=re.S)
+                    if not match:
+                        raise OfficialSourceError(f"SSE公司概况查询返回非JSON内容：{text[:200]}") from None
+                    payload = json.loads(match.group(1))
+                if not isinstance(payload, dict):
+                    raise OfficialSourceError("SSE公司概况查询返回结构不是对象")
+                return payload
+            except (requests.RequestException, ValueError, OfficialSourceError) as exc:
+                last_error = exc
+                if attempt < 3:
+                    time.sleep(2**attempt)
+        raise OfficialSourceError(f"SSE公司概况查询失败：{last_error}")
+
+    def company_profile(self, security_code: str) -> dict[str, Any]:
+        return self._get_common_json(
+            {
+                "isPagination": "false",
+                "sqlId": SSE_COMPANY_PROFILE_SQL_ID,
+                "COMPANY_CODE": security_code,
+                "type": "inParams",
+            }
+        )
+
+    def listing_date(self, security_code: str) -> tuple[str | None, dict[str, Any]]:
+        payload = self.company_profile(security_code)
+        candidates: list[str] = []
+        for item in _iter_dicts(payload):
+            for raw_key, raw_value in item.items():
+                key = re.sub(r"[^A-Z0-9]", "_", str(raw_key).upper()).strip("_")
+                if "DELIST" in key:
+                    continue
+                if key in {
+                    "LISTING_DATE",
+                    "LIST_DATE",
+                    "LISTED_DATE",
+                    "A_LIST_DATE",
+                    "A_SHARE_LISTING_DATE",
+                    "LISTINGDATE",
+                    "LISTDATE",
+                } or ("LIST" in key and "DATE" in key):
+                    value = _date_text(raw_value)
+                    if re.fullmatch(r"(?:19|20)\d{2}-\d{2}-\d{2}", value):
+                        candidates.append(value)
+        return (min(candidates) if candidates else None), payload
 
     def list_reports(
         self,

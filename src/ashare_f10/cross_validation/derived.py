@@ -40,11 +40,24 @@ def evaluate_simple_formula(formula: str, values: Mapping[str, float]) -> float:
     return float(result)
 
 
+NON_ADDITIVE_CASH_FLOW_FIELDS = {
+    "BEGIN_CCE",
+    "END_CCE",
+    "BEGIN_CASH",
+    "END_CASH",
+    "BEGIN_CASH_EQUIVALENTS",
+    "END_CASH_EQUIVALENTS",
+}
+
+
 def derive_independent_quarters(official: pd.DataFrame) -> pd.DataFrame:
     """Derive Q2/Q3/Q4 single-quarter flow facts from official cumulative statements."""
     if official.empty:
         return official.iloc[0:0].copy()
-    flow = official[official["statement_type"].isin(["income_statement", "cash_flow"])].copy()
+    flow = official[
+        official["statement_type"].isin(["income_statement", "cash_flow"])
+        & ~official["field_key"].isin(NON_ADDITIVE_CASH_FLOW_FIELDS)
+    ].copy()
     if flow.empty:
         return flow
     output: list[dict[str, Any]] = []

@@ -25,17 +25,25 @@ from ashare_f10.cross_validation.derived import (
     derive_independent_quarters,
 )
 from ashare_f10.cross_validation.exporter import CrossValidationExporter
+from ashare_f10.cross_validation.lifecycle import (
+    apply_lifecycle_statuses,
+    build_security_lifecycle,
+    infer_listing_date_from_eastmoney,
+)
 from ashare_f10.cross_validation.process_policy import ensure_process_policy
 from ashare_f10.cross_validation.registry import FieldValidationRegistry
 from ashare_f10.cross_validation.targets import build_dynamic_targets
 from ashare_f10.fetch.security import parse_security
-from ashare_f10.validation.documents.pdf_parser import PdfStatementParser
+from ashare_f10.validation.documents.pdf_parser import (
+    PdfStatementParser,
+    classify_pdf_financial_scope,
+)
 from ashare_f10.validation.models import OfficialFact
 from ashare_f10.validation.reconcile.engine import build_logic_checks, build_ttm_checks
 from ashare_f10.validation.sources.cninfo import CNInfoOfficialSource
 from ashare_f10.validation.sources.sse import SSEOfficialSource
 
-PARSER_CACHE_VERSION = "1.6.0"
+PARSER_CACHE_VERSION = "1.10.0"
 
 
 def _sha256_file(path: Path) -> str:
@@ -154,19 +162,55 @@ class FullCrossValidationRunner:
                 },
             )
 
+        listing_date = None
+        listing_date_source = ""
+        listing_profile_error = ""
+        listing_profile: dict[str, Any] = {}
+        if source_name == "SSE" and hasattr(source, "listing_date"):
+            try:
+                listing_date, listing_profile = source.listing_date(self.stock_code)
+                if listing_date:
+                    listing_date_source = "SSE_COMPANY_PROFILE"
+            except Exception as exc:  # noqa: BLE001
+                listing_profile_error = f"{type(exc).__name__}: {exc}"
+        if not listing_date:
+            listing_date, listing_date_source = infer_listing_date_from_eastmoney(eastmoney)
+        lifecycle = build_security_lifecycle(
+            self.stock_code,
+            identity.exchange,
+            report_dates,
+            listing_date,
+            listing_date_source,
+        )
+        periodic_report_dates = lifecycle.periodic_expected_report_dates
+        if listing_profile:
+            metadata_dir = self.output_dir / "source_metadata"
+            metadata_dir.mkdir(parents=True, exist_ok=True)
+            (metadata_dir / "sse_company_profile.json").write_text(
+                json.dumps(listing_profile, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+
         self._notify(
             "OFFICIAL_DISCOVERY",
             requested_report_dates=report_dates,
+            periodic_expected_report_dates=periodic_report_dates,
+            pre_listing_report_dates=lifecycle.pre_listing_report_dates,
+            listing_date=lifecycle.listing_date,
             official_source=source_name,
         )
         source_class = type(source)
-        available = source.list_reports(
-            self.stock_code,
-            begin_date=f"{min(report_dates)[:4]}-01-01",
-            end_date=utc_now()[:10],
+        available = (
+            source.list_reports(
+                self.stock_code,
+                begin_date=f"{min(periodic_report_dates)[:4]}-01-01",
+                end_date=utc_now()[:10],
+            )
+            if periodic_report_dates
+            else []
         )
         selected = []
-        for report_date in report_dates:
+        for report_date in periodic_report_dates:
             candidates = [
                 item
                 for item in available
@@ -216,6 +260,8 @@ class FullCrossValidationRunner:
         parsed_cache_dir.mkdir(parents=True, exist_ok=True)
 
         def parse_document(document):
+            path = Path(document.local_path)
+            document_scope_by_report_date[document.report_date] = classify_pdf_financial_scope(path)
             cache_path = parsed_cache_dir / f"{document.sha256}-{PARSER_CACHE_VERSION}.json"
             if cache_path.exists():
                 try:
@@ -228,7 +274,7 @@ class FullCrossValidationRunner:
                 except Exception:  # noqa: BLE001
                     cache_path.unlink(missing_ok=True)
             parser = PdfStatementParser(targets)
-            facts = parser.extract(document.local_path, document)
+            facts = parser.extract(path, document)
             temporary = cache_path.with_suffix(".json.tmp")
             temporary.write_text(
                 json.dumps([fact.to_dict() for fact in facts], ensure_ascii=False, indent=2),
@@ -239,6 +285,8 @@ class FullCrossValidationRunner:
 
         official_records: list[dict[str, Any]] = []
         extraction_by_document: dict[str, int] = {}
+        extraction_by_report_date: dict[str, int] = {}
+        document_scope_by_report_date: dict[str, str] = {}
         parser_cache_hits = 0
         with ThreadPoolExecutor(max_workers=max(1, min(3, len(downloaded) or 1))) as executor:
             futures = [executor.submit(parse_document, document) for document in downloaded]
@@ -247,6 +295,7 @@ class FullCrossValidationRunner:
                 document, facts, cache_hit = future.result()
                 parser_cache_hits += int(cache_hit)
                 extraction_by_document[document.title] = len(facts)
+                extraction_by_report_date[document.report_date] = len(facts)
                 official_records.extend(fact.to_dict() for fact in facts)
                 completed_parses += 1
                 self._notify(
@@ -277,18 +326,41 @@ class FullCrossValidationRunner:
         metadata = official_fact_columns(derive_document_metadata(documents_frame))
         if not metadata.empty:
             official = pd.concat([official, metadata], ignore_index=True, sort=False)
+        available_dates = sorted({item.report_date for item in downloaded})
+        post_listing_missing = sorted(set(periodic_report_dates) - set(available_dates))
+        summary_only_dates = sorted(
+            report_date
+            for report_date, scope in document_scope_by_report_date.items()
+            if scope == "SUMMARY_ONLY"
+        )
+        zero_extraction_dates = sorted(
+            report_date
+            for report_date, count in extraction_by_report_date.items()
+            if count == 0 and report_date not in summary_only_dates
+        )
         source_status = {
             "source": source_name,
             "exchange": identity.exchange,
             "requested_report_dates": report_dates,
-            "available_report_dates": sorted({item.report_date for item in downloaded}),
-            "missing_report_dates": sorted(set(report_dates) - {item.report_date for item in downloaded}),
+            "periodic_expected_report_dates": periodic_report_dates,
+            "pre_listing_report_dates": lifecycle.pre_listing_report_dates,
+            "available_report_dates": available_dates,
+            # Backward-compatible field now means a true post-listing discovery gap.
+            "missing_report_dates": post_listing_missing,
+            "post_listing_missing_report_dates": post_listing_missing,
+            "discovered_but_zero_extraction_dates": zero_extraction_dates,
+            "summary_only_report_dates": summary_only_dates,
+            "document_scope_by_report_date": document_scope_by_report_date,
             "document_count": len(downloaded),
             "official_fact_count": len(official),
             "extraction_by_document": extraction_by_document,
+            "extraction_by_report_date": extraction_by_report_date,
             "parser_cache_hits": parser_cache_hits,
             "parser_cache_version": PARSER_CACHE_VERSION,
             "available_document_count": len(available),
+            "security_lifecycle": lifecycle.to_dict(),
+            "listing_profile_error": listing_profile_error,
+            "pre_listing_alternative_source_status": "NOT_LOADED",
         }
         return official, documents_frame, source_status
 
@@ -330,6 +402,17 @@ class FullCrossValidationRunner:
         )
         comparator = CrossSourceComparator(registry_frame)
         comparison = comparator.compare(eastmoney, official)
+        comparison = apply_lifecycle_statuses(comparison, source_status)
+        source_status["not_yet_disclosed_report_dates"] = sorted(
+            {
+                str(value)[:10]
+                for value in comparison.loc[
+                    comparison["status"] == "OFFICIAL_REPORT_NOT_YET_DISCLOSED",
+                    "report_date",
+                ]
+                if value not in (None, "") and not pd.isna(value)
+            }
+        )
         source_unavailable = source_status.get("source") == "UNAVAILABLE"
         if source_unavailable:
             unavailable_mask = comparison["status"] == "MISSING_OFFICIAL"
@@ -375,6 +458,11 @@ class FullCrossValidationRunner:
                     "MISSING_EASTMONEY",
                     "UNRESOLVED",
                     "FUTURE_FREE_SOURCE_REQUIRED",
+                    "PRE_LISTING_OFFICIAL_SOURCE_NOT_LOADED",
+                    "OFFICIAL_DOCUMENT_EXTRACTION_FAILED",
+                    "POST_LISTING_OFFICIAL_REPORT_NOT_FOUND",
+                    "OFFICIAL_REPORT_SUMMARY_SCOPE_GAP",
+                    "OFFICIAL_REPORT_NOT_YET_DISCLOSED",
                 ]
             )
             .sum()
