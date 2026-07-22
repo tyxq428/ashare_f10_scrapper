@@ -1,0 +1,145 @@
+name: Temporary SSE Full-History Diagnostic
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "docs/plans/sse-prelisting-period-coverage-fix.md"
+      - ".github/sse-history-diagnostic-trigger.txt"
+
+permissions:
+  contents: read
+
+env:
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/sse-prelisting-period-coverage
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e ".[dev]"
+      - name: Query official SSE company profile
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import requests
+
+          url = "https://query.sse.com.cn/commonQuery.do"
+          params = {
+              "isPagination": "false",
+              "sqlId": "COMMON_SSE_CP_GPJCTPZ_GPLB_GPGK_GSGK_C",
+              "COMPANY_CODE": "688521",
+          }
+          headers = {
+              "Referer": "https://www.sse.com.cn/",
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36",
+              "Accept": "application/json,text/javascript,*/*;q=0.01",
+          }
+          response = requests.get(url, params=params, headers=headers, timeout=60)
+          response.raise_for_status()
+          Path("diagnostics").mkdir(exist_ok=True)
+          Path("diagnostics/sse_company_profile_raw.txt").write_text(response.text, encoding="utf-8")
+          try:
+              payload = response.json()
+          except ValueError:
+              payload = {"raw": response.text}
+          Path("diagnostics/sse_company_profile.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+          )
+          print(json.dumps(payload, ensure_ascii=False, indent=2)[:8000])
+          PY
+      - name: Run complete 688521 full-history validation
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          ashare-f10 run-and-validate 688521 \
+            --output full-history-diagnostic \
+            --workers 8 2>&1 | tee diagnostics/full-history-run.log
+      - name: Build structured diagnostic report
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          from collections import Counter
+          from pathlib import Path
+
+          import duckdb
+          import pandas as pd
+
+          root = Path("full-history-diagnostic/cross_validation")
+          out = Path("diagnostics")
+          out.mkdir(exist_ok=True)
+          report = {"status": "NO_OUTPUT"}
+          summary_path = root / "cross_validation_summary.json"
+          if summary_path.exists():
+              summary = json.loads(summary_path.read_text(encoding="utf-8"))
+              report = {
+                  "status": "OUTPUT_AVAILABLE",
+                  "summary": summary,
+                  "missing_report_dates": (summary.get("official_source_status") or {}).get("missing_report_dates", []),
+                  "extraction_by_document": (summary.get("official_source_status") or {}).get("extraction_by_document", {}),
+              }
+              comparison_path = Path(summary["artifacts"]["comparison_parquet"])
+              official_path = Path(summary["artifacts"]["official_parquet"])
+              east_path = Path(summary["artifacts"]["eastmoney_parquet"])
+              comparison = pd.read_parquet(comparison_path)
+              official = pd.read_parquet(official_path)
+              east = pd.read_parquet(east_path)
+              mismatches = comparison[comparison["status"].isin([
+                  "MISMATCH", "VERSION_CONFLICT", "SCOPE_CONFLICT", "PERIOD_CONFLICT", "UNIT_CONFLICT"
+              ])].copy()
+              mismatches.to_parquet(out / "true_conflicts.parquet", index=False)
+              mismatches.to_csv(out / "true_conflicts.csv", index=False, encoding="utf-8-sig")
+              group_cols = [column for column in [
+                  "status", "report_date", "period_type", "statement_type", "family", "field_key", "field_name_cn"
+              ] if column in mismatches.columns]
+              grouped = mismatches.groupby(group_cols, dropna=False).size().reset_index(name="count")
+              grouped.to_csv(out / "conflict_groups.csv", index=False, encoding="utf-8-sig")
+              listing_candidates = east[
+                  east["field_key"].astype(str).str.contains("LIST|IPO|MARKET", case=False, regex=True, na=False)
+              ].copy()
+              listing_candidates.to_csv(out / "listing_date_candidates.csv", index=False, encoding="utf-8-sig")
+              report["conflict_count"] = len(mismatches)
+              report["conflict_status_counts"] = dict(Counter(mismatches.get("status", [])))
+              report["conflict_field_counts"] = dict(Counter(mismatches.get("field_key", [])))
+              report["conflict_period_counts"] = dict(Counter(mismatches.get("report_date", [])))
+              report["listing_candidate_keys"] = sorted(set(listing_candidates.get("field_key", [])))
+              report["official_rows"] = len(official)
+              report["eastmoney_rows"] = len(east)
+              report["comparison_rows"] = len(comparison)
+              db_path = Path(summary["artifacts"]["comparison_duckdb"])
+              connection = duckdb.connect(str(db_path), read_only=True)
+              try:
+                  report["duckdb_true_conflicts"] = connection.execute(
+                      "select count(*) from true_conflicts"
+                  ).fetchone()[0]
+              finally:
+                  connection.close()
+          (out / "diagnostic_summary.json").write_text(
+              json.dumps(report, ensure_ascii=False, indent=2, default=str), encoding="utf-8"
+          )
+          print(json.dumps(report, ensure_ascii=False, indent=2, default=str)[:16000])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sse-full-history-diagnostic-688521-${{ github.run_id }}
+          path: |
+            diagnostics/
+            full-history-diagnostic/cross_validation/cross_validation_summary.json
+            full-history-diagnostic/cross_validation/*_cross_validation.parquet
+            full-history-diagnostic/cross_validation/*_official_facts.parquet
+            full-history-diagnostic/cross_validation/*_validation_evidence.zip
+          if-no-files-found: warn
+          retention-days: 30
