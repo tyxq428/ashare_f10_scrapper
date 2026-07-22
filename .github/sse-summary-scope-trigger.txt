@@ -1,2 +1,2 @@
 apply old-quarter summary and pending-period fixes
-revision: 6 legacy Q3 summary layout discrimination
+revision: 7 final Q3 layout regression rerun
