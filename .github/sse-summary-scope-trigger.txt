@@ -1,2 +1,0 @@
-apply old-quarter summary and pending-period fixes
-revision: 9 robust Q3 summary row-shape selection
