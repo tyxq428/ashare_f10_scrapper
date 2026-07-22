@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-import re
 from collections import Counter
 from dataclasses import dataclass
 from typing import Any
@@ -92,6 +91,24 @@ def _fact_row(
     }
 
 
+def _first_text(fields: list[dict[str, Any]], patterns: tuple[str, ...]) -> str:
+    for item in fields:
+        if _contains(item, patterns):
+            value = _text(item.get("value_text"))
+            if value:
+                return value
+    return ""
+
+
+def _first_number(fields: list[dict[str, Any]], patterns: tuple[str, ...]) -> float | None:
+    for item in fields:
+        if _contains(item, patterns):
+            value = _number(item.get("normalized_value_num"))
+            if value is not None:
+                return value
+    return None
+
+
 @dataclass(slots=True)
 class ResearchSectionPack:
     profit_quality: pd.DataFrame
@@ -129,6 +146,7 @@ class ResearchSectionExtractor:
         "balance.contract_assets": "合同资产",
         "balance.goodwill": "商誉",
         "research.rd_expense": "研发费用",
+        "research.rd_investment": "研发投入",
         "research.capitalized_rd": "资本化研发投入",
     }
     REQUIRED = {
@@ -229,17 +247,18 @@ class ResearchSectionExtractor:
         topic: str,
         metric_names: dict[str, str],
     ) -> list[dict[str, Any]]:
-        rows: list[dict[str, Any]] = []
         if observations.empty:
-            return rows
+            return []
+        rows: list[dict[str, Any]] = []
         subset = observations[observations["metric_id"].isin(metric_names)]
         for row in subset.to_dict("records"):
+            metric_id = _text(row.get("metric_id"))
             rows.append(
                 _fact_row(
                     security_code=_text(row.get("security_code")),
                     topic=topic,
-                    metric_id=_text(row.get("metric_id")),
-                    name_cn=metric_names.get(_text(row.get("metric_id")), _text(row.get("metric_name_cn"))),
+                    metric_id=metric_id,
+                    name_cn=metric_names.get(metric_id, _text(row.get("metric_name_cn"))),
                     report_date=row.get("report_date"),
                     event_date=row.get("event_date"),
                     period_type=_text(row.get("period_type")),
@@ -253,10 +272,53 @@ class ResearchSectionExtractor:
         return rows
 
     @staticmethod
-    def _derived_profit_quality(observations: pd.DataFrame) -> list[dict[str, Any]]:
-        rows: list[dict[str, Any]] = []
+    def _ratio_row(
+        *,
+        security_code: str,
+        report_date: str | None,
+        event_date: str | None,
+        period_type: str,
+        metric_id: str,
+        name_cn: str,
+        numerator: float | None,
+        denominator: float | None,
+        formula: str,
+        input_ids: list[str],
+        unit: str,
+        scale: float,
+        use_absolute_denominator: bool = False,
+    ) -> dict[str, Any]:
+        denominator_value = abs(denominator) if use_absolute_denominator and denominator is not None else denominator
+        if numerator is None or denominator_value in (None, 0.0):
+            value_num = None
+            status = "UNRESOLVED"
+            notes = "缺少计算所需的已核验规范事实，未补零"
+        else:
+            value_num = numerator / denominator_value * scale
+            status = "FACT_CALCULATED"
+            notes = "由规范事实确定性计算"
+        return _fact_row(
+            security_code=security_code,
+            topic="profit_quality",
+            metric_id=metric_id,
+            name_cn=name_cn,
+            report_date=report_date,
+            event_date=event_date,
+            period_type=period_type,
+            value_num=value_num,
+            value_text=None,
+            unit=unit,
+            status=status,
+            formula=formula,
+            input_ids=input_ids,
+            notes=notes,
+        )
+
+    @classmethod
+    def _derived_profit_quality(cls, observations: pd.DataFrame) -> list[dict[str, Any]]:
         if observations.empty:
-            return rows
+            return []
+        rows: list[dict[str, Any]] = []
         keys = ["security_code", "report_date", "event_date", "period_type", "scope"]
         relevant = observations[
             observations["metric_id"].isin(
@@ -273,127 +335,102 @@ class ResearchSectionExtractor:
         for group_key, group in relevant.groupby(keys, dropna=False, sort=True):
             by_metric = {row["metric_id"]: row for row in group.to_dict("records")}
             security_code, report_date, event_date, period_type, _scope = group_key
-
-            def add_ratio(
-                metric_id: str,
-                name_cn: str,
-                numerator_metric: str,
-                denominator_metric: str,
-                formula: str,
-                unit: str = "%",
-                scale: float = 100.0,
-            ) -> None:
-                numerator = by_metric.get(numerator_metric)
-                denominator = by_metric.get(denominator_metric)
-                numerator_value = _number(numerator.get("value_num")) if numerator else None
-                denominator_value = _number(denominator.get("value_num")) if denominator else None
-                input_ids = [
-                    _text(item.get("observation_id"))
-                    for item in (numerator, denominator)
-                    if item is not None
-                ]
-                if numerator_value is None or denominator_value in (None, 0.0):
-                    value, status = None, "UNRESOLVED"
-                    notes = "缺少计算所需的已核验规范事实，未补零"
-                else:
-                    value, status = numerator_value / denominator_value * scale, "FACT_CALCULATED"
-                    notes = "由规范事实确定性计算"
-                rows.append(
-                    _fact_row(
-                        security_code=_text(security_code),
-                        topic="profit_quality",
-                        metric_id=metric_id,
-                        name_cn=name_cn,
-                        report_date=_text(report_date) or None,
-                        event_date=_text(event_date) or None,
-                        period_type=_text(period_type),
-                        value_num=value,
-                        value_text=None,
-                        unit=unit,
-                        status=status,
-                        formula=formula,
-                        input_ids=input_ids,
-                        notes=notes,
-                    )
-                )
+            context = {
+                "security_code": _text(security_code),
+                "report_date": _text(report_date) or None,
+                "event_date": _text(event_date) or None,
+                "period_type": _text(period_type),
+            }
 
             parent = by_metric.get("financial.parent_net_profit")
             adjusted = by_metric.get("profit_quality.adjusted_parent_net_profit")
+            cfo = by_metric.get("cashflow.operating_cash_flow")
+            capex = by_metric.get("cashflow.capital_expenditure")
+            rd = by_metric.get("research.rd_investment")
+            capitalized = by_metric.get("research.capitalized_rd")
+
             parent_value = _number(parent.get("value_num")) if parent else None
             adjusted_value = _number(adjusted.get("value_num")) if adjusted else None
-            input_ids = [
-                _text(item.get("observation_id")) for item in (parent, adjusted) if item is not None
+            cfo_value = _number(cfo.get("value_num")) if cfo else None
+            capex_value = _number(capex.get("value_num")) if capex else None
+            rd_value = _number(rd.get("value_num")) if rd else None
+            capitalized_value = _number(capitalized.get("value_num")) if capitalized else None
+
+            parent_adjusted_ids = [
+                _text(item.get("observation_id"))
+                for item in (parent, adjusted)
+                if item is not None
             ]
-            if parent_value is not None and adjusted_value is not None:
-                non_recurring = parent_value - adjusted_value
-                status, notes = "FACT_CALCULATED", "归母净利润减扣非归母净利润"
-            else:
+            if parent_value is None or adjusted_value is None:
                 non_recurring = None
-                status, notes = "UNRESOLVED", "缺少归母或扣非归母净利润，未补零"
+                status = "UNRESOLVED"
+                notes = "缺少归母或扣非归母净利润，未补零"
+            else:
+                non_recurring = parent_value - adjusted_value
+                status = "FACT_CALCULATED"
+                notes = "归母净利润减扣非归母净利润"
             rows.append(
                 _fact_row(
-                    security_code=_text(security_code),
+                    **context,
                     topic="profit_quality",
                     metric_id="profit_quality.non_recurring_amount_calculated",
                     name_cn="计算口径非经常性损益",
-                    report_date=_text(report_date) or None,
-                    event_date=_text(event_date) or None,
-                    period_type=_text(period_type),
                     value_num=non_recurring,
                     value_text=None,
                     unit="元",
                     status=status,
                     formula="parent_net_profit - adjusted_parent_net_profit",
-                    input_ids=input_ids,
+                    input_ids=parent_adjusted_ids,
                     notes=notes,
                 )
             )
-            add_ratio(
-                "profit_quality.non_recurring_share",
-                "非经常性损益占归母净利润",
-                "profit_quality.non_recurring_amount_calculated",
-                "financial.parent_net_profit",
-                "(parent_net_profit - adjusted_parent_net_profit) / abs(parent_net_profit)",
+            rows.append(
+                cls._ratio_row(
+                    **context,
+                    metric_id="profit_quality.non_recurring_share",
+                    name_cn="非经常性损益占归母净利润",
+                    numerator=non_recurring,
+                    denominator=parent_value,
+                    formula="(parent_net_profit - adjusted_parent_net_profit) / abs(parent_net_profit)",
+                    input_ids=parent_adjusted_ids,
+                    unit="%",
+                    scale=100.0,
+                    use_absolute_denominator=True,
+                )
             )
-            # The calculated amount is not an observation, so calculate this ratio directly.
-            if non_recurring is None or parent_value in (None, 0.0):
-                share_value, share_status = None, "UNRESOLVED"
-            else:
-                share_value, share_status = non_recurring / abs(parent_value) * 100.0, "FACT_CALCULATED"
-            rows[-1]["value_num"] = share_value
-            rows[-1]["status"] = share_status
-            rows[-1]["input_ids"] = json.dumps(input_ids, ensure_ascii=False)
-
-            add_ratio(
-                "profit_quality.cfo_to_adjusted_profit",
-                "经营现金流/扣非归母净利润",
-                "cashflow.operating_cash_flow",
-                "profit_quality.adjusted_parent_net_profit",
-                "operating_cash_flow / adjusted_parent_net_profit",
-                unit="x",
-                scale=1.0,
+            rows.append(
+                cls._ratio_row(
+                    **context,
+                    metric_id="profit_quality.cfo_to_adjusted_profit",
+                    name_cn="经营现金流/扣非归母净利润",
+                    numerator=cfo_value,
+                    denominator=adjusted_value,
+                    formula="operating_cash_flow / adjusted_parent_net_profit",
+                    input_ids=[
+                        _text(item.get("observation_id"))
+                        for item in (cfo, adjusted)
+                        if item is not None
+                    ],
+                    unit="x",
+                    scale=1.0,
+                )
             )
 
-            cfo = by_metric.get("cashflow.operating_cash_flow")
-            capex = by_metric.get("cashflow.capital_expenditure")
-            cfo_value = _number(cfo.get("value_num")) if cfo else None
-            capex_value = _number(capex.get("value_num")) if capex else None
             fcf_input_ids = [
                 _text(item.get("observation_id")) for item in (cfo, capex) if item is not None
             ]
             if cfo_value is None or capex_value is None:
-                fcf_value, fcf_status = None, "UNRESOLVED"
+                fcf_value = None
+                fcf_status = "UNRESOLVED"
             else:
-                fcf_value, fcf_status = cfo_value - capex_value, "FACT_CALCULATED"
+                fcf_value = cfo_value - capex_value
+                fcf_status = "FACT_CALCULATED"
             rows.append(
                 _fact_row(
-                    security_code=_text(security_code),
+                    **context,
                     topic="profit_quality",
                     metric_id="profit_quality.simplified_free_cash_flow",
                     name_cn="简化自由现金流",
-                    report_date=_text(report_date) or None,
-                    event_date=_text(event_date) or None,
-                    period_type=_text(period_type),
                     value_num=fcf_value,
                     value_text=None,
                     unit="元",
@@ -403,35 +440,21 @@ class ResearchSectionExtractor:
                     notes="简化口径，不替代完整现金流标准化",
                 )
             )
-
-            rd = by_metric.get("research.rd_investment")
-            capitalized = by_metric.get("research.capitalized_rd")
-            rd_value = _number(rd.get("value_num")) if rd else None
-            cap_rd_value = _number(capitalized.get("value_num")) if capitalized else None
-            if rd_value not in (None, 0.0) and cap_rd_value is not None:
-                ratio, ratio_status = cap_rd_value / rd_value * 100.0, "FACT_CALCULATED"
-            else:
-                ratio, ratio_status = None, "UNRESOLVED"
             rows.append(
-                _fact_row(
-                    security_code=_text(security_code),
-                    topic="profit_quality",
+                cls._ratio_row(
+                    **context,
                     metric_id="profit_quality.rd_capitalization_rate",
                     name_cn="研发投入资本化率",
-                    report_date=_text(report_date) or None,
-                    event_date=_text(event_date) or None,
-                    period_type=_text(period_type),
-                    value_num=ratio,
-                    value_text=None,
-                    unit="%",
-                    status=ratio_status,
+                    numerator=capitalized_value,
+                    denominator=rd_value,
                     formula="capitalized_rd / rd_investment",
                     input_ids=[
                         _text(item.get("observation_id"))
                         for item in (capitalized, rd)
                         if item is not None
                     ],
-                    notes="缺少任一输入时保持UNRESOLVED",
+                    unit="%",
+                    scale=100.0,
                 )
             )
         return rows
@@ -461,34 +484,21 @@ class ResearchSectionExtractor:
         ]
         for group_key, group in segment_candidates.groupby(group_columns, dropna=False, sort=True):
             fields = group.to_dict("records")
-
-            def first_text(patterns: tuple[str, ...]) -> str:
-                for item in fields:
-                    if _contains(item, patterns):
-                        value = _text(item.get("value_text"))
-                        if value:
-                            return value
-                return ""
-
-            def first_number(patterns: tuple[str, ...]) -> float | None:
-                for item in fields:
-                    if _contains(item, patterns):
-                        value = _number(item.get("normalized_value_num"))
-                        if value is not None:
-                            return value
-                return None
-
-            segment_name = first_text(cls.SEGMENT_NAME_PATTERNS)
-            revenue = first_number(cls.SEGMENT_REVENUE_PATTERNS)
-            cost = first_number(cls.SEGMENT_COST_PATTERNS)
-            profit = first_number(cls.SEGMENT_PROFIT_PATTERNS)
-            margin = first_number(cls.SEGMENT_MARGIN_PATTERNS)
+            segment_name = _first_text(fields, cls.SEGMENT_NAME_PATTERNS)
+            revenue = _first_number(fields, cls.SEGMENT_REVENUE_PATTERNS)
+            cost = _first_number(fields, cls.SEGMENT_COST_PATTERNS)
+            profit = _first_number(fields, cls.SEGMENT_PROFIT_PATTERNS)
+            margin = _first_number(fields, cls.SEGMENT_MARGIN_PATTERNS)
             if not segment_name and revenue is None and cost is None and profit is None and margin is None:
                 continue
+            profit_status = "FACT_DIRECT"
+            margin_status = "FACT_DIRECT"
             if profit is None and revenue is not None and cost is not None:
                 profit = revenue - cost
+                profit_status = "FACT_CALCULATED"
             if margin is None and profit is not None and revenue not in (None, 0.0):
                 margin = profit / revenue * 100.0
+                margin_status = "FACT_CALCULATED"
             security_code, report_date, event_date, period_type, family, dataset, record_key = group_key
             records.append(
                 {
@@ -513,6 +523,8 @@ class ResearchSectionExtractor:
                     "margin_pct": margin,
                     "unit": "元",
                     "status": "FACT_DIRECT" if segment_name else "UNRESOLVED",
+                    "profit_status": profit_status,
+                    "margin_status": margin_status,
                     "family": _text(family),
                     "dataset": _text(dataset),
                     "record_key": _text(record_key),
@@ -532,7 +544,11 @@ class ResearchSectionExtractor:
         ].copy()
         if subset.empty:
             return subset
-        subset.insert(0, "research_fact_id", subset["source_fact_id"].map(lambda value: _stable_id("rf", topic, value)))
+        subset.insert(
+            0,
+            "research_fact_id",
+            subset["source_fact_id"].map(lambda value: _stable_id("rf", topic, value)),
+        )
         subset.insert(2, "topic", topic)
         return subset.reset_index(drop=True)
 
@@ -589,27 +605,35 @@ class ResearchSectionExtractor:
         canonical_observations: pd.DataFrame,
         source_facts: pd.DataFrame,
     ) -> ResearchSectionPack:
-        observations = canonical_observations.copy() if canonical_observations is not None else pd.DataFrame()
+        observations = (
+            canonical_observations.copy()
+            if canonical_observations is not None
+            else pd.DataFrame()
+        )
         facts = source_facts.copy() if source_facts is not None else pd.DataFrame()
         profit_rows = self._direct_topic_rows(observations, "profit_quality", self.PROFIT_METRICS)
         profit_rows.extend(self._derived_profit_quality(observations))
         profit_quality = pd.DataFrame(profit_rows)
         segments = self._segments(facts)
-        rd = self._route(facts, self.RD_PATTERNS, "research_and_development")
-        capital = self._route(facts, self.CAPITAL_PATTERNS, "capital_structure")
+        research_and_development = self._route(
+            facts, self.RD_PATTERNS, "research_and_development"
+        )
+        capital_structure = self._route(facts, self.CAPITAL_PATTERNS, "capital_structure")
         capital_events = self._route(facts, self.CAPITAL_EVENT_PATTERNS, "capital_events")
-        governance = self._route(facts, self.GOVERNANCE_PATTERNS, "corporate_governance")
-        risks = self._route(facts, self.RISK_PATTERNS, "risk_events")
-        gaps = self._coverage_gaps(observations, facts, segments)
+        corporate_governance = self._route(
+            facts, self.GOVERNANCE_PATTERNS, "corporate_governance"
+        )
+        risk_events = self._route(facts, self.RISK_PATTERNS, "risk_events")
+        coverage_gaps = self._coverage_gaps(observations, facts, segments)
         tables = {
             "profit_quality": profit_quality,
             "segments_and_kpis": segments,
-            "research_and_development": rd,
-            "capital_structure": capital,
+            "research_and_development": research_and_development,
+            "capital_structure": capital_structure,
             "capital_events": capital_events,
-            "corporate_governance": governance,
-            "risk_events": risks,
-            "coverage_gaps": gaps,
+            "corporate_governance": corporate_governance,
+            "risk_events": risk_events,
+            "coverage_gaps": coverage_gaps,
         }
         summary = {
             "schema_version": "1.0.0",
@@ -619,18 +643,18 @@ class ResearchSectionExtractor:
             ),
             "unresolved_fact_count": int(
                 (profit_quality.get("status", pd.Series(dtype="object")) == "UNRESOLVED").sum()
-                + (gaps.get("status", pd.Series(dtype="object")) == "MISSING").sum()
+                + (coverage_gaps.get("status", pd.Series(dtype="object")) == "MISSING").sum()
             ),
-            "gap_status_counts": dict(Counter(gaps.get("status", []))),
+            "gap_status_counts": dict(Counter(coverage_gaps.get("status", []))),
         }
         return ResearchSectionPack(
             profit_quality,
             segments,
-            rd,
-            capital,
+            research_and_development,
+            capital_structure,
             capital_events,
-            governance,
-            risks,
-            gaps,
+            corporate_governance,
+            risk_events,
+            coverage_gaps,
             summary,
         )
