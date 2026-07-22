@@ -1,0 +1,176 @@
+name: Stage 8 Post-Merge Validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/stage8-post-merge-validation.yml"
+      - "src/ashare_f10/validation/stage8_validation_marker.txt"
+      - "src/ashare_f10/raw_sources/stage8_validation_marker.txt"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stage8-post-merge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate-main-clone:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ github.token }}
+      EXPECTED_MAIN_SHA: ${{ github.event.pull_request.base.sha }}
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Clone exact main branch
+        run: |
+          set -euo pipefail
+          gh repo clone "$GITHUB_REPOSITORY" main-clone -- --branch main --depth 1
+          cd main-clone
+          ACTUAL_MAIN_SHA="$(git rev-parse HEAD)"
+          echo "expected_main_sha=$EXPECTED_MAIN_SHA"
+          echo "actual_main_sha=$ACTUAL_MAIN_SHA"
+          test "$ACTUAL_MAIN_SHA" = "$EXPECTED_MAIN_SHA"
+
+      - name: Install cloned main
+        working-directory: main-clone
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Verify merged files and default-disabled contract
+        working-directory: main-clone
+        run: |
+          set -euo pipefail
+          test -f src/ashare_f10/raw_sources/source_manifest.py
+          test -f src/ashare_f10/raw_sources/entity_matcher.py
+          test -f src/ashare_f10/raw_sources/downloaders/http_downloader.py
+          test -f src/ashare_f10/raw_sources/downloaders/sse_disclosure.py
+          test -f src/ashare_f10/raw_sources/parsers/html_parser.py
+          test -f src/ashare_f10/raw_sources/parsers/pdf_parser.py
+          test -f src/ashare_f10/raw_sources/status_router.py
+          test -f src/ashare_f10/raw_sources/raw_pack_exporter.py
+          test -f src/ashare_f10/api/raw_pack.py
+          test -f src/ashare_f10/api/app_with_raw_pack.py
+          test -f src/ashare_f10/web/raw-pack.html
+          test -f src/ashare_f10/web/raw-pack.js
+          test -f .github/workflows/raw-pack-688521.yml
+          python - <<'PY'
+          from __future__ import annotations
+
+          import inspect
+          from pathlib import Path
+
+          from ashare_f10.cli import fetch
+
+          signature = inspect.signature(fetch)
+          assert signature.parameters["include_raw_pack"].default is False
+          assert signature.parameters["raw_pack_packs"].default == "default"
+          assert signature.parameters["raw_pack_max_docs"].default == 200
+
+          workflow = Path(".github/workflows/fetch-stock.yml").read_text(encoding="utf-8")
+          assert "include_raw_pack:" in workflow
+          include_section = workflow.split("include_raw_pack:", 1)[1].split("raw_pack_packs:", 1)[0]
+          assert "default: false" in include_section
+          assert 'default: "default"' in workflow
+          assert 'default: "200"' in workflow
+
+          serve_source = Path("src/ashare_f10/cli.py").read_text(encoding="utf-8")
+          assert 'ashare_f10.api.app_with_raw_pack:app' in serve_source
+          print("Raw Pack defaults and merged file contract verified")
+          PY
+
+      - name: Compile, JavaScript, Ruff and full pytest
+        working-directory: main-clone
+        run: |
+          set -euo pipefail
+          python -m compileall -q src
+          node --check src/ashare_f10/web/app.js
+          node --check src/ashare_f10/web/raw-pack.js
+          node --check src/ashare_f10/web/research-grid.js
+          node --check src/ashare_f10/web/static-search-worker.js
+          ruff check src tests
+          pytest -q
+
+      - name: Verify CLI and Raw Pack page from cloned main
+        working-directory: main-clone
+        run: |
+          set -euo pipefail
+          ashare-f10 --help > stage8-cli-help.txt
+          ashare-f10 fetch --help > stage8-fetch-help.txt
+          ashare-f10 raw-pack --help > stage8-raw-pack-help.txt
+          grep -q -- "--include-raw-pack" stage8-fetch-help.txt
+          grep -q -- "--raw-pack-packs" stage8-fetch-help.txt
+          grep -q -- "--raw-pack-max-docs" stage8-fetch-help.txt
+
+          ashare-f10 serve --host 127.0.0.1 --port 8765 > stage8-server.log 2>&1 &
+          SERVER_PID=$!
+          cleanup() { kill "$SERVER_PID" 2>/dev/null || true; }
+          trap cleanup EXIT
+          for _ in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8765/api/health > stage8-health.json; then
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8765/api/health > stage8-health.json
+          curl -fsS http://127.0.0.1:8765/raw-pack.html > stage8-raw-pack.html
+          grep -q "Raw Pack" stage8-raw-pack.html
+          grep -q "证据浏览器" stage8-raw-pack.html
+          cleanup
+          trap - EXIT
+
+      - name: Write post-merge validation report
+        working-directory: main-clone
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          report = {
+              "status": "PASS",
+              "main_sha": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+              "expected_main_sha": os.environ["EXPECTED_MAIN_SHA"],
+              "clone_install": "PASS",
+              "compile": "PASS",
+              "ruff": "PASS",
+              "pytest": "PASS",
+              "cli": "PASS",
+              "raw_pack_page": "PASS",
+              "include_raw_pack_default": False,
+              "workflow_inputs": {
+                  "include_raw_pack": False,
+                  "raw_pack_packs": "default",
+                  "raw_pack_max_docs": 200,
+              },
+          }
+          Path("stage8-post-merge-report.json").write_text(
+              json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+          )
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Upload Stage 8 clone validation
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage8-post-merge-main-${{ github.run_id }}
+          path: |
+            main-clone/stage8-post-merge-report.json
+            main-clone/stage8-health.json
+            main-clone/stage8-cli-help.txt
+            main-clone/stage8-fetch-help.txt
+            main-clone/stage8-raw-pack-help.txt
+            main-clone/stage8-server.log
+            main-clone/stage8-raw-pack.html
+          if-no-files-found: error
+          retention-days: 30
