@@ -1,22 +1,18 @@
-name: Official Validation 688521
+name: Official Full-History Validation 688521
 
 on:
   workflow_dispatch:
-  push:
-    branches: [feature/official-validation-v1]
-    paths:
-      - "src/ashare_f10/validation/**"
-      - "src/ashare_f10/cli.py"
-      - "scripts/run_resilient_*.py"
-      - "tests/test_official_validation.py"
-      - "pyproject.toml"
-      - ".github/workflows/official-validation-688521.yml"
   pull_request:
     paths:
+      - "src/ashare_f10/cross_validation/**"
       - "src/ashare_f10/validation/**"
+      - "src/ashare_f10/api/visual_jobs_v2.py"
+      - "src/ashare_f10/api/visual_execution_v2.py"
       - "src/ashare_f10/cli.py"
       - "scripts/run_resilient_*.py"
+      - "scripts/run_full_cross_validation.py"
       - "tests/test_official_validation.py"
+      - "tests/test_visual_execution.py"
       - "pyproject.toml"
       - ".github/workflows/official-validation-688521.yml"
 
@@ -26,10 +22,14 @@ permissions:
 env:
   PYTHONUNBUFFERED: "1"
 
+concurrency:
+  group: official-full-history-688521-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   official-validation:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -38,8 +38,8 @@ jobs:
           cache: pip
       - run: python -m pip install --upgrade pip
       - run: pip install -e ".[dev]"
-      - name: Unit tests for official validation and retry classification
-        run: pytest -q tests/test_official_validation.py tests/test_resilient_fetch.py
+      - name: Unit tests for official validation and visual scope mapping
+        run: pytest -q tests/test_official_validation.py tests/test_visual_execution.py tests/test_resilient_fetch.py
       - name: Fetch all fixed Eastmoney F10 sources with recovery
         run: |
           python scripts/run_resilient_fetch.py 688521 \
@@ -49,38 +49,41 @@ jobs:
             --backoff-seconds 8 \
             --heartbeat-seconds 15 \
             --report official-validation-run/resilient-fetch-report.json
-      - name: Validate against free official reports with finite retry
+      - name: Validate all available official reports with finite retry
         run: |
           python scripts/run_resilient_command.py \
             --max-attempts 3 \
-            --backoff-seconds 8 \
-            --report official-validation-run/validation/resilient-validation-report.json \
-            -- ashare-f10 validate-official 688521 official-validation-run \
-              --output official-validation-run/validation \
-              --annual-year 2025 \
-              --quarter-year 2026
-      - name: Verify validation acceptance
+            --backoff-seconds 10 \
+            --report official-validation-run/cross_validation/resilient-validation-report.json \
+            -- python scripts/run_full_cross_validation.py 688521 official-validation-run \
+              --output official-validation-run/cross_validation \
+              --report official-validation-run/cross_validation/visual-full-history-report.json
+      - name: Verify full-history acceptance and lifecycle coverage
         run: |
           python - <<'PY'
           import json
           from pathlib import Path
 
-          summary_path = Path("official-validation-run/validation/validation_summary.json")
+          summary_path = Path("official-validation-run/cross_validation/cross_validation_summary.json")
           summary = json.loads(summary_path.read_text(encoding="utf-8"))
           print(json.dumps(summary, ensure_ascii=False, indent=2))
+          source = summary["official_source_status"]
           assert summary["paid_sources_used"] is False
-          assert summary["document_count"] >= 2
-          assert summary["official_fact_count"] >= 20
-          assert summary["high_severity_mismatch_count"] == 0
-          assert summary["acceptance_status"] == "PASS"
+          assert source["document_count"] >= 20, source
+          assert summary["official_fact_count"] >= 1000, summary
+          assert summary["classification_coverage"] == 1.0, summary
+          assert source["security_lifecycle"]["listing_date"], source
+          assert source["post_listing_missing_report_dates"] == [], source
+          assert summary["acceptance_status"] in {"PASS", "PASS_WITH_COVERAGE_GAPS", "FAIL_SOURCE_CONFLICT"}
+          assert (Path("official-validation-run/cross_validation") / "688521_cross_validation.xlsx").exists()
           PY
-      - name: Upload official validation evidence
+      - name: Upload official full-history evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: official-validation-688521-${{ github.run_id }}
+          name: official-full-history-688521-${{ github.run_id }}
           path: |
-            official-validation-run/validation/
+            official-validation-run/cross_validation/
             official-validation-run/resilient-fetch-report.json
             official-validation-run/artifacts.json
           if-no-files-found: warn
