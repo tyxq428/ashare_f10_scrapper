@@ -31,6 +31,7 @@ repository = os.environ["GITHUB_REPOSITORY"]
 ref = os.environ["HEAD_BRANCH"]
 token = os.environ["GH_TOKEN"]
 chunks: list[bytes] = []
+mismatches: list[str] = []
 for name, expected in EXPECTED.items():
     url = (
         f"https://api.github.com/repos/{repository}/contents/"
@@ -51,8 +52,10 @@ for name, expected in EXPECTED.items():
     actual = hashlib.sha1(f"blob {len(raw)}\0".encode() + raw).hexdigest()
     print(f"{name} bytes={len(raw)} blob={actual} expected={expected}", flush=True)
     if actual != expected:
-        raise SystemExit(f"blob mismatch: {name}")
+        mismatches.append(name)
     chunks.append(raw)
+if mismatches:
+    raise SystemExit(f"blob mismatches: {','.join(mismatches)}")
 encoded = b"".join(chunks).replace(b"\r", b"").replace(b"\n", b"")
 decoded = base64.b64decode(encoded, validate=True)
 actual_archive = hashlib.sha256(decoded).hexdigest()
