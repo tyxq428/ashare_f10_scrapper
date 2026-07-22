@@ -37,8 +37,10 @@ replace_once(
     "use the classified PDF path for parsing",
 )
 '''
-if old not in text:
-    if "classify downloaded report scope before cache lookup" in text:
-        raise SystemExit(0)
+if old in text:
+    path.write_text(text.replace(old, new, 1), encoding="utf-8")
+elif "classify downloaded report scope before cache lookup" not in text:
     raise SystemExit("runner cache marker not found in SSE summary materializer")
-path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+compatibility = Path(__file__).with_name("patch_sse_summary_materializer_v2.py")
+exec(compile(compatibility.read_text(encoding="utf-8"), str(compatibility), "exec"))
