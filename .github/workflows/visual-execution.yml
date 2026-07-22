@@ -9,7 +9,8 @@ on:
       - "src/ashare_f10/web/run.*"
       - "scripts/start-web.*"
       - "scripts/run_resilient_*.py"
-      - "tests/test_visual_execution.py"
+      - "scripts/run_full_cross_validation.py"
+      - "tests/test_visual_*.py"
       - "tests/test_resilient_fetch.py"
       - ".github/workflows/visual-execution.yml"
   workflow_dispatch:
@@ -39,15 +40,15 @@ jobs:
         run: |
           set -o pipefail
           {
-            ruff check src/ashare_f10/api/visual_execution.py src/ashare_f10/api/visual_jobs.py scripts/run_resilient_fetch.py scripts/run_resilient_command.py tests/test_visual_execution.py tests/test_resilient_fetch.py
+            ruff check src/ashare_f10/api/visual_execution.py src/ashare_f10/api/visual_execution_v2.py src/ashare_f10/api/visual_jobs_v2.py src/ashare_f10/api/visual_jobs_runtime.py scripts/run_resilient_fetch.py scripts/run_resilient_command.py scripts/run_full_cross_validation.py tests/test_visual_execution.py tests/test_visual_artifact_manifest.py tests/test_resilient_fetch.py
             python -m compileall -q src scripts
             node --check src/ashare_f10/web/run.js
           } 2>&1 | tee visual-static.log
       - name: Unit tests with diagnostics
         run: |
           set -o pipefail
-          pytest -vv tests/test_visual_execution.py tests/test_resilient_fetch.py 2>&1 | tee visual-pytest.log
-      - name: Verify visual execution page and API
+          pytest -vv tests/test_visual_execution.py tests/test_visual_artifact_manifest.py tests/test_resilient_fetch.py 2>&1 | tee visual-pytest.log
+      - name: Verify simplified visual page and API
         run: |
           ashare-f10 serve --host 127.0.0.1 --port 8765 > visual-server.log 2>&1 &
           SERVER_PID=$!
@@ -60,7 +61,10 @@ jobs:
           curl -fsS http://127.0.0.1:8765/run.html > visual-run.html
           curl -fsS http://127.0.0.1:8765/api/visual-execution/capabilities > visual-capabilities.json
           grep -q "可视化执行中心" visual-run.html
-          grep -q '"include_raw_pack":false' <(tr -d ' ' < visual-capabilities.json)
+          ! grep -q "年度报告年份" visual-run.html
+          ! grep -q "一季度报告年份" visual-run.html
+          grep -q "上市以来全部报告" visual-capabilities.json
+          grep -q '"official_validation_scope":"full_history"' <(tr -d ' ' < visual-capabilities.json)
           cleanup
           trap - EXIT
       - name: Upload visual validation
