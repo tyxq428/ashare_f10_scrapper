@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import copy
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
-from typing import Iterable
 
 from ashare_f10.validation.models import OfficialDocument
 
