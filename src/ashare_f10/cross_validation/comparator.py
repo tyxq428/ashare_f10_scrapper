@@ -225,6 +225,9 @@ class CrossSourceComparator:
         if family in primary_statement_families and entry.validation_mode == "OFFICIAL_DIRECT":
             return None, None
 
+        if family == "RPT_F10_BUSINESS_RDEXPENSE" and field_key == "RESEARCH_EXPENSE":
+            return None, None
+
         same_period_key = [
             row
             for lookup, rows in index.items()
@@ -332,6 +335,10 @@ class CrossSourceComparator:
                 )
                 official_num, official_unit = _normalize_numeric(official_value_num, official_unit)
                 if east_num is not None and official_num is not None:
+                    if east_unit.lower() in {"", "文本", "text", "none"}:
+                        east_unit = official_unit
+                    if official_unit.lower() in {"", "文本", "text", "none"}:
+                        official_unit = east_unit
                     if east_unit and official_unit and east_unit != official_unit:
                         status, grade = "UNIT_CONFLICT", "E"
                     else:
@@ -451,6 +458,7 @@ class CrossSourceComparator:
                     "SOURCE_SPECIFIC",
                     "FUTURE_FREE_SOURCE_REQUIRED",
                     "OFFICIAL_PERIOD_NOT_LOADED",
+                    "OFFICIAL_SOURCE_UNAVAILABLE",
                 ]
             )
         ]

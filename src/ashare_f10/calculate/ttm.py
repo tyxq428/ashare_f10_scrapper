@@ -145,7 +145,9 @@ def compute_ttm(db_path: Path | str, field: str, end_period: str) -> TTMResult:
         value = float(previous_fy[0]) - float(previous_same[0]) + float(current[1])
         components = [
             TTMComponent(previous_fy_date, float(previous_fy[0]), str(previous_fy[1]), "add_previous_fy"),
-            TTMComponent(previous_same_date, float(previous_same[0]), str(previous_same[1]), "subtract_previous_same"),
+            TTMComponent(
+                previous_same_date, float(previous_same[0]), str(previous_same[1]), "subtract_previous_same"
+            ),
             TTMComponent(end_period, float(current[1]), str(current[2]), "add_current_cumulative"),
         ]
         formula = (

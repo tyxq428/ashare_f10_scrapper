@@ -32,9 +32,10 @@ from ashare_f10.fetch.security import parse_security
 from ashare_f10.validation.documents.pdf_parser import PdfStatementParser
 from ashare_f10.validation.models import OfficialFact
 from ashare_f10.validation.reconcile.engine import build_logic_checks, build_ttm_checks
+from ashare_f10.validation.sources.cninfo import CNInfoOfficialSource
 from ashare_f10.validation.sources.sse import SSEOfficialSource
 
-PARSER_CACHE_VERSION = "1.2.0"
+PARSER_CACHE_VERSION = "1.6.0"
 
 
 def _sha256_file(path: Path) -> str:
@@ -130,7 +131,13 @@ class FullCrossValidationRunner:
             raise RuntimeError("东方财富事实表中没有可用于官方报告发现的财务报告期")
 
         identity = parse_security(self.stock_code)
-        if identity.exchange != "SH":
+        if identity.exchange == "SH":
+            source = SSEOfficialSource(timeout=60)
+            source_name = "SSE"
+        elif identity.exchange == "SZ":
+            source = CNInfoOfficialSource(timeout=60)
+            source_name = "CNINFO"
+        else:
             return (
                 official_fact_columns(pd.DataFrame()),
                 pd.DataFrame(),
@@ -142,13 +149,17 @@ class FullCrossValidationRunner:
                     "missing_report_dates": report_dates,
                     "message": (
                         f"{identity.exchange}官方披露适配器尚未接入；"
-                        "字段仍完成100%分类，但不伪造官方数值，也不判定为来源冲突"
+                        "字段完成分类，但官方数值不可用，不参与双源匹配"
                     ),
                 },
             )
 
-        self._notify("OFFICIAL_DISCOVERY", requested_report_dates=report_dates)
-        source = SSEOfficialSource(timeout=60)
+        self._notify(
+            "OFFICIAL_DISCOVERY",
+            requested_report_dates=report_dates,
+            official_source=source_name,
+        )
+        source_class = type(source)
         available = source.list_reports(
             self.stock_code,
             begin_date=f"{min(report_dates)[:4]}-01-01",
@@ -184,7 +195,7 @@ class FullCrossValidationRunner:
                 cached.local_path = str(target)
                 cached.sha256 = _sha256_file(target)
                 return cached
-            return SSEOfficialSource(timeout=60).download(copy.copy(document), document_dir)
+            return source_class(timeout=60).download(copy.copy(document), document_dir)
 
         downloaded = []
         with ThreadPoolExecutor(max_workers=max(1, min(4, len(selected) or 1))) as executor:
@@ -267,7 +278,7 @@ class FullCrossValidationRunner:
         if not metadata.empty:
             official = pd.concat([official, metadata], ignore_index=True, sort=False)
         source_status = {
-            "source": "SSE",
+            "source": source_name,
             "exchange": identity.exchange,
             "requested_report_dates": report_dates,
             "available_report_dates": sorted({item.report_date for item in downloaded}),
@@ -319,6 +330,13 @@ class FullCrossValidationRunner:
         )
         comparator = CrossSourceComparator(registry_frame)
         comparison = comparator.compare(eastmoney, official)
+        source_unavailable = source_status.get("source") == "UNAVAILABLE"
+        if source_unavailable:
+            unavailable_mask = comparison["status"] == "MISSING_OFFICIAL"
+            comparison.loc[unavailable_mask, "status"] = "OFFICIAL_SOURCE_UNAVAILABLE"
+            comparison.loc[unavailable_mask, "verification_grade"] = "N/A"
+            explanation = str(source_status.get("message") or "官方披露来源不可用")
+            comparison.loc[unavailable_mask, "notes"] = explanation
         compare_summary = comparator.summary(comparison)
 
         logic_objects = build_logic_checks_from_frame(official)
@@ -365,6 +383,8 @@ class FullCrossValidationRunner:
             summary["acceptance_status"] = "FAIL_SOURCE_CONFLICT"
         elif coverage["classification_coverage"] < 1.0:
             summary["acceptance_status"] = "FAIL_CLASSIFICATION_COVERAGE"
+        elif source_unavailable:
+            summary["acceptance_status"] = "PARTIAL_OFFICIAL_SOURCE_UNAVAILABLE"
         elif unresolved:
             summary["acceptance_status"] = "PASS_WITH_COVERAGE_GAPS"
         else:

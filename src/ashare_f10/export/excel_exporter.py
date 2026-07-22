@@ -36,9 +36,20 @@ CASHFLOW_FAMILIES = {
 }
 
 META_KEYS = {
-    "SECUCODE", "SECURITY_CODE", "SECURITY_NAME_ABBR", "ORG_CODE", "ORG_TYPE",
-    "REPORT_DATE", "REPORT_TYPE", "REPORT_DATE_NAME", "SECURITY_TYPE_CODE",
-    "NOTICE_DATE", "UPDATE_DATE", "CURRENCY", "REPORT_YEAR", "OPINION_TYPE",
+    "SECUCODE",
+    "SECURITY_CODE",
+    "SECURITY_NAME_ABBR",
+    "ORG_CODE",
+    "ORG_TYPE",
+    "REPORT_DATE",
+    "REPORT_TYPE",
+    "REPORT_DATE_NAME",
+    "SECURITY_TYPE_CODE",
+    "NOTICE_DATE",
+    "UPDATE_DATE",
+    "CURRENCY",
+    "REPORT_YEAR",
+    "OPINION_TYPE",
 }
 
 # The Eastmoney cash-flow payload contains the primary statement, followed by a
@@ -46,18 +57,45 @@ META_KEYS = {
 # Q1/Q3 values for many companies.  Keep it separate so a sparse note row is
 # never mistaken for the primary quarterly cash-flow field.
 CASHFLOW_SUPPLEMENT_FALLBACK_KEYS = {
-    "NETPROFIT", "MINORITY_INTEREST", "ASSET_IMPAIRMENT", "FA_IR_DEPR",
-    "OILGAS_BIOLOGY_DEPR", "IR_DEPR", "IA_AMORTIZE", "LPE_AMORTIZE",
-    "DEFER_INCOME_AMORTIZE", "PREPAID_EXPENSE_REDUCE", "ACCRUED_EXPENSE_ADD",
-    "DISPOSAL_LONGASSET_LOSS", "FA_SCRAP_LOSS", "FAIRVALUE_CHANGE_LOSS",
-    "FINANCE_EXPENSE", "INVEST_LOSS", "DEFER_TAX", "DT_ASSET_REDUCE",
-    "DT_LIAB_ADD", "PREDICT_LIAB_ADD", "INVENTORY_REDUCE",
-    "OPERATE_RECE_REDUCE", "OPERATE_PAYABLE_ADD", "OTHER",
-    "OPERATE_NETCASH_OTHERNOTE", "OPERATE_NETCASH_BALANCENOTE",
-    "NETCASH_OPERATENOTE", "DEBT_TRANSFER_CAPITAL", "CONVERT_BOND_1YEAR",
-    "FINLEASE_OBTAIN_FA", "UNINVOLVE_INVESTFIN_OTHER", "END_CASH", "BEGIN_CASH",
-    "END_CASH_EQUIVALENTS", "BEGIN_CASH_EQUIVALENTS", "CCE_ADD_OTHERNOTE",
-    "CCE_ADD_BALANCENOTE", "CCE_ADDNOTE", "USERIGHT_ASSET_AMORTIZE",
+    "NETPROFIT",
+    "MINORITY_INTEREST",
+    "ASSET_IMPAIRMENT",
+    "FA_IR_DEPR",
+    "OILGAS_BIOLOGY_DEPR",
+    "IR_DEPR",
+    "IA_AMORTIZE",
+    "LPE_AMORTIZE",
+    "DEFER_INCOME_AMORTIZE",
+    "PREPAID_EXPENSE_REDUCE",
+    "ACCRUED_EXPENSE_ADD",
+    "DISPOSAL_LONGASSET_LOSS",
+    "FA_SCRAP_LOSS",
+    "FAIRVALUE_CHANGE_LOSS",
+    "FINANCE_EXPENSE",
+    "INVEST_LOSS",
+    "DEFER_TAX",
+    "DT_ASSET_REDUCE",
+    "DT_LIAB_ADD",
+    "PREDICT_LIAB_ADD",
+    "INVENTORY_REDUCE",
+    "OPERATE_RECE_REDUCE",
+    "OPERATE_PAYABLE_ADD",
+    "OTHER",
+    "OPERATE_NETCASH_OTHERNOTE",
+    "OPERATE_NETCASH_BALANCENOTE",
+    "NETCASH_OPERATENOTE",
+    "DEBT_TRANSFER_CAPITAL",
+    "CONVERT_BOND_1YEAR",
+    "FINLEASE_OBTAIN_FA",
+    "UNINVOLVE_INVESTFIN_OTHER",
+    "END_CASH",
+    "BEGIN_CASH",
+    "END_CASH_EQUIVALENTS",
+    "BEGIN_CASH_EQUIVALENTS",
+    "CCE_ADD_OTHERNOTE",
+    "CCE_ADD_BALANCENOTE",
+    "CCE_ADDNOTE",
+    "USERIGHT_ASSET_AMORTIZE",
 }
 
 
@@ -144,11 +182,7 @@ def cashflow_key_sections(records: list[dict[str, Any]]) -> dict[str, list[str]]
         if start <= end:
             supplement = value_keys[start : end + 1]
     if not supplement:
-        supplement = [
-            key
-            for key in value_keys
-            if key in CASHFLOW_SUPPLEMENT_FALLBACK_KEYS or "NOTE" in key
-        ]
+        supplement = [key for key in value_keys if key in CASHFLOW_SUPPLEMENT_FALLBACK_KEYS or "NOTE" in key]
 
     supplement_set = set(supplement)
     return {
@@ -192,7 +226,9 @@ def write_financial_matrix(
     title: str,
     keys: list[str] | None = None,
 ) -> None:
-    selected_keys = keys if keys is not None else [key for key in ordered_keys(records) if key not in META_KEYS]
+    selected_keys = (
+        keys if keys is not None else [key for key in ordered_keys(records) if key not in META_KEYS]
+    )
     periods = []
     for record in records:
         date = str(record.get("REPORT_DATE", ""))[:10]
@@ -277,7 +313,9 @@ def export_excel(combined: dict[str, Any], output_dir: Path) -> Path:
         if family in CASHFLOW_FAMILIES:
             sections = cashflow_key_sections(records)
             create_financial_sheet(workbook, used, sheet_label, records, mapping, sections["primary"])
-            supplement_name = "现金流补充资料" if family == "RPT_F10_FINANCE_GCASHFLOW" else "单季度现金流补充资料"
+            supplement_name = (
+                "现金流补充资料" if family == "RPT_F10_FINANCE_GCASHFLOW" else "单季度现金流补充资料"
+            )
             create_financial_sheet(workbook, used, supplement_name, records, mapping, sections["supplement"])
             yoy_name = "现金流量表同比" if family == "RPT_F10_FINANCE_GCASHFLOW" else "单季度现金流同比"
             qoq_name = "现金流量表环比" if family == "RPT_F10_FINANCE_GCASHFLOW" else "单季度现金流环比"
@@ -324,8 +362,16 @@ def export_excel(combined: dict[str, Any], output_dir: Path) -> Path:
     quality = workbook.create_sheet(safe_title("92_质量校验", used))
     quality_rows = [
         ("检查项", "结果", "值"),
-        ("请求组完成", "PASS" if not metadata["failed_group_count"] else "CHECK", metadata["completed_group_count"]),
-        ("失败请求组", "PASS" if not metadata["failed_group_count"] else "FAIL", metadata["failed_group_count"]),
+        (
+            "请求组完成",
+            "PASS" if not metadata["failed_group_count"] else "CHECK",
+            metadata["completed_group_count"],
+        ),
+        (
+            "失败请求组",
+            "PASS" if not metadata["failed_group_count"] else "FAIL",
+            metadata["failed_group_count"],
+        ),
         ("记录数与records一致", "PASS", "全部请求组"),
         ("现金流主表与补充资料分离", "PASS", "避免将补充资料稀疏值误判为主表缺失"),
         ("原始Key保留", "PASS", "100%"),

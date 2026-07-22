@@ -134,7 +134,9 @@ class FetchPipeline:
                 raise RuntimeError("任务已取消")
             try:
                 spec = self._template_spec(item["request_spec"])
-                pages, page_records = self.client.request_all_pages(spec, group["group_id"], item.get("record_path"))
+                pages, page_records = self.client.request_all_pages(
+                    spec, group["group_id"], item.get("record_path")
+                )
                 records.extend(page_records)
                 payloads.extend(page.payload for page in pages)
                 requests_log.extend({"request": page.request, "response": page.response} for page in pages)
@@ -161,7 +163,9 @@ class FetchPipeline:
 
         if not candidate_ok and group.get("fallback_requests"):
             used_fallback = True
-            records, payloads, requests_log, errors = self._execute_requests(group, group["fallback_requests"])
+            records, payloads, requests_log, errors = self._execute_requests(
+                group, group["fallback_requests"]
+            )
 
         success = not errors and bool(payloads)
         result = GroupResult(
@@ -212,7 +216,9 @@ class FetchPipeline:
 
         if dynamic["kind"] == "announcement_art_codes":
             for source in self._find_family(dynamic["source_family"]):
-                identifiers.extend(str(record.get(dynamic["key"])) for record in source.records if record.get(dynamic["key"]))
+                identifiers.extend(
+                    str(record.get(dynamic["key"])) for record in source.records if record.get(dynamic["key"])
+                )
         elif dynamic["kind"] == "research_art_codes":
             for source in self._find_family(dynamic["source_family"]):
                 for payload in source.payloads:
@@ -230,7 +236,9 @@ class FetchPipeline:
                             if record.get(dynamic["key"])
                         )
 
-        identifiers = list(dict.fromkeys(identifier for identifier in identifiers if identifier and identifier != "None"))
+        identifiers = list(
+            dict.fromkeys(identifier for identifier in identifiers if identifier and identifier != "None")
+        )
         identifiers = identifiers[: int(dynamic.get("max_items", 10))]
         records: list[dict[str, Any]] = []
         payloads: list[Any] = []
@@ -255,7 +263,12 @@ class FetchPipeline:
                         "scheme": "https",
                         "host": "np-creport-pc.eastmoney.com",
                         "path": "/api/content/rep",
-                        "params": {"art_code": identifier, "stock": "", "client_source": "pc", "page_index": "1"},
+                        "params": {
+                            "art_code": identifier,
+                            "stock": "",
+                            "client_source": "pc",
+                            "page_index": "1",
+                        },
                         "body": None,
                         "headers": {},
                     }
@@ -266,7 +279,9 @@ class FetchPipeline:
             except Exception as exc:  # noqa: BLE001
                 return {}, {}, str(exc)
 
-        with ThreadPoolExecutor(max_workers=min(self.settings.page_workers, max(1, len(identifiers)))) as pool:
+        with ThreadPoolExecutor(
+            max_workers=min(self.settings.page_workers, max(1, len(identifiers)))
+        ) as pool:
             futures = {pool.submit(fetch_identifier, identifier): identifier for identifier in identifiers}
             for future in as_completed(futures):
                 record, log, error = future.result()

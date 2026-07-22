@@ -17,8 +17,25 @@ source_url VARCHAR, source_status VARCHAR
 def insert_fact(con, field, name, period, value, family, semantics="flow", unit="元"):
     con.execute(
         "INSERT INTO facts VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        ["688521", "财务", family, family, period, period, None, "Q", semantics, field, name,
-         "PAGE_DISPLAY_FIELD", str(value), value, unit, "", "FACT_DIRECT"],
+        [
+            "688521",
+            "财务",
+            family,
+            family,
+            period,
+            period,
+            None,
+            "Q",
+            semantics,
+            field,
+            name,
+            "PAGE_DISPLAY_FIELD",
+            str(value),
+            value,
+            unit,
+            "",
+            "FACT_DIRECT",
+        ],
     )
 
 
@@ -26,16 +43,22 @@ def make_db(path: Path):
     con = duckdb.connect(str(path))
     con.execute(f"CREATE TABLE facts ({COLUMNS})")
     for period, value in [
-        ("2025-06-30", 20.0), ("2025-09-30", 30.0),
-        ("2025-12-31", 40.0), ("2026-03-31", 10.0),
+        ("2025-06-30", 20.0),
+        ("2025-09-30", 30.0),
+        ("2025-12-31", 40.0),
+        ("2026-03-31", 10.0),
     ]:
         insert_fact(con, "REVENUE_Q", "单季度收入", period, value, "RPT_F10_FINANCE_GINCOMEQC")
     insert_fact(con, "CIP", "在建工程", "2026-03-31", 25.0, "RPT_F10_FINANCE_GBALANCE", "point_in_time")
-    insert_fact(con, "TOTAL_ASSETS", "资产总计", "2026-03-31", 100.0, "RPT_F10_FINANCE_GBALANCE", "point_in_time")
+    insert_fact(
+        con, "TOTAL_ASSETS", "资产总计", "2026-03-31", 100.0, "RPT_F10_FINANCE_GBALANCE", "point_in_time"
+    )
     # Derived endpoints can expose the same raw keys. Direct formulas must prefer
     # the authoritative financial statement instead of alphabetical family order.
     insert_fact(con, "CIP", "在建工程", "2026-03-31", 999.0, "RPT_F10_FINANCE_DUPONT", "point_in_time")
-    insert_fact(con, "TOTAL_ASSETS", "资产总计", "2026-03-31", 1000.0, "RPT_F10_FINANCE_DUPONT", "point_in_time")
+    insert_fact(
+        con, "TOTAL_ASSETS", "资产总计", "2026-03-31", 1000.0, "RPT_F10_FINANCE_DUPONT", "point_in_time"
+    )
     con.close()
 
 

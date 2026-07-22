@@ -210,7 +210,9 @@ class FormulaEngine:
         if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
             value = self._eval_node(node.operand)
             return value if isinstance(node.op, ast.UAdd) else -value
-        if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Pow)):
+        if isinstance(node, ast.BinOp) and isinstance(
+            node.op, (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Pow)
+        ):
             left = self._eval_node(node.left)
             right = self._eval_node(node.right)
             if isinstance(node.op, ast.Add):

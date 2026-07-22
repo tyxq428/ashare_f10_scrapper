@@ -180,6 +180,8 @@ def test_export_uses_complete_filtered_result(search_db: Path) -> None:
 
 
 def test_rejects_unknown_columns(search_db: Path) -> None:
-    request = SearchQueryRequest(filters=[SearchColumnFilter(column="DROP TABLE facts", operator="exact", value="x")])
+    request = SearchQueryRequest(
+        filters=[SearchColumnFilter(column="DROP TABLE facts", operator="exact", value="x")]
+    )
     with pytest.raises(ValueError, match="不支持的搜索列"):
         query_facts(search_db, request)

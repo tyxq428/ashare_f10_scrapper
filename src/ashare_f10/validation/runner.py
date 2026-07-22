@@ -14,7 +14,9 @@ from ashare_f10.validation.reconcile.engine import (
     build_ttm_checks,
     reconcile_official_facts,
 )
+from ashare_f10.fetch.security import parse_security
 from ashare_f10.validation.reporting import ValidationReportWriter
+from ashare_f10.validation.sources.cninfo import CNInfoOfficialSource
 from ashare_f10.validation.sources.sse import SSEOfficialSource
 
 
@@ -65,7 +67,13 @@ class OfficialValidationRunner:
             raise FileNotFoundError(f"缺少标准事实数据库：{self.duckdb_path}")
 
         report_dates = [f"{self.annual_year}-12-31", f"{self.quarter_year}-03-31"]
-        source = SSEOfficialSource()
+        exchange = parse_security(self.stock_code).exchange
+        if exchange == "SH":
+            source = SSEOfficialSource()
+        elif exchange == "SZ":
+            source = CNInfoOfficialSource()
+        else:
+            raise RuntimeError(f"{exchange}官方披露适配器尚未接入")
         documents = source.select_reports(
             self.stock_code,
             report_dates,
