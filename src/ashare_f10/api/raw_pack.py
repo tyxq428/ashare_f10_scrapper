@@ -246,9 +246,7 @@ def register_manual_evidence(request: ManualEvidenceRequest) -> dict[str, Any]:
     target_dir = output_dir / "raw_pack" / request.stock_code / "manual_evidence"
     target_dir.mkdir(parents=True, exist_ok=True)
     record = request.model_dump(mode="json")
-    record["registered_at_utc"] = (
-        datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-    )
+    record["registered_at_utc"] = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     path = target_dir / f"{request.source_id}-{uuid.uuid4().hex[:10]}.json"
     path.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
     return {"status": "REGISTERED", "record_path": str(path)}

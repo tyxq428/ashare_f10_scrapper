@@ -21,13 +21,16 @@
   function renderMetrics(summary) {
     const sourceStatus = summary.official_source_status || {};
     const sourceAvailable = sourceStatus.source && sourceStatus.source !== "UNAVAILABLE";
+    const statusCounts = summary.status_counts || {};
     const metrics = [
       ["字段分类覆盖率", `${((summary.classification_coverage || 0) * 100).toFixed(2)}%`],
       ["东方财富事实", summary.eastmoney_fact_count || 0],
       ["官方来源", sourceStatus.source || "—"],
       ["官方事实", summary.official_fact_count || 0],
-      ["可比记录", sourceAvailable ? (summary.comparable_count || 0) : "—"],
-      ["已匹配", sourceAvailable ? (summary.matched_count || 0) : "—"],
+      ["理论可比记录", sourceAvailable ? (summary.comparable_count || 0) : "—"],
+      ["已形成双源匹配", sourceAvailable ? (summary.matched_count || 0) : "—"],
+      ["待官方提取", sourceAvailable ? (statusCounts.MISSING_OFFICIAL || 0) : "—"],
+      ["官方有而东方财富缺失", sourceAvailable ? (statusCounts.MISSING_EASTMONEY || 0) : "—"],
       ["真正冲突", sourceAvailable ? (summary.true_conflict_count || 0) : "—"],
       ["验收状态", summary.acceptance_status || "—"],
     ];

@@ -9,12 +9,44 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 from fastapi.testclient import TestClient
+from openpyxl import load_workbook
 
 
 def require(path: Path, minimum_size: int = 1) -> Path:
     if not path.exists() or not path.is_file() or path.stat().st_size < minimum_size:
         raise AssertionError(f"Missing or empty artifact: {path}")
     return path
+
+
+def assert_tabular_xlsx(path: Path) -> None:
+    """Fail when a multi-column worksheet silently collapses data into column A."""
+
+    workbook = load_workbook(path, read_only=True, data_only=True)
+    checked_sheets = 0
+    try:
+        for sheet in workbook.worksheets:
+            if sheet.max_row <= 1 or sheet.max_column <= 1:
+                continue
+            header = next(
+                sheet.iter_rows(min_row=1, max_row=1, values_only=True),
+                (),
+            )
+            if sum(value not in (None, "") for value in header) < 2:
+                continue
+            rows = sheet.iter_rows(
+                min_row=2,
+                max_row=min(sheet.max_row, 500),
+                max_col=sheet.max_column,
+                values_only=True,
+            )
+            found_multicolumn_row = any(sum(value not in (None, "") for value in row) >= 2 for row in rows)
+            if not found_multicolumn_row:
+                raise AssertionError(f"{path.name}/{sheet.title}: multi-column data collapsed into column A")
+            checked_sheets += 1
+    finally:
+        workbook.close()
+    if checked_sheets == 0:
+        raise AssertionError(f"No populated multi-column worksheet found in {path}")
 
 
 def main(run_dir: Path) -> None:
@@ -101,6 +133,11 @@ def main(run_dir: Path) -> None:
         with zipfile.ZipFile(paths[key]) as archive:
             assert archive.testzip() is None
             assert "xl/workbook.xml" in archive.namelist()
+    # The themed Eastmoney workbook uses a different openpyxl writer and is covered
+    # by its own regressions.  The two pandas/XlsxWriter packages must additionally
+    # prove that data rows occupy their declared columns rather than only column A.
+    assert_tabular_xlsx(paths["official_excel"])
+    assert_tabular_xlsx(paths["comparison_excel"])
     with zipfile.ZipFile(paths["evidence_zip"]) as archive:
         assert archive.testzip() is None
         names = archive.namelist()
