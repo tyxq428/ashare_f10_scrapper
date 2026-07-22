@@ -8,9 +8,13 @@ on:
       - "src/ashare_f10/resources/raw_source_manifest.json"
       - "src/ashare_f10/api/raw_pack.py"
       - "src/ashare_f10/api/app_with_raw_pack.py"
+      - "src/ashare_f10/api/visual_*.py"
       - "src/ashare_f10/cli.py"
       - "src/ashare_f10/web/raw-pack.*"
+      - "src/ashare_f10/web/run.*"
+      - "scripts/run_resilient_fetch.py"
       - "tests/test_raw_pack_*.py"
+      - "tests/test_visual_execution.py"
       - ".github/workflows/raw-pack-688521.yml"
       - ".github/workflows/fetch-stock.yml"
   workflow_dispatch:
@@ -25,7 +29,7 @@ concurrency:
 jobs:
   raw-pack-e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -36,23 +40,32 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
-      - name: Static checks for Raw Pack page
+      - name: Static checks for Raw Pack and visual execution pages
         run: |
-          ruff check src/ashare_f10/raw_sources src/ashare_f10/api/raw_pack.py src/ashare_f10/api/app_with_raw_pack.py tests/test_raw_pack_*.py
+          ruff check src/ashare_f10/raw_sources src/ashare_f10/api/raw_pack.py src/ashare_f10/api/visual_execution.py src/ashare_f10/api/visual_jobs.py tests/test_raw_pack_*.py tests/test_visual_execution.py scripts/run_resilient_fetch.py
           node --check src/ashare_f10/web/raw-pack.js
+          node --check src/ashare_f10/web/run.js
       - name: Unit tests
-        run: pytest tests/test_raw_pack_*.py
-      - name: Existing F10 E2E path with Raw Pack enabled
+        run: pytest tests/test_raw_pack_*.py tests/test_visual_execution.py tests/test_resilient_fetch.py
+      - name: Existing F10 E2E path with Raw Pack enabled and automatic recovery
         env:
           ASHARE_F10_TIMEOUT: "60"
           ASHARE_F10_RETRIES: "3"
           ASHARE_F10_MAX_WORKERS: "4"
           ASHARE_F10_PAGE_WORKERS: "3"
         run: |
-          ashare-f10 fetch 688521 --output raw-pack-e2e --workers 4 --force \
-            --include-raw-pack --raw-pack-packs default --raw-pack-max-docs 12
-          ashare-f10 validate raw-pack-e2e
-      - name: Validate Raw Pack artifacts, status routing and API
+          python scripts/run_resilient_fetch.py 688521 \
+            --output raw-pack-e2e \
+            --workers 4 \
+            --force \
+            --include-raw-pack \
+            --raw-pack-packs default \
+            --raw-pack-max-docs 12 \
+            --max-attempts 3 \
+            --backoff-seconds 8 \
+            --heartbeat-seconds 15 \
+            --report raw-pack-e2e/resilient-fetch-report.json
+      - name: Validate Raw Pack artifacts, status routing, visual API and evidence API
         run: |
           python - <<'PY'
           from __future__ import annotations
@@ -72,7 +85,6 @@ jobs:
           assert quality["status"] == "PASS", quality
           assert quality["document_count"] >= 4, quality
           assert quality["status_counts"].get("FACT_DIRECT", 0) >= 1, quality
-          assert quality["permission_blocked_count"] >= 0
           assert (raw_root / "source_index/source_documents.jsonl").exists()
           assert (raw_root / "source_index/raw_pack_index.xlsx").exists()
 
@@ -97,6 +109,8 @@ jobs:
           from ashare_f10.api.app_with_raw_pack import app
 
           client = TestClient(app)
+          assert client.get("/api/visual-execution/capabilities").status_code == 200
+          assert client.get("/run.html").status_code == 200
           stats = client.get("/api/raw-pack/evidence/stats", params={"stock_code": "688521"})
           assert stats.status_code == 200, stats.text
           assert stats.json()["document_count"] == quality["document_count"]

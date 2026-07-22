@@ -1,0 +1,79 @@
+name: Visual Execution Control
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/ashare_f10/api/visual_*.py"
+      - "src/ashare_f10/api/app_with_raw_pack.py"
+      - "src/ashare_f10/web/run.*"
+      - "scripts/start-web.*"
+      - "scripts/run_resilient_*.py"
+      - "tests/test_visual_execution.py"
+      - "tests/test_resilient_fetch.py"
+      - ".github/workflows/visual-execution.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: visual-execution-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  visual-control:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Static checks
+        run: |
+          set -o pipefail
+          {
+            ruff check src/ashare_f10/api/visual_execution.py src/ashare_f10/api/visual_jobs.py scripts/run_resilient_fetch.py scripts/run_resilient_command.py tests/test_visual_execution.py tests/test_resilient_fetch.py
+            python -m compileall -q src scripts
+            node --check src/ashare_f10/web/run.js
+          } 2>&1 | tee visual-static.log
+      - name: Unit tests with diagnostics
+        run: |
+          set -o pipefail
+          pytest -vv tests/test_visual_execution.py tests/test_resilient_fetch.py 2>&1 | tee visual-pytest.log
+      - name: Verify visual execution page and API
+        run: |
+          ashare-f10 serve --host 127.0.0.1 --port 8765 > visual-server.log 2>&1 &
+          SERVER_PID=$!
+          cleanup() { kill "$SERVER_PID" 2>/dev/null || true; }
+          trap cleanup EXIT
+          for _ in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8765/api/health > visual-health.json; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8765/run.html > visual-run.html
+          curl -fsS http://127.0.0.1:8765/api/visual-execution/capabilities > visual-capabilities.json
+          grep -q "可视化执行中心" visual-run.html
+          grep -q '"include_raw_pack":false' <(tr -d ' ' < visual-capabilities.json)
+          cleanup
+          trap - EXIT
+      - name: Upload visual validation
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-execution-${{ github.run_id }}
+          path: |
+            visual-static.log
+            visual-pytest.log
+            visual-server.log
+            visual-health.json
+            visual-run.html
+            visual-capabilities.json
+          if-no-files-found: warn
+          retention-days: 14

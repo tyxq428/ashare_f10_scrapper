@@ -7,6 +7,7 @@ on:
     paths:
       - "src/ashare_f10/validation/**"
       - "src/ashare_f10/cli.py"
+      - "scripts/run_resilient_*.py"
       - "tests/test_official_validation.py"
       - "pyproject.toml"
       - ".github/workflows/official-validation-688521.yml"
@@ -14,6 +15,7 @@ on:
     paths:
       - "src/ashare_f10/validation/**"
       - "src/ashare_f10/cli.py"
+      - "scripts/run_resilient_*.py"
       - "tests/test_official_validation.py"
       - "pyproject.toml"
       - ".github/workflows/official-validation-688521.yml"
@@ -27,7 +29,7 @@ env:
 jobs:
   official-validation:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -36,17 +38,27 @@ jobs:
           cache: pip
       - run: python -m pip install --upgrade pip
       - run: pip install -e ".[dev]"
-      - name: Unit tests for official validation
-        run: pytest -q tests/test_official_validation.py
-      - name: Fetch all fixed Eastmoney F10 sources
-        run: ashare-f10 fetch 688521 --output official-validation-run --workers 8
-      - name: Validate against free official SSE reports
+      - name: Unit tests for official validation and retry classification
+        run: pytest -q tests/test_official_validation.py tests/test_resilient_fetch.py
+      - name: Fetch all fixed Eastmoney F10 sources with recovery
         run: |
-          set -o pipefail
-          ashare-f10 validate-official 688521 official-validation-run \
-            --output official-validation-run/validation \
-            --annual-year 2025 \
-            --quarter-year 2026 2>&1 | tee official-validation.log
+          python scripts/run_resilient_fetch.py 688521 \
+            --output official-validation-run \
+            --workers 8 \
+            --max-attempts 3 \
+            --backoff-seconds 8 \
+            --heartbeat-seconds 15 \
+            --report official-validation-run/resilient-fetch-report.json
+      - name: Validate against free official reports with finite retry
+        run: |
+          python scripts/run_resilient_command.py \
+            --max-attempts 3 \
+            --backoff-seconds 8 \
+            --report official-validation-run/validation/resilient-validation-report.json \
+            -- ashare-f10 validate-official 688521 official-validation-run \
+              --output official-validation-run/validation \
+              --annual-year 2025 \
+              --quarter-year 2026
       - name: Verify validation acceptance
         run: |
           python - <<'PY'
@@ -69,7 +81,7 @@ jobs:
           name: official-validation-688521-${{ github.run_id }}
           path: |
             official-validation-run/validation/
-            official-validation.log
+            official-validation-run/resilient-fetch-report.json
             official-validation-run/artifacts.json
           if-no-files-found: warn
           retention-days: 30

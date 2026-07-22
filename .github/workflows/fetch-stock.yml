@@ -12,7 +12,7 @@ on:
         required: false
         default: "8"
       force:
-        description: Ignore successful checkpoints
+        description: Ignore successful checkpoints on the first attempt
         type: boolean
         required: false
         default: false
@@ -29,17 +29,22 @@ on:
         description: Maximum Raw Pack documents/status records
         required: false
         default: "200"
+      max_attempts:
+        description: Finite automatic attempts for transient network failures
+        required: false
+        default: "3"
 
 permissions:
   contents: read
 
 env:
   ASHARE_F10_DATA_DIR: ${{ github.workspace }}/data
+  PYTHONUNBUFFERED: "1"
 
 jobs:
   fetch:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -50,13 +55,17 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install .
-      - name: Fetch all fixed F10 endpoints and optional Raw Pack
+      - name: Fetch with heartbeat and finite automatic recovery
         shell: bash
         run: |
           ARGS=(
             "${{ inputs.stock_code }}"
             --output "data/${{ inputs.stock_code }}/${{ github.run_id }}"
             --workers "${{ inputs.workers }}"
+            --max-attempts "${{ inputs.max_attempts }}"
+            --backoff-seconds 10
+            --heartbeat-seconds 20
+            --report "data/${{ inputs.stock_code }}/${{ github.run_id }}/resilient-fetch-report.json"
           )
           if [ "${{ inputs.force }}" = "true" ]; then
             ARGS+=(--force)
@@ -68,9 +77,7 @@ jobs:
               --raw-pack-max-docs "${{ inputs.raw_pack_max_docs }}"
             )
           fi
-          ashare-f10 fetch "${ARGS[@]}"
-      - name: Validate complete output
-        run: ashare-f10 validate "data/${{ inputs.stock_code }}/${{ github.run_id }}"
+          python scripts/run_resilient_fetch.py "${ARGS[@]}"
       - name: Upload JSON Excel Parquet DuckDB raw cache and optional Raw Pack
         if: always()
         uses: actions/upload-artifact@v4

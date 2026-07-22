@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>可视化执行中心｜A股F10投研平台</title>
+  <style>
+    :root{font-family:Inter,"Microsoft YaHei",sans-serif;color:#172033;background:#f4f7fb;--navy:#17365d;--blue:#1f4e78;--line:#dce4ef;--ok:#dff0d8;--warn:#fff2cc;--bad:#f4cccc;--muted:#64748b}*{box-sizing:border-box}body{margin:0}.top{background:linear-gradient(135deg,#17365d,#225f8c);color:#fff;padding:24px 30px}.top h1{margin:0 0 8px}.top p{margin:0;opacity:.88}.top-links{display:flex;gap:14px;margin-top:14px}.top a{color:white}.layout{max-width:1540px;margin:auto;padding:22px;display:grid;grid-template-columns:minmax(360px,470px) minmax(0,1fr);gap:18px}.panel{background:white;border:1px solid var(--line);border-radius:12px;padding:18px;box-shadow:0 3px 12px #17365d12}.sticky{position:sticky;top:16px;align-self:start}.section-title{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px}.section-title h2,.section-title h3{margin:0}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.full{grid-column:1/-1}label{display:flex;flex-direction:column;gap:6px;font-size:13px;font-weight:600}input,select,button{font:inherit;padding:10px;border:1px solid #b9c6d8;border-radius:7px;background:white}input[type=checkbox]{width:auto}.inline-check{flex-direction:row;align-items:center;font-weight:500}.primary{background:var(--blue);color:white;border-color:var(--blue);font-weight:700;cursor:pointer}.secondary{background:#eaf1f8;color:#17365d;cursor:pointer}.danger{background:#fff1f0;color:#a61b1b;border-color:#efb3b3;cursor:pointer}.preset-list{display:grid;gap:9px}.preset{border:1px solid var(--line);border-radius:9px;padding:12px;cursor:pointer;display:block}.preset input{margin-right:8px}.preset.active{border-color:#1f4e78;background:#edf5fb}.preset strong{display:block;margin-left:24px}.preset small{display:block;margin:4px 0 0 24px;color:var(--muted);line-height:1.45}.advanced{margin-top:14px;border-top:1px solid var(--line);padding-top:13px}.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}.muted{color:var(--muted);font-size:13px;line-height:1.5}.status-bar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}.metric{background:#edf4fa;border-radius:9px;padding:11px 14px;min-width:130px}.metric b{display:block;font-size:22px}.job-list{display:grid;gap:12px}.job{border:1px solid var(--line);border-radius:10px;padding:14px}.job-head{display:flex;justify-content:space-between;gap:12px}.job-id{color:var(--muted);font-size:12px}.tag{display:inline-block;padding:4px 9px;border-radius:999px;background:#e7edf5;font-size:12px}.COMPLETED,.stage-COMPLETED{background:var(--ok)}.FAILED,.PARTIAL,.stage-FAILED,.stage-SKIPPED_INCOMPLETE_F10{background:var(--bad)}.RUNNING,.RETRYING,.PENDING,.stage-RUNNING,.stage-RETRYING,.stage-PENDING{background:var(--warn)}.stage-NOT_REQUESTED{background:#eceff3}.progress{height:8px;background:#e7edf5;border-radius:999px;overflow:hidden;margin:10px 0}.progress div{height:100%;background:#2f80b9}.stage-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:10px 0}.stage{border:1px solid var(--line);border-radius:8px;padding:9px}.stage strong{display:block;font-size:12px}.stage span{display:inline-block;margin-top:5px}.job-meta{display:flex;flex-wrap:wrap;gap:12px;color:var(--muted);font-size:12px}.job-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.job-actions button,.job-actions a{font-size:12px;padding:7px 10px}.job-actions a{border:1px solid var(--line);border-radius:6px;text-decoration:none;color:#17365d}.warning{color:#a15a00}.stale{color:#a61b1b;font-weight:700}.empty{text-align:center;padding:30px;color:var(--muted)}#toast{position:fixed;right:20px;bottom:20px;max-width:460px;background:#17365d;color:white;padding:12px 16px;border-radius:8px;opacity:0;pointer-events:none;transition:.2s}#toast.show{opacity:1}#toast.error{background:#9d1b1b}@media(max-width:980px){.layout{grid-template-columns:1fr}.sticky{position:static}.grid{grid-template-columns:1fr}.stage-grid{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <header class="top">
+    <h1>可视化执行中心</h1>
+    <p>所有运行参数都在网页配置；无需手工拼接命令行。F10完成后，Raw Pack与官方验证可并行执行。</p>
+    <div class="top-links"><a href="./">F10投研平台</a><a href="./raw-pack.html">Raw Pack证据中心</a></div>
+  </header>
+  <main class="layout">
+    <section class="panel sticky">
+      <div class="section-title"><h2>新建投研任务</h2><span id="backend" class="tag">检测服务</span></div>
+      <div class="grid">
+        <label class="full">股票代码<input id="stockCode" maxlength="6" value="688521" placeholder="六位A股代码" /></label>
+        <div class="full">
+          <label>任务预设</label>
+          <div id="presets" class="preset-list"></div>
+        </div>
+        <label>接口并发数<input id="workers" type="number" min="1" max="32" value="8" /></label>
+        <label>任务刷新频率<select id="pollSeconds"><option value="1.5">积极（1.5秒）</option><option value="2.5">标准（2.5秒）</option><option value="5">节省资源（5秒）</option></select></label>
+        <label class="inline-check full"><input id="resume" type="checkbox" checked />复用成功缓存和检查点</label>
+        <label class="inline-check full"><input id="autoRetry" type="checkbox" checked />自动重试失败子任务（仅重试失败项）</label>
+        <label>自动重试轮数<input id="maxRetries" type="number" min="0" max="5" value="2" /></label>
+        <label>首轮退避秒数<input id="backoff" type="number" min="0" max="120" value="5" /></label>
+      </div>
+      <div id="rawOptions" class="advanced grid">
+        <div class="full"><strong>Raw Pack配置</strong></div>
+        <label>资料包<select id="rawPacks"><option value="default">默认核心来源</option><option value="all">全部已实现来源</option><option value="P0_STATUTORY_CORE">仅法定披露</option><option value="P1_IP_PRODUCT_TECH">仅官网/IP/IR</option><option value="P1_ENTITY_RISK_CORE">仅实体风险探测</option></select></label>
+        <label>最多文档<input id="rawMax" type="number" min="1" max="5000" value="200" /></label>
+      </div>
+      <div id="officialOptions" class="advanced grid">
+        <div class="full"><strong>官方交叉验证配置</strong></div>
+        <label>年度报告年份<input id="annualYear" type="number" min="2000" max="2100" value="2025" /></label>
+        <label>一季度报告年份<input id="quarterYear" type="number" min="2000" max="2100" value="2026" /></label>
+      </div>
+      <div class="actions"><button id="start" class="primary">开始可视化任务</button><button id="savePreset" class="secondary">保存本机偏好</button></div>
+      <p class="muted">权限受限来源会记录为PERMISSION_BLOCKED，不会让整只股票任务失败。NO_MATCH只表示本次检索未命中，不代表事实为零。</p>
+    </section>
+    <section>
+      <div class="panel">
+        <div class="section-title"><h2>运行监控</h2><div><button id="refresh" class="secondary">立即刷新</button></div></div>
+        <div id="metrics" class="status-bar"></div>
+        <div id="jobs" class="job-list"><div class="empty">暂无任务</div></div>
+      </div>
+    </section>
+  </main>
+  <div id="toast"></div>
+  <script src="./run.js"></script>
+</body>
+</html>
