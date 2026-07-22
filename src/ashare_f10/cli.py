@@ -14,6 +14,7 @@ from ashare_f10.cross_validation.runner import run_full_cross_validation
 from ashare_f10.export.bundle import build_exports
 from ashare_f10.fetch.pipeline import FetchPipeline
 from ashare_f10.raw_sources.runner import run_raw_pack
+from ashare_f10.research_pack.runner import run_research_pack
 from ashare_f10.validation.runner import run_official_validation
 
 app = typer.Typer(help="A股F10投研平台命令行")
@@ -49,7 +50,7 @@ def _status_color(status: str) -> str:
         return "red"
     if status.startswith("PASS_WITH") or status.startswith("PARTIAL"):
         return "yellow"
-    return "green" if status == "PASS" else "yellow"
+    return "green" if status in {"PASS", "COMPLETED"} else "yellow"
 
 
 @app.command()
@@ -196,6 +197,36 @@ def run_and_validate(
         raise typer.Exit(1)
 
 
+@app.command("research-pack")
+def research_pack(
+    stock_code: Annotated[str, typer.Argument(help="六位A股代码")],
+    run_dir: Annotated[Path, typer.Argument(help="已完成F10或双源验证的运行目录")],
+    output: Annotated[
+        Path | None, typer.Option("--output", "-o", help="Research Pack输出目录")
+    ] = None,
+    as_of_date: Annotated[
+        str | None, typer.Option("--as-of-date", help="研究截止日YYYY-MM-DD；默认运行当日")
+    ] = None,
+    force: Annotated[
+        bool, typer.Option("--force", help="忽略相同输入的已完成Research Pack缓存")
+    ] = False,
+) -> None:
+    """生成规范事实、研究专题和官方证据图Research Pack。"""
+    result = run_research_pack(
+        stock_code,
+        run_dir,
+        output,
+        as_of_date=as_of_date,
+        force=force,
+    )
+    status = str(result.get("status", "UNKNOWN"))
+    color = _status_color(status)
+    console.print(f"[{color}]Research Pack状态：{status}[/{color}]")
+    console.print_json(json.dumps(result, ensure_ascii=False))
+    if status.startswith("FAIL"):
+        raise typer.Exit(1)
+
+
 @app.command()
 def validate(path: Path) -> None:
     """验证一个运行目录的完整性、请求组状态和核心交付文件。"""
@@ -256,6 +287,17 @@ def validate(path: Path) -> None:
                 quality = json.loads(quality_path.read_text(encoding="utf-8"))
                 if quality.get("status") != "PASS":
                     failures.append(f"Raw Pack质量验证未通过：{quality.get('failures')}")
+        research_quality = artifacts_payload.get("research_pack_quality")
+        if research_quality:
+            quality_path = Path(research_quality)
+            if not quality_path.is_absolute():
+                quality_path = Path.cwd() / quality_path
+            if not quality_path.exists():
+                failures.append(f"Research Pack质量报告不存在：{quality_path}")
+            else:
+                quality = json.loads(quality_path.read_text(encoding="utf-8"))
+                if quality.get("status") != "PASS":
+                    failures.append(f"Research Pack质量验证未通过：{quality.get('failures')}")
 
     if failures:
         for failure in failures:
