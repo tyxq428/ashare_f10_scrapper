@@ -7,6 +7,16 @@ on:
         description: Trusted control branch containing .agent/current_task.yaml
         required: true
         type: string
+      approval_file:
+        description: Task-bound ChatGPT Web approval JSON
+        required: false
+        type: string
+        default: .devflow/codex-approvals/approval.json
+      reproduction_file:
+        description: Deterministic pre-model reproduction JSON
+        required: false
+        type: string
+        default: .agent/reproduction.json
 
 permissions:
   contents: read
@@ -20,32 +30,30 @@ env:
   PYTHONUNBUFFERED: "1"
 
 jobs:
-  read-task:
-    if: github.actor == 'tyxq428' || github.actor == 'github-actions[bot]'
+  policy:
+    name: zero-token-policy-and-eligibility
+    if: github.actor == 'tyxq428'
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    outputs:
-      task_id: ${{ steps.task.outputs.task_id }}
-      task_branch: ${{ steps.task.outputs.task_branch }}
-      task_file: ${{ steps.task.outputs.task_file }}
-      gate_profile: ${{ steps.task.outputs.gate_profile }}
-      publish_branch: ${{ steps.task.outputs.publish_branch }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           ref: ${{ inputs.task_branch }}
           persist-credentials: false
-      - id: task
-        name: Validate trusted task descriptor
+      - name: Validate manual actor, policy and immutable task descriptor
         shell: bash
         env:
-          CONTROL_BRANCH: ${{ inputs.task_branch }}
           ACTOR: ${{ github.actor }}
+          TASK_BRANCH: ${{ inputs.task_branch }}
+          APPROVAL_FILE: ${{ inputs.approval_file }}
+          REPRODUCTION_FILE: ${{ inputs.reproduction_file }}
         run: |
+          set -euo pipefail
+          [[ "$ACTOR" == "tyxq428" ]]
+          [[ "$TASK_BRANCH" == task/codex-* ]]
           python - <<'PY'
-          from __future__ import annotations
-
+          import json
           import os
           import sys
           from pathlib import Path
@@ -53,361 +61,29 @@ jobs:
           sys.path.insert(0, 'scripts/devflow')
           from task_descriptor import load_task_descriptor
 
-          control_branch = os.environ['CONTROL_BRANCH']
-          actor = os.environ['ACTOR']
-          if not control_branch.startswith('task/codex-'):
-              raise SystemExit('untrusted control branch')
-          if actor not in {'tyxq428', 'github-actions[bot]'}:
-              raise SystemExit('untrusted actor')
-
+          policy = json.loads(Path('.devflow/codex-policy.yaml').read_text(encoding='utf-8'))
           _raw, task = load_task_descriptor(Path('.agent/current_task.yaml'))
-          with Path(os.environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as handle:
-              handle.write(f'task_id={task.task_id}\n')
-              handle.write(f'task_branch={control_branch}\n')
-              handle.write('task_file=.agent/current_task.yaml\n')
-              handle.write(f'gate_profile={task.gate_profile}\n')
-              handle.write(f'publish_branch={task.publish_branch}\n')
-          PY
+          if policy.get('mode') != 'enabled':
+              print('CODEX_POLICY_DISABLED=PASS')
+              raise SystemExit(0)
 
-  codex:
-    name: secret-bearing-read-only-codex
-    needs: read-task
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    environment:
-      name: agent-runtime
-      deployment: false
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-        with:
-          ref: ${{ needs.read-task.outputs.task_branch }}
-          fetch-depth: 0
-          persist-credentials: false
+          from codex_eligibility import evaluate
 
-      - name: Install deterministic development dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
-
-      - name: Register private value masks
-        shell: bash
-        env:
-          ENDPOINT: ${{ secrets.AGENT_RESPONSES_ENDPOINT || secrets.CODEX_RESPONSES_ENDPOINT || secrets.CODEX_ENDPOINT }}
-          API_KEY: ${{ secrets.AGENT_API_KEY || secrets.CODEX_API_KEY || secrets.CODEX_TOKEN || secrets.OPENAI_API_KEY }}
-          MODEL: ${{ secrets.AGENT_MODEL || secrets.CODEX_MODEL }}
-        run: |
-          set +x
-          python - <<'PY'
-          import base64
-          import os
-          from urllib.parse import quote, urlsplit
-
-          endpoint = os.environ['ENDPOINT']
-          api_key = os.environ['API_KEY']
-          model = os.environ['MODEL']
-          parsed = urlsplit(endpoint)
-          values = {
-              endpoint,
-              endpoint.rstrip('/'),
-              parsed.netloc,
-              parsed.hostname or '',
-              api_key,
-              model,
-              quote(endpoint, safe=''),
-              quote(api_key, safe=''),
-              base64.b64encode(endpoint.encode()).decode(),
-              base64.urlsafe_b64encode(endpoint.encode()).decode(),
-              base64.b64encode(api_key.encode()).decode(),
-              base64.urlsafe_b64encode(api_key.encode()).decode(),
-          }
-          for value in values:
-              if len(value) >= 3:
-                  print(f'::add-mask::{value}')
-          PY
-
-      - name: Validate runtime configuration without exposing values
-        id: runtime
-        continue-on-error: true
-        env:
-          AGENT_RESPONSES_ENDPOINT: ${{ secrets.AGENT_RESPONSES_ENDPOINT || secrets.CODEX_RESPONSES_ENDPOINT || secrets.CODEX_ENDPOINT }}
-          AGENT_API_KEY: ${{ secrets.AGENT_API_KEY || secrets.CODEX_API_KEY || secrets.CODEX_TOKEN || secrets.OPENAI_API_KEY }}
-          AGENT_MODEL: ${{ secrets.AGENT_MODEL || secrets.CODEX_MODEL }}
-          PYTHONPATH: scripts/devflow
-        run: |
-          python scripts/devflow/runtime_preflight.py \
-            --output /tmp/devflow-runtime-preflight.json
-
-      - name: Start localhost-only no-log Responses forwarder
-        id: forwarder
-        if: steps.runtime.outcome == 'success'
-        continue-on-error: true
-        shell: bash
-        env:
-          AGENT_RESPONSES_ENDPOINT: ${{ secrets.AGENT_RESPONSES_ENDPOINT || secrets.CODEX_RESPONSES_ENDPOINT || secrets.CODEX_ENDPOINT }}
-          PYTHONPATH: scripts/devflow
-        run: |
-          set -euo pipefail
-          nohup python scripts/devflow/private_responses_forwarder.py \
-            --port 8787 \
-            --status-file /tmp/private-responses-forwarder-status.json \
-            >/tmp/private-responses-forwarder.log 2>&1 &
-          echo $! > /tmp/private-responses-forwarder.pid
-          for attempt in $(seq 1 30); do
-            if curl --silent --show-error --fail http://127.0.0.1:8787/health >/dev/null; then
-              echo "PRIVATE_RESPONSES_FORWARDER=READY"
-              exit 0
-            fi
-            if ! kill -0 "$(cat /tmp/private-responses-forwarder.pid)" 2>/dev/null; then
-              echo "PRIVATE_RESPONSES_FORWARDER=PROCESS_EXITED"
-              test ! -s /tmp/private-responses-forwarder-status.json || \
-                cat /tmp/private-responses-forwarder-status.json
-              exit 1
-            fi
-            sleep 0.5
-          done
-          echo "PRIVATE_RESPONSES_FORWARDER=HEALTH_TIMEOUT"
-          test ! -s /tmp/private-responses-forwarder-status.json || \
-            cat /tmp/private-responses-forwarder-status.json
-          exit 1
-
-      # The reusable unit is a local composite action so the ordinary caller Job
-      # owns the Environment and receives its secrets directly.
-      - name: Run one Codex Thin Worker session
-        id: codex
-        if: steps.runtime.outcome == 'success' && steps.forwarder.outcome == 'success'
-        continue-on-error: true
-        uses: ./.github/actions/codex-thin-worker
-        with:
-          api-key: ${{ secrets.AGENT_API_KEY || secrets.CODEX_API_KEY || secrets.CODEX_TOKEN || secrets.OPENAI_API_KEY }}
-          model: ${{ secrets.AGENT_MODEL || secrets.CODEX_MODEL }}
-          prompt-file: ${{ needs.read-task.outputs.task_file }}
-
-      - name: Persist structured Codex final message outside the repository
-        id: result
-        if: steps.codex.outcome == 'success'
-        continue-on-error: true
-        shell: bash
-        env:
-          CODEX_FINAL_MESSAGE: ${{ steps.codex.outputs.final-message }}
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          raw = os.environ.get('CODEX_FINAL_MESSAGE', '')
-          if not raw.strip():
-              raise SystemExit('CODEX_FINAL_MESSAGE_MISSING')
-          value = json.loads(raw)
-          Path('/tmp/codex-result.json').write_text(
-              json.dumps(value, ensure_ascii=False, indent=2) + '\n',
-              encoding='utf-8',
+          result = evaluate(
+              task_file=Path('.agent/current_task.yaml'),
+              approval_file=Path(os.environ['APPROVAL_FILE']),
+              reproduction_file=Path(os.environ['REPRODUCTION_FILE']),
+              actor=os.environ['ACTOR'],
+              ledger_file=Path('docs/implementation/CODEX_USAGE_LEDGER.json'),
+              repo=Path('.'),
           )
-          print('CODEX_STRUCTURED_RESULT=READY')
+          print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+          if result.get('decision') != 'CODEX_ELIGIBLE':
+              raise SystemExit('CODEX_NOT_ELIGIBLE')
+          print(f"CODEX_CANDIDATE_REQUIRES_REVIEWED_WORKFLOW_ENABLEMENT={task.task_id}")
           PY
-
-      - name: Stop private forwarder
-        if: always()
+      - name: Record hard-disabled execution boundary
         run: |
-          if [[ -f /tmp/private-responses-forwarder.pid ]]; then
-            kill "$(cat /tmp/private-responses-forwarder.pid)" 2>/dev/null || true
-            rm -f /tmp/private-responses-forwarder.pid
-          fi
-
-      - name: Verify Codex changed-path scope
-        id: scope
-        if: steps.codex.outcome == 'success' && steps.result.outcome == 'success'
-        continue-on-error: true
-        run: |
-          mkdir -p /tmp/codex-artifact
-          python scripts/devflow/verify_changed_paths.py \
-            --task-file "${{ needs.read-task.outputs.task_file }}" \
-            --status \
-            --output /tmp/codex-artifact/scope-result.json
-
-      - name: Run trusted targeted gate
-        id: gate
-        if: steps.codex.outcome == 'success' && steps.result.outcome == 'success'
-        continue-on-error: true
-        run: |
-          mkdir -p /tmp/codex-artifact
-          python scripts/devflow/run_gate_profile.py "${{ needs.read-task.outputs.gate_profile }}" \
-            --output /tmp/codex-artifact/gate-result.json
-
-      - name: Build minimal handoff and manifest
-        if: always()
-        shell: bash
-        env:
-          AGENT_RESPONSES_ENDPOINT: ${{ secrets.AGENT_RESPONSES_ENDPOINT || secrets.CODEX_RESPONSES_ENDPOINT || secrets.CODEX_ENDPOINT }}
-          AGENT_API_KEY: ${{ secrets.AGENT_API_KEY || secrets.CODEX_API_KEY || secrets.CODEX_TOKEN || secrets.OPENAI_API_KEY }}
-          AGENT_MODEL: ${{ secrets.AGENT_MODEL || secrets.CODEX_MODEL }}
-        run: |
-          set -euo pipefail
-          ARTIFACT=/tmp/codex-artifact
-          mkdir -p "$ARTIFACT"
-          test ! -s /tmp/devflow-runtime-preflight.json || \
-            cp /tmp/devflow-runtime-preflight.json "$ARTIFACT/runtime-preflight.json"
-          test ! -s /tmp/private-responses-forwarder-status.json || \
-            cp /tmp/private-responses-forwarder-status.json "$ARTIFACT/forwarder-status.json"
-          if [[ -s /tmp/codex-result.json ]]; then
-            cp /tmp/codex-result.json "$ARTIFACT/codex-result.json"
-          else
-            printf '%s\n' '{"status":"BLOCKED","summary":"Codex did not produce a structured result","changed_files":[],"commands_run":[],"tests_passed":false,"blocking_reason":"runtime or Codex execution did not complete"}' > "$ARTIFACT/codex-result.json"
-          fi
-          test -s "$ARTIFACT/scope-result.json" || \
-            printf '%s\n' '{"status":"BLOCKED","changed_files":[],"violations":[],"reason":"scope verification did not run"}' > "$ARTIFACT/scope-result.json"
-          test -s "$ARTIFACT/gate-result.json" || \
-            printf '%s\n' '{"status":"BLOCKED","reason":"targeted gate did not run"}' > "$ARTIFACT/gate-result.json"
-          git diff --binary > "$ARTIFACT/codex.patch"
-          python scripts/devflow/secret_audit.py \
-            "$ARTIFACT/codex.patch" \
-            "$ARTIFACT/codex-result.json" \
-            "$ARTIFACT/scope-result.json" \
-            "$ARTIFACT/gate-result.json" \
-            "$ARTIFACT/runtime-preflight.json" \
-            "$ARTIFACT/forwarder-status.json" \
-            --allow-missing \
-            --output "$ARTIFACT/secret-audit.json"
-          (
-            cd "$ARTIFACT"
-            sha256sum codex.patch codex-result.json scope-result.json gate-result.json \
-              secret-audit.json runtime-preflight.json forwarder-status.json \
-              2>/dev/null > manifest.sha256 || true
-          )
-          test -s "$ARTIFACT/manifest.sha256"
-
-      - name: Upload audited handoff only
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: codex-handoff-${{ needs.read-task.outputs.task_id }}-${{ github.run_id }}
-          path: /tmp/codex-artifact/
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Enforce runtime, Codex, scope, gate and secret outcomes
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "${{ steps.runtime.outcome }}" = "success"
-          test "${{ steps.forwarder.outcome }}" = "success"
-          test "${{ steps.codex.outcome }}" = "success"
-          test "${{ steps.result.outcome }}" = "success"
-          test "${{ steps.scope.outcome }}" = "success"
-          test "${{ steps.gate.outcome }}" = "success"
-          python - <<'PY'
-          import json
-          from pathlib import Path
-
-          root = Path('/tmp/codex-artifact')
-          for name in ('scope-result.json', 'gate-result.json', 'secret-audit.json'):
-              value = json.loads((root / name).read_text(encoding='utf-8'))
-              if value.get('status') != 'PASS':
-                  raise SystemExit(f'{name} did not pass')
-          result = json.loads((root / 'codex-result.json').read_text(encoding='utf-8'))
-          if result.get('status') != 'SUCCESS' or not result.get('tests_passed'):
-              raise SystemExit('Codex structured result did not report verified success')
-          PY
-
-  publish:
-    name: secret-free-publish
-    needs:
-      - read-task
-      - codex
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-        with:
-          ref: ${{ needs.read-task.outputs.task_branch }}
-          fetch-depth: 0
-
-      - name: Preserve trusted task descriptor outside the product tree
-        run: |
-          cp "${{ needs.read-task.outputs.task_file }}" /tmp/devflow-publish-task.yaml
-
-      - name: Download audited handoff outside repository workspace
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: codex-handoff-${{ needs.read-task.outputs.task_id }}-${{ github.run_id }}
-          path: /tmp/codex-handoff
-
-      - name: Verify manifest, apply patch and re-run scope
-        shell: bash
-        run: |
-          set -euo pipefail
-          (cd /tmp/codex-handoff && sha256sum --check manifest.sha256)
-          python - <<'PY'
-          import json
-          from pathlib import Path
-
-          if json.loads(Path('/tmp/codex-handoff/secret-audit.json').read_text())['status'] != 'PASS':
-              raise SystemExit('secret audit did not pass')
-          PY
-          git switch -c "${{ needs.read-task.outputs.publish_branch }}"
-          git apply --index /tmp/codex-handoff/codex.patch
-          python scripts/devflow/verify_changed_paths.py \
-            --task-file /tmp/devflow-publish-task.yaml \
-            --status \
-            --output /tmp/publish-scope-result.json
-          git rm -f .agent/current_task.yaml
-
-      - name: Re-run trusted gate without relay secrets
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
-          python scripts/devflow/run_gate_profile.py "${{ needs.read-task.outputs.gate_profile }}" \
-            --output /tmp/publish-gate-result.json
-
-      - name: Commit and push isolated product branch
-        id: publish
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Apply Codex thin-worker task ${{ needs.read-task.outputs.task_id }}"
-          git push origin "HEAD:refs/heads/${{ needs.read-task.outputs.publish_branch }}"
-          echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          echo "PUBLISHED_BRANCH=${{ needs.read-task.outputs.publish_branch }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "PUBLISHED_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
-
-  continue:
-    name: explicit-product-gate-dispatch
-    needs:
-      - read-task
-      - publish
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: write
-    steps:
-      - name: Dispatch full product gate without relying on push recursion
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          import json
-          from pathlib import Path
-
-          payload = {
-              'event_type': 'devflow_product_gate',
-              'client_payload': {
-                  'task_id': '${{ needs.read-task.outputs.task_id }}',
-                  'task_branch': '${{ needs.read-task.outputs.task_branch }}',
-                  'publish_branch': '${{ needs.read-task.outputs.publish_branch }}',
-              },
-          }
-          Path('/tmp/devflow-product-gate.json').write_text(json.dumps(payload))
-          PY
-          gh api --method POST "repos/${{ github.repository }}/dispatches" \
-            --input /tmp/devflow-product-gate.json
-          echo "NEXT_GATE=Devflow Product Gate" >> "$GITHUB_STEP_SUMMARY"
+          echo "CODEX_MODEL_INVOCATION=DISABLED" >> "$GITHUB_STEP_SUMMARY"
+          echo "No Environment Secret, localhost forwarder or model session was started." >> "$GITHUB_STEP_SUMMARY"
+          echo "A separate reviewed PR and explicit user request are required before any model-bearing job can exist." >> "$GITHUB_STEP_SUMMARY"
