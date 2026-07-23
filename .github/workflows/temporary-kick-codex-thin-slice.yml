@@ -1,4 +1,4 @@
-name: Temporary Kick Codex Thin Slice
+name: Temporary Observe Codex Thin Slice
 
 on:
   push:
@@ -8,74 +8,28 @@ on:
       - .github/workflows/temporary-kick-codex-thin-slice.yml
 
 permissions:
-  actions: write
+  actions: read
   contents: write
 
-env:
-  PYTHONDONTWRITEBYTECODE: "1"
-
 jobs:
-  direct-environment-probe:
+  report:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    environment:
-      name: agent-runtime
-      deployment: false
-    permissions:
-      contents: read
-    steps:
-      - name: Verify exact Environment Secret presence without exposing values
-        shell: bash
-        env:
-          ENDPOINT: ${{ secrets.AGENT_RESPONSES_ENDPOINT }}
-          API_KEY: ${{ secrets.AGENT_API_KEY }}
-          MODEL: ${{ secrets.AGENT_MODEL }}
-        run: |
-          set +x
-          python - <<'PY'
-          import os
-          values = {
-              "endpoint_present": bool(os.environ.get("ENDPOINT")),
-              "api_key_present": bool(os.environ.get("API_KEY")),
-              "model_present": bool(os.environ.get("MODEL")),
-          }
-          print("AGENT_RUNTIME_PRESENCE=" + ",".join(f"{k}:{str(v).lower()}" for k, v in values.items()))
-          if not all(values.values()):
-              raise SystemExit("AGENT_RUNTIME_ENVIRONMENT_SECRETS_UNAVAILABLE")
-          PY
-
-  dispatch-and-report:
-    needs: direct-environment-probe
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           ref: main
           fetch-depth: 0
-      - name: Dispatch a fresh trusted Codex run only when no active run exists
+      - name: Read latest non-secret Codex workflow metadata
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           TASK_BRANCH: task/codex-resilient-command-terminal-status-auto-v2
         run: |
           set -euo pipefail
-          ACTIVE="$(gh api --paginate \
-            "repos/${{ github.repository }}/actions/workflows/codex-task.yml/runs?branch=${TASK_BRANCH}&per_page=100" \
-            --jq '[.workflow_runs[] | select(.status == "queued" or .status == "in_progress")] | length')"
-          if [[ "$ACTIVE" == "0" ]]; then
-            gh api --method POST \
-              "repos/${{ github.repository }}/actions/workflows/codex-task.yml/dispatches" \
-              -f ref=main \
-              -f "inputs[task_branch]=${TASK_BRANCH}"
-            echo "CODEX_TASK_DISPATCHED=${TASK_BRANCH}" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "CODEX_TASK_ALREADY_ACTIVE=${ACTIVE}" >> "$GITHUB_STEP_SUMMARY"
-          fi
-          sleep 8
           gh api \
-            "repos/${{ github.repository }}/actions/workflows/codex-task.yml/runs?branch=${TASK_BRANCH}&per_page=10" \
-            --jq '{task_branch: "'"${TASK_BRANCH}"'", observed_at_utc: now | todate, workflow_runs: [.workflow_runs[] | {id, status, conclusion, run_attempt, head_sha, event, created_at, updated_at, html_url}]}' \
+            "repos/${{ github.repository }}/actions/workflows/codex-task.yml/runs?per_page=20" \
+            --jq '{task_branch: "'"${TASK_BRANCH}"'", observed_at_utc: now | todate, workflow_runs: [.workflow_runs[] | {id, status, conclusion, run_attempt, head_branch, head_sha, event, display_title, created_at, updated_at, html_url}]}' \
             > /tmp/codex-run-status.json
       - name: Publish only non-secret runtime metadata to an isolated branch
         shell: bash
