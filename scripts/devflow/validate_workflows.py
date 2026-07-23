@@ -56,6 +56,9 @@ def validate_file(path: Path) -> list[str]:
                 "contents: read",
                 "./.github/actions/codex-thin-worker",
                 "http://127.0.0.1:8787/health",
+                "CODEX_FINAL_MESSAGE",
+                "/tmp/codex-result.json",
+                "steps.result.outcome",
                 "secret-free-publish",
                 "devflow_product_gate",
             ),
@@ -79,6 +82,9 @@ def validate_file(path: Path) -> list[str]:
                 "http://127.0.0.1:8787/v1/responses",
                 "effort: low",
                 "safety-strategy: drop-sudo",
+                "allow-bots: \"true\"",
+                "allow-bot-users: github-actions[bot]",
+                "value: ${{ steps.run-codex.outputs.final-message }}",
                 "${{ inputs.api-key }}",
                 "${{ inputs.model }}",
             ),
@@ -86,6 +92,10 @@ def validate_file(path: Path) -> list[str]:
         )
         if "secrets." in text:
             errors.append(f"{path}: composite action must receive explicit inputs, not read secrets directly")
+        if "output-file:" in text:
+            errors.append(f"{path}: official action output must be handed off through final-message, not an absolute output-file")
+        if "allow-users:" in text:
+            errors.append(f"{path}: arbitrary user allowlists are forbidden")
 
     if path.name == "devflow-auto-recovery.yml":
         _require_fragments(
