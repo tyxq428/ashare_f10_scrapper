@@ -1,52 +1,13 @@
 name: Test
 
 on:
-  push:
-  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
-  test:
+  paused-during-materialization:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-      - run: python -m pip install --upgrade pip
-      - run: pip install -e ".[dev]"
-      - run: python -m compileall -q src scripts
-      - name: Validate browser JavaScript and static search worker
-        run: |
-          node --check src/ashare_f10/web/research-grid.js
-          node --check src/ashare_f10/web/static-search-worker.js
-          node --check src/ashare_f10/web/app.js
-          node --check src/ashare_f10/web/job-center-v2.js
-          node --check src/ashare_f10/web/raw-pack.js
-          node --check src/ashare_f10/web/run.js
-          node --check src/ashare_f10/web/research-pack.js
-          node tests/static-search-worker-smoke.cjs
-      - name: Run Ruff
-        run: |
-          set -o pipefail
-          ruff check src tests scripts/run_resilient_fetch.py scripts/run_resilient_command.py --output-format=concise 2>&1 | tee ruff-output.txt
-      - name: Upload lint diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: lint-diagnostics-${{ github.run_id }}
-          path: ruff-output.txt
-          if-no-files-found: warn
-          retention-days: 7
-      - name: Run pytest
-        run: |
-          set -o pipefail
-          pytest --cov=ashare_f10 --cov-report=term-missing 2>&1 | tee pytest-output.txt
-      - name: Upload test diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-diagnostics-${{ github.run_id }}
-          path: pytest-output.txt
-          if-no-files-found: warn
-          retention-days: 7
+      - run: echo "Automatic Test is temporarily paused on this closed staging branch; Codex remains disabled."
