@@ -1,134 +1,91 @@
 name: Devflow Incident
 
 on:
-  workflow_run:
-    workflows:
-      - Codex Task
-      - Devflow Relay Health
-      - Devflow Secret Audit
-      - Devflow State Consistency
-      - Devflow Post Merge
-      - Devflow Infrastructure Post Merge
+  repository_dispatch:
     types:
-      - completed
+      - devflow_notify
 
 permissions:
   issues: write
   contents: read
 
-# Every notification source for this task uses this one serialized queue. The
-# canonical issue number is stored in task_state.yaml; search/create is only a
-# fallback for bootstrapping older tasks.
+# Every valuable notification for this task uses one serialized queue and one
+# canonical Issue. Automatic retries and repairs never enter this workflow.
 concurrency:
   group: devflow-task-control-chatgpt-web-codex-devflow-v1
   cancel-in-progress: false
 
 jobs:
   valuable-notification:
-    if: >-
-      (github.event.workflow_run.name == 'Devflow Post Merge' && github.event.workflow_run.conclusion == 'success') ||
-      github.event.workflow_run.conclusion != 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
+          ref: main
           persist-credentials: false
 
-      - name: Create or update one task control issue
+      - name: Create or update the canonical task control issue
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          SOURCE_NAME: ${{ github.event.workflow_run.name }}
-          SOURCE_RUN: ${{ github.event.workflow_run.id }}
-          SOURCE_URL: ${{ github.event.workflow_run.html_url }}
-          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          PAYLOAD_JSON: ${{ toJson(github.event.client_payload) }}
         run: |
           set -euo pipefail
+          printf '%s' "$PAYLOAD_JSON" > /tmp/devflow-notification.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          allowed = {'COMPLETED', 'HUMAN_REQUIRED', 'SECURITY_BLOCKED', 'INTERRUPTED'}
+          value = json.loads(Path('/tmp/devflow-notification.json').read_text())
+          kind = value.get('notification_type')
+          if kind not in allowed:
+              raise SystemExit(f'notification type is not valuable: {kind!r}')
+          required = ('reason_code', 'reason', 'minimum_action', 'fingerprint', 'source_workflow', 'source_run_id')
+          for key in required:
+              if value.get(key) in (None, ''):
+                  raise SystemExit(f'missing notification field: {key}')
+          PY
+
           TASK_ID="chatgpt-web-codex-devflow-v1"
           CONTROL_TITLE="[TASK CONTROL] ${TASK_ID}"
           STATE_PATH="docs/implementation/${TASK_ID}/task_state.yaml"
-
-          if [[ "$SOURCE_NAME" == "Devflow Post Merge" && "$CONCLUSION" == "success" ]]; then
-            TYPE="COMPLETED"
-            REASON="All required post-merge verification completed successfully."
-            ACTION="No action is required. Review the final report when convenient."
-          elif [[ "$SOURCE_NAME" == "Devflow Secret Audit" ]]; then
-            TYPE="SECURITY_BLOCKED"
-            REASON="The independent public-log secret audit did not pass. Publication and migration must stop."
-            ACTION="Open the safe audit summary, rotate credentials if exposure is confirmed, and resume from HANDOFF.md."
-          elif [[ "$SOURCE_NAME" == "Devflow Relay Health" ]]; then
-            TYPE="HUMAN_REQUIRED"
-            REASON="The private Relay health or authentication/protocol check did not pass."
-            ACTION="Check the agent-runtime Environment Secrets and relay account, then rerun only Relay Health."
-          elif [[ "$SOURCE_NAME" == "Devflow Infrastructure Post Merge" ]]; then
-            TYPE="INTERRUPTED"
-            REASON="Independent infrastructure post-merge verification did not pass."
-            ACTION="Inspect the exact-main gate and resume from HANDOFF.md."
-          else
-            TYPE="INTERRUPTED"
-            REASON="A required devflow workflow ended with conclusion: ${CONCLUSION}."
-            ACTION="Review the failed job and bounded diagnostics, then resume from HANDOFF.md."
-          fi
-
           ISSUE_NUMBER="$(python - "$STATE_PATH" <<'PY'
           import json
           import sys
           from pathlib import Path
-
-          path = Path(sys.argv[1])
-          if not path.is_file():
-              raise SystemExit(0)
-          data = json.loads(path.read_text(encoding="utf-8"))
-          value = data.get("notification", {}).get("control_issue_number")
+          data = json.loads(Path(sys.argv[1]).read_text())
+          value = data.get('notification', {}).get('control_issue_number')
           if isinstance(value, int) and not isinstance(value, bool) and value > 0:
               print(value)
           PY
           )"
+          [[ -n "$ISSUE_NUMBER" ]]
 
-          if [[ -n "$ISSUE_NUMBER" ]]; then
-            ISSUE_DATA="$(gh issue view "$ISSUE_NUMBER" --repo "${{ github.repository }}" \
-              --json number,title,state 2>/dev/null || true)"
-            if [[ -z "$ISSUE_DATA" ]]; then
-              echo "Canonical control issue #${ISSUE_NUMBER} is unavailable; use serialized fallback."
-              ISSUE_NUMBER=""
-            else
-              ISSUE_TITLE="$(jq -r '.title' <<<"$ISSUE_DATA")"
-              ISSUE_STATE="$(jq -r '.state' <<<"$ISSUE_DATA")"
-              if [[ "$ISSUE_TITLE" != "$CONTROL_TITLE" ]]; then
-                echo "Canonical control issue title does not match task ID."
-                exit 1
-              fi
-              if [[ "$ISSUE_STATE" == "CLOSED" && "$TYPE" != "COMPLETED" ]]; then
-                gh issue reopen "$ISSUE_NUMBER" --repo "${{ github.repository }}"
-              fi
-            fi
-          fi
+          ISSUE_DATA="$(gh issue view "$ISSUE_NUMBER" --repo "${{ github.repository }}" \
+            --json number,title,state)"
+          [[ "$(jq -r '.title' <<<"$ISSUE_DATA")" == "$CONTROL_TITLE" ]]
 
-          if [[ -z "$ISSUE_NUMBER" ]]; then
-            ISSUE_NUMBER="$(gh api --paginate "/repos/${{ github.repository }}/issues?state=open&per_page=100" \
-              --jq ".[] | select(.pull_request == null and .title == \"${CONTROL_TITLE}\") | .number" \
-              | sort -rn | head -n 1)"
-          fi
+          TYPE="$(jq -r '.notification_type' /tmp/devflow-notification.json)"
+          REASON_CODE="$(jq -r '.reason_code' /tmp/devflow-notification.json)"
+          REASON="$(jq -r '.reason' /tmp/devflow-notification.json)"
+          MINIMUM_ACTION="$(jq -r '.minimum_action' /tmp/devflow-notification.json)"
+          FINGERPRINT="$(jq -r '.fingerprint' /tmp/devflow-notification.json)"
+          SOURCE_WORKFLOW="$(jq -r '.source_workflow' /tmp/devflow-notification.json)"
+          SOURCE_RUN="$(jq -r '.source_run_id' /tmp/devflow-notification.json)"
+          SOURCE_URL="https://github.com/${{ github.repository }}/actions/runs/${SOURCE_RUN}"
+          FAILURE_STEPS="$(jq -r '(.failure_steps // []) | if length == 0 then "none" else join(", ") end' /tmp/devflow-notification.json)"
 
-          if [[ -z "$ISSUE_NUMBER" ]]; then
-            BODY=$(cat <<EOF
-          This issue is the single notification and acknowledgement channel for task \`${TASK_ID}\`.
-
-          Normal stages, retries, branch pushes and successful audits remain silent. Only completed, interrupted, human-required and security-blocked events are posted here.
-          EOF
-          )
-            ISSUE_URL="$(gh issue create --repo "${{ github.repository }}" \
-              --title "$CONTROL_TITLE" --body "$BODY" --assignee tyxq428)"
-            ISSUE_NUMBER="${ISSUE_URL##*/}"
-            echo "Fallback control issue created; Web Supervisor must persist its number in canonical state."
-          fi
-
-          MARKER="devflow-event:${SOURCE_RUN}:${TYPE}"
+          MARKER="devflow-root:${FINGERPRINT}:${TYPE}"
           if gh api --paginate "/repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments?per_page=100" \
             --jq '.[].body' | grep -Fq "$MARKER"; then
             echo "VALUABLE_NOTIFICATION=ALREADY_RECORDED"
             exit 0
+          fi
+
+          if [[ "$(jq -r '.state' <<<"$ISSUE_DATA")" == "CLOSED" && "$TYPE" != "COMPLETED" ]]; then
+            gh issue reopen "$ISSUE_NUMBER" --repo "${{ github.repository }}"
           fi
 
           COMMENT=$(cat <<EOF
@@ -137,14 +94,15 @@ jobs:
           [TASK][${TYPE}]
 
           - Task: \`${TASK_ID}\`
-          - Workflow: \`${SOURCE_NAME}\`
-          - Conclusion: \`${CONCLUSION}\`
+          - Workflow: \`${SOURCE_WORKFLOW}\`
           - Run: ${SOURCE_URL}
+          - Classification: \`${REASON_CODE}\`
+          - Failed steps: ${FAILURE_STEPS}
           - Reason: ${REASON}
-          - Minimum action: ${ACTION}
-          - Recovery: \`docs/implementation/${TASK_ID}/HANDOFF.md\`
+          - Minimum action: ${MINIMUM_ACTION}
+          - Recovery record: \`docs/implementation/${TASK_ID}/HANDOFF.md\`
 
-          Acknowledge with \`/ack\`. <!-- ${MARKER} -->
+          \`/ack\` only confirms that you saw this message. It does **not** trigger repair or resume execution. Automatic retry and repair were already attempted before this notification. <!-- ${MARKER} -->
           EOF
           )
           gh issue comment "$ISSUE_NUMBER" --repo "${{ github.repository }}" --body "$COMMENT"
