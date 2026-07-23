@@ -1,6 +1,3 @@
-from __future__ import annotations
-
-
 REPOSITORY_FULL: list[list[str]] = [
     ["python", "-m", "compileall", "-q", "src", "scripts"],
     ["node", "--check", "src/ashare_f10/web/research-grid.js"],
