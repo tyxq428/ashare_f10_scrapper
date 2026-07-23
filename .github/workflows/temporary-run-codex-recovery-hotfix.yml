@@ -30,18 +30,36 @@ jobs:
           ref: fix/codex-recovery-circuit-breaker
           fetch-depth: 0
       - name: Apply deterministic patch
+        id: patch
+        continue-on-error: true
         run: |
-          python scripts/devflow/temporary_apply_codex_recovery_hotfix.py
-          python scripts/devflow/temporary_finish_codex_recovery_hotfix.py
-          ruff check --fix --exit-zero scripts/devflow/recovery_policy.py scripts/devflow/validate_workflows.py tests/test_devflow.py tests/test_devflow_codex_environment.py
-          ruff format scripts/devflow/recovery_policy.py scripts/devflow/validate_workflows.py tests/test_devflow.py tests/test_devflow_codex_environment.py
+          set -o pipefail
+          {
+            python scripts/devflow/temporary_apply_codex_recovery_hotfix.py
+            python scripts/devflow/temporary_finish_codex_recovery_hotfix.py
+            ruff check --fix --exit-zero scripts/devflow/recovery_policy.py scripts/devflow/validate_workflows.py tests/test_devflow.py tests/test_devflow_codex_environment.py
+            ruff format scripts/devflow/recovery_policy.py scripts/devflow/validate_workflows.py tests/test_devflow.py tests/test_devflow_codex_environment.py
+          } 2>&1 | tee /tmp/codex-recovery-hotfix-apply.log
+      - name: Upload bounded patch diagnostics
+        if: steps.patch.outcome != 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: codex-recovery-hotfix-apply-${{ github.run_id }}
+          path: /tmp/codex-recovery-hotfix-apply.log
+          if-no-files-found: error
+          retention-days: 3
+      - name: Fail after diagnostic upload
+        if: steps.patch.outcome != 'success'
+        run: exit 1
       - name: Validate without Codex
+        if: steps.patch.outcome == 'success'
         run: |
           python -m compileall -q scripts/devflow
           python scripts/devflow/validate_workflows.py
           ruff check scripts/devflow tests/test_devflow.py tests/test_devflow_codex_environment.py
           pytest -q tests/test_devflow.py tests/test_devflow_codex_environment.py
       - name: Commit patch and remove temporary runners
+        if: steps.patch.outcome == 'success'
         run: |
           git rm .github/workflows/temporary-patch-codex-recovery-circuit-breaker.yml
           git rm .github/workflows/temporary-run-codex-recovery-hotfix.yml
