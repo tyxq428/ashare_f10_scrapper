@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "state_revision": 1,
+  "state_revision": 2,
   "task_id": "devflow-operational-optimization-v2",
   "title": "Devflow operational optimization v2",
   "status": "RUNNING",
@@ -11,11 +11,13 @@
   "base_sha_at_start": "4f9fbdc0c46d334c2789e74d65a1b7921d02d23f",
   "last_product_commit_sha": "4f9fbdc0c46d334c2789e74d65a1b7921d02d23f",
   "last_state_commit_sha": null,
-  "current_stage": "W00",
-  "last_completed_stage": null,
-  "last_successful_step": "contract_and_master_plan_created",
-  "next_action": "execute_W00_baseline_then_W01_xhigh_context_budget",
-  "gate_results": {},
+  "current_stage": "W01",
+  "last_completed_stage": "W00",
+  "last_successful_step": "W00_baseline_and_drift_audit_passed",
+  "next_action": "implement_xhigh_instruction_consistency_and_context_budget",
+  "gate_results": {
+    "W00": "PASS"
+  },
   "retry_budget": {
     "infrastructure": 3,
     "codex_sessions": 1,
@@ -40,5 +42,5 @@
     "acknowledged": true,
     "control_issue_number": null
   },
-  "updated_at_utc": "2026-07-23T13:59:10Z"
+  "updated_at_utc": "2026-07-23T14:02:56Z"
 }
