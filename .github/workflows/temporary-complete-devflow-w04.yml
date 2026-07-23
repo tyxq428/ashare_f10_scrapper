@@ -1,0 +1,106 @@
+name: Temporary Complete Devflow W04
+
+on:
+  push:
+    branches:
+      - feature/chatgpt-web-codex-devflow-v1-clean
+    paths:
+      - AGENTS.md
+      - "**/AGENTS.md"
+      - "docs/process/**"
+      - "docs/implementation/chatgpt-web-codex-devflow-v1/**"
+      - "scripts/devflow/**"
+      - "tests/test_devflow.py"
+      - ".github/workflows/**devflow**"
+      - ".github/workflows/**codex**"
+      - .github/workflows/temporary-complete-devflow-w04.yml
+
+permissions:
+  contents: write
+
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+
+concurrency:
+  group: temporary-complete-devflow-w04
+  cancel-in-progress: false
+
+jobs:
+  validate-and-advance:
+    if: github.actor == 'tyxq428'
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: feature/chatgpt-web-codex-devflow-v1-clean
+          fetch-depth: 0
+      - name: Install development dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Run devflow targeted validation
+        run: |
+          python -m compileall -q scripts/devflow
+          python scripts/devflow/validate_workflows.py
+          python scripts/devflow/validate_state.py \
+            --task-dir docs/implementation/chatgpt-web-codex-devflow-v1 \
+            --output w04-state-result.json
+          ruff check scripts/devflow tests/test_devflow.py
+          pytest -q tests/test_devflow.py
+      - name: Run existing repository regression contract
+        run: |
+          python -m compileall -q src scripts
+          node --check src/ashare_f10/web/research-grid.js
+          node --check src/ashare_f10/web/static-search-worker.js
+          node --check src/ashare_f10/web/app.js
+          node --check src/ashare_f10/web/job-center-v2.js
+          node --check src/ashare_f10/web/raw-pack.js
+          node --check src/ashare_f10/web/run.js
+          node --check src/ashare_f10/web/research-pack.js
+          node tests/static-search-worker-smoke.cjs
+          ruff check src tests scripts/run_resilient_fetch.py scripts/run_resilient_command.py
+          pytest --cov=ashare_f10 --cov-report=term-missing
+      - name: Persist W04 result and W05 recovery state
+        run: |
+          python - <<'PY'
+          import json
+          from datetime import UTC, datetime
+          from pathlib import Path
+
+          root = Path('docs/implementation/chatgpt-web-codex-devflow-v1')
+          state_path = root / 'task_state.yaml'
+          state = json.loads(state_path.read_text(encoding='utf-8'))
+          state['state_revision'] += 1
+          state['pull_request'] = 30
+          state['current_stage'] = 'W05'
+          state['last_completed_stage'] = 'W04'
+          state['last_successful_step'] = 'reusable_codex_and_secure_workflows_verified'
+          state['next_action'] = 'synchronize_main_and_complete_pr_a_premerge_gates'
+          state['gate_results']['W04'] = 'PASS'
+          state['updated_at_utc'] = datetime.now(UTC).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
+          state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+
+          active_path = Path('docs/implementation/ACTIVE_TASKS.yaml')
+          active = json.loads(active_path.read_text(encoding='utf-8'))
+          entry = next(item for item in active['tasks'] if item['task_id'] == state['task_id'])
+          entry['pull_request'] = 30
+          entry['current_stage'] = 'W05'
+          entry['status'] = 'RUNNING'
+          active_path.write_text(json.dumps(active, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+
+          (root / 'W04_result.md').write_text('''# W04 结果：Reusable Codex 与安全工作流\n\n## 状态\n\n```yaml\nphase: W04\nstatus: COMPLETED\nlast_successful_step: reusable_codex_and_secure_workflows_verified\nnext_action: W05_premerge_and_postmerge\nhuman_intervention_required: false\n```\n\n## 结果\n\n- Reusable Codex Thin Worker、任务入口、Relay Health、独立 Secret Audit、valuable-only Incident、state consistency 和 marker-driven post-merge 已落地；\n- Codex Job 只读并使用 localhost Forwarder，Publish Job 无 Relay Secrets；\n- Scope Guard、可信 Gate Profile、Patch Manifest 和 Secret Audit 均 fail closed；\n- Codex 明确 low effort、单 Session、无自动第二 Session；\n- devflow 单元测试、Workflow 静态安全和现有完整 Test 全部通过；\n- 未修改任何投研业务语义。\n''', encoding='utf-8')
+          (root / 'W05_plan.md').write_text('''# W05 计划：PR-A 合并与独立 Post-Merge\n\n## 目标\n\n同步最新 main，重复并行开发审计，完成 PR-A pre-merge Gate；合并后在 exact main 独立执行状态、Workflow 安全、devflow tests 和现有完整 Test。\n\n## 完成标准\n\n- 临时 Workflow 已移除；\n- PR-A 与 main 无未解决冲突；\n- pre-merge State Consistency 与 Test 通过；\n- 合并后 `Devflow Infrastructure Post Merge` 通过；\n- 正式 `agent-runtime` Relay Health 通过；\n- 通过后才能创建 W06 真实 Codex 控制分支。\n\n## 人工门槛\n\n仅限合并冲突、正式 Secrets/权限缺失、安全审计或 exact-main 回归失败。\n''', encoding='utf-8')
+          PY
+          python scripts/devflow/render_task_docs.py \
+            docs/implementation/chatgpt-web-codex-devflow-v1
+          rm -f .github/workflows/temporary-complete-devflow-w04.yml
+          rm -rf scripts/devflow/__pycache__ tests/__pycache__
+      - name: Commit verified W04 completion
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Complete W04 secure reusable devflow infrastructure"
+          git push origin HEAD:feature/chatgpt-web-codex-devflow-v1-clean
