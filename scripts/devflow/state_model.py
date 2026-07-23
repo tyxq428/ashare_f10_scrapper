@@ -76,7 +76,7 @@ class TaskState:
     control_issue_number: int | None
 
     @classmethod
-    def from_mapping(cls, data: dict[str, Any]) -> TaskState:
+    def from_mapping(cls, data: dict[str, Any]) -> "TaskState":
         schema_version = _require(data, "schema_version", int)
         if schema_version != 1:
             raise StateError(f"unsupported schema_version: {schema_version}")
@@ -88,14 +88,20 @@ class TaskState:
         working_branch = _require(data, "working_branch", str)
         pull_request = _optional_positive_int(data, "pull_request")
         current_stage = _require(data, "current_stage", str)
-        stage_number(current_stage)
+        current_number = stage_number(current_stage)
 
         last_completed = data.get("last_completed_stage")
         if last_completed is not None:
             if not isinstance(last_completed, str):
                 raise StateError("last_completed_stage must be string or null")
-            if stage_number(last_completed) >= stage_number(current_stage):
+            completed_number = stage_number(last_completed)
+            if status == "DONE":
+                if completed_number != current_number:
+                    raise StateError("DONE requires last_completed_stage to equal current_stage")
+            elif completed_number >= current_number:
                 raise StateError("last_completed_stage must precede current_stage")
+        elif status == "DONE":
+            raise StateError("DONE requires last_completed_stage")
 
         if status not in TASK_STATUSES:
             raise StateError(f"invalid task status: {status}")
@@ -123,6 +129,8 @@ class TaskState:
         if status == "DONE":
             if execution_status != "COMPLETED":
                 raise StateError("DONE requires execution_status COMPLETED")
+            if acceptance_status != "PASS":
+                raise StateError("DONE requires research_acceptance_status PASS")
             if post_merge_status != "PASS":
                 raise StateError("DONE requires post_merge PASS")
             if human_required:
