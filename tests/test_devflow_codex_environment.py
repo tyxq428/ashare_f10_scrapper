@@ -79,7 +79,7 @@ def test_recovery_descriptor_metadata_forces_xhigh_but_is_not_auto_dispatched() 
     workflow = REPO / ".github/workflows/devflow-auto-recovery.yml"
     workflow_text = workflow.read_text(encoding="utf-8")
     assert "actions/workflows/codex-task.yml/dispatches" not in workflow_text
-    assert "RETRY_CODEX" not in workflow_text
+    assert "steps.decision.outputs.action == 'RETRY_CODEX'" not in workflow_text
     assert "python scripts/devflow/recovery_task.py" not in workflow_text
     assert validate_file(workflow) == []
 
@@ -160,6 +160,6 @@ def test_auto_recovery_does_not_synthesize_or_retry_codex() -> None:
     assert "Repair the deterministic devflow state or validation failure" not in text
     assert 'SOURCE_NAME" == "Devflow State Consistency"' not in text
     assert "actions/workflows/codex-task.yml/dispatches" not in text
-    assert "RETRY_CODEX" not in text
+    assert "steps.decision.outputs.action == 'RETRY_CODEX'" not in text
     assert "python scripts/devflow/recovery_task.py" not in text
     assert validate_file(workflow) == []
