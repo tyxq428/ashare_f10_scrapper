@@ -144,3 +144,31 @@
 - **根因**：真实网络故障组合只有在新的独立运行中才出现，单纯复用合并前结果无法覆盖运行环境变化。
 - **修复**：关闭未合并的临时验证PR，独立创建并合并热修复PR，再从最新`main`重新触发五项完整门禁。
 - **预防规则**：重要功能必须保留“合并后临时PR复验—失败则热修复—重新全门禁—关闭并重置临时分支”的闭环，未通过时不得写100%完成。
+
+## GHA-008 合并后Canonical State仍指向已合并功能分支
+
+- **现象**：PR-A合并后，`Devflow State Consistency`在`main`上报告`working_branch mismatch`。
+- **根因**：合并前状态中的活动分支是真实事实，但合并后没有先执行状态迁移就触发了精确主分支校验。
+- **修复**：将`working_branch`、`ACTIVE_TASKS`、`STATUS`和`HANDOFF`统一迁移到`main`，并记录合并SHA后重新执行精确主分支校验。
+- **预防规则**：合并动作必须包含显式的`MERGED → POST_MERGE`状态迁移；分支一致性校验不能假设合并前后的工作分支相同。
+
+## GHA-009 并发Incident Workflow创建重复控制Issue
+
+- **现象**：两个几乎同时结束的失败Workflow分别创建了相同标题的任务控制Issue。
+- **根因**：两个通知Workflow并行执行，且使用有索引延迟的Issue Search作为“先查后建”判断，存在竞态窗口。
+- **修复**：所有任务通知共享同一个仓库级concurrency group，改用Issues REST列表进行精确标题匹配，并按`run_id + type`检查已有评论。
+- **预防规则**：有副作用的通知创建必须串行化、使用强一致性更高的资源列表，并以稳定事件键实现幂等。
+
+## GHA-010 Secret安全要求导致Forwarder启动失败不可诊断
+
+- **现象**：Codex任务在本地Responses Forwarder启动阶段失败，Codex未实际调用，但原Workflow只显示健康检查超时。
+- **根因**：Forwarder在模块导入时解析私有Endpoint，异常输出又被全部丢弃；安全隐藏与可观测性之间缺少结构化中间层。
+- **修复**：增加只输出布尔检查和错误分类的Secret-safe预检；Forwarder改为运行期初始化、写入不含私密值的状态文件；诊断Artifact保存在工作区外并经过Secret扫描。
+- **预防规则**：敏感运行时可以隐藏值，但不能隐藏状态；所有Secret依赖步骤必须先产生安全的presence/shape检查和稳定failure class。
+
+## GHA-011 Scope Guard被自身诊断Artifact污染
+
+- **现象**：Codex修改完成后，路径范围检查可能把Workflow自己创建的`artifact/`目录识别为越界修改。
+- **根因**：诊断文件在运行路径范围检查前写入仓库工作区，而Scope Guard按`git status`检查全部未跟踪文件。
+- **修复**：Codex结果、Scope结果、Gate结果和Patch统一写入`/tmp/codex-artifact`，Publish Job也在工作区外下载Handoff。
+- **预防规则**：范围检查前后所有执行器元数据必须位于仓库工作区外；仓库工作区只允许出现任务声明允许的产品变更。
