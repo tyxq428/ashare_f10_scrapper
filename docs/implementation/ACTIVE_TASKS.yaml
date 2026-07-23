@@ -13,9 +13,9 @@
     {
       "task_id": "devflow-operational-optimization-v2",
       "title": "Devflow operational optimization v2",
-      "status": "RUNNING",
+      "status": "VERIFYING",
       "branch": "feature/devflow-operational-optimization-v2",
-      "pull_request": null,
+      "pull_request": 44,
       "current_stage": "W01",
       "state_path": "docs/implementation/devflow-operational-optimization-v2/task_state.yaml"
     }
