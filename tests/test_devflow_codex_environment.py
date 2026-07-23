@@ -27,14 +27,20 @@ def _failed_job(step_name: str) -> dict[str, object]:
     }
 
 
-def test_codex_entry_job_owns_environment_secret_boundary() -> None:
+def test_codex_entry_is_manual_and_stops_before_secrets_or_model() -> None:
     workflow = REPO / ".github/workflows/codex-task.yml"
     text = workflow.read_text(encoding="utf-8")
     assert "workflow_dispatch:" in text
-    assert "name: agent-runtime" in text
-    assert "deployment: false" in text
-    assert "./.github/actions/codex-thin-worker" in text
-    assert "uses: ./.github/workflows/_reusable-codex-thin-worker.yml" not in text
+    assert "github.actor == 'tyxq428'" in text
+    assert "codex_eligibility" in text
+    assert "approval_file" in text
+    assert "reproduction_file" in text
+    assert "CODEX_MODEL_INVOCATION=DISABLED" in text
+    assert "No Environment Secret, localhost forwarder or model session was started" in text
+    assert "agent-runtime" not in text
+    assert "secrets." not in text
+    assert "openai/codex-action@" not in text
+    assert "github-actions[bot]" not in text
     assert "\n  push:\n" not in text
     assert validate_file(workflow) == []
 
@@ -65,39 +71,33 @@ def test_new_task_template_defaults_xhigh_and_legacy_low_remains_readable() -> N
     assert TaskDescriptor.from_mapping(legacy).reasoning_effort == "low"
 
 
-def test_recovery_generator_forces_xhigh_tasks() -> None:
+def test_recovery_descriptor_metadata_forces_xhigh_but_is_not_auto_dispatched() -> None:
     script = REPO / "scripts/devflow/recovery_task.py"
     text = script.read_text(encoding="utf-8")
     assert 'value["reasoning_effort"] = "xhigh"' in text
 
     workflow = REPO / ".github/workflows/devflow-auto-recovery.yml"
+    workflow_text = workflow.read_text(encoding="utf-8")
+    assert "actions/workflows/codex-task.yml/dispatches" not in workflow_text
+    assert "RETRY_CODEX" not in workflow_text
+    assert "python scripts/devflow/recovery_task.py" not in workflow_text
     assert validate_file(workflow) == []
 
 
-def test_structured_result_uses_action_output_not_absolute_output_file() -> None:
-    action = REPO / ".github/actions/codex-thin-worker/action.yml"
-    action_text = action.read_text(encoding="utf-8")
-    assert "value: ${{ steps.policy.outputs.final-message }}" in action_text
-    assert "output-file:" not in action_text
-
+def test_hard_disabled_entry_has_no_model_result_or_publish_pipeline() -> None:
     workflow = REPO / ".github/workflows/codex-task.yml"
-    workflow_text = workflow.read_text(encoding="utf-8")
-    assert "CODEX_FINAL_MESSAGE: ${{ steps.codex.outputs.final-message }}" in workflow_text
-    assert "Path('/tmp/codex-result.json').write_text" in workflow_text
-    assert 'test "${{ steps.result.outcome }}" = "success"' in workflow_text
+    text = workflow.read_text(encoding="utf-8")
+    assert "CODEX_FINAL_MESSAGE" not in text
+    assert "/tmp/codex-result.json" not in text
+    assert "secret-bearing-read-only-codex" not in text
+    assert "secret-free-publish" not in text
+    assert "devflow_product_gate" not in text
+    assert "openai/codex-action@" not in text
 
 
 def test_nonfunctional_reusable_workflow_is_removed() -> None:
     legacy = REPO / ".github/workflows/_reusable-codex-thin-worker.yml"
     assert not legacy.exists()
-
-
-def test_publish_and_continuation_do_not_receive_agent_runtime() -> None:
-    workflow = REPO / ".github/workflows/codex-task.yml"
-    text = workflow.read_text(encoding="utf-8")
-    publish = text.split("\n  publish:\n", 1)[1]
-    assert "agent-runtime" not in publish
-    assert "secrets.AGENT_" not in publish
 
 
 def test_product_gate_scopes_candidate_from_merge_base_and_fails_closed() -> None:
@@ -142,7 +142,7 @@ def test_product_gate_merge_boundary_is_a_real_human_gate() -> None:
     assert decision.notification_type == "HUMAN_REQUIRED"
 
 
-def test_product_gate_scope_failure_precedes_code_repair() -> None:
+def test_product_gate_scope_failure_precedes_web_repair() -> None:
     decision = classify(
         source_workflow="Devflow Product Gate",
         source_run_id=1000,
@@ -154,9 +154,12 @@ def test_product_gate_scope_failure_precedes_code_repair() -> None:
     assert decision.reason_code == "SECURITY_CONTROL_FAILED"
 
 
-def test_auto_recovery_does_not_synthesize_state_consistency_codex_scope() -> None:
+def test_auto_recovery_does_not_synthesize_or_retry_codex() -> None:
     workflow = REPO / ".github/workflows/devflow-auto-recovery.yml"
     text = workflow.read_text(encoding="utf-8")
     assert "Repair the deterministic devflow state or validation failure" not in text
     assert 'SOURCE_NAME" == "Devflow State Consistency"' not in text
+    assert "actions/workflows/codex-task.yml/dispatches" not in text
+    assert "RETRY_CODEX" not in text
+    assert "python scripts/devflow/recovery_task.py" not in text
     assert validate_file(workflow) == []
