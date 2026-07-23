@@ -5,7 +5,13 @@ on:
     branches:
       - feature/chatgpt-web-codex-devflow-v1
     paths:
-      - .devflow-staging/w04.tar.gz.b64
+      - .devflow-staging/w04.part00
+      - .devflow-staging/w04.part01
+      - .devflow-staging/w04.part02
+      - .devflow-staging/w04.part03
+      - .devflow-staging/w04.part04
+      - .devflow-staging/w04.part05
+      - .devflow-staging/w04.part06
       - .github/workflows/temporary-materialize-w04.yml
   pull_request:
     branches:
@@ -33,10 +39,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          base64 --decode .devflow-staging/w04.tar.gz.b64 > /tmp/w04.tar.gz
+          cat .devflow-staging/w04.part0* | base64 --decode > /tmp/w04.tar.gz
           python - <<'PY'
           from pathlib import Path, PurePosixPath
+          import hashlib
           import tarfile
+
+          expected = "2e942962776bdf557fc08218f33f0d108e8b6a713756e1e55ddde7a9c1c0058a"
+          payload = Path('/tmp/w04.tar.gz').read_bytes()
+          if hashlib.sha256(payload).hexdigest() != expected:
+              raise SystemExit('trusted bundle digest mismatch')
 
           root = Path.cwd().resolve()
           with tarfile.open('/tmp/w04.tar.gz', 'r:gz') as archive:
@@ -52,8 +64,7 @@ jobs:
           PY
       - name: Remove one-time transport files
         run: |
-          rm -f .devflow-staging/w04.tar.gz.b64
-          rmdir .devflow-staging 2>/dev/null || true
+          rm -rf .devflow-staging
           rm -f .github/workflows/temporary-materialize-w04.yml
           rm -rf scripts/devflow/__pycache__ tests/__pycache__
       - name: Validate materialized W04
