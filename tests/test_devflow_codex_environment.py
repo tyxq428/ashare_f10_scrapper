@@ -74,3 +74,21 @@ def test_product_gate_scopes_candidate_from_merge_base_and_fails_closed() -> Non
     assert "Fail closed on changed-path scope violation" in text
     assert "steps.scope.outcome != 'success'" in text
     assert validate_file(workflow) == []
+
+
+def test_product_gate_configures_bot_identity_and_centralizes_merge_failure() -> None:
+    workflow = REPO / ".github/workflows/devflow-product-gate.yml"
+    text = workflow.read_text(encoding="utf-8")
+    merge_section = text.split(
+        "\n      - name: Reconcile latest main, re-run gate if needed, and merge low-risk candidate\n",
+        1,
+    )[1]
+    assert 'git config user.name "github-actions[bot]"' in merge_section
+    assert (
+        'git config user.email "41898282+github-actions[bot]@users.noreply.github.com"'
+        in merge_section
+    )
+    assert "Fail closed when automatic merge boundary is blocked" in merge_section
+    assert "Notify only when automatic merge is genuinely blocked" not in text
+    assert "AUTO_MERGE_BOUNDARY=BLOCKED" in merge_section
+    assert validate_file(workflow) == []
