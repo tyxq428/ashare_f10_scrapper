@@ -14,6 +14,7 @@ class TaskDescriptorError(ValueError):
 BRANCH_RE = re.compile(r"^[A-Za-z0-9._/-]+$")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 RISK_CLASSES = {"low", "medium", "high"}
+REASONING_EFFORTS = {"low", "xhigh"}
 
 
 def _positive_int_or_zero(value: object, field: str) -> int:
@@ -79,8 +80,8 @@ class TaskDescriptor:
                 raise TaskDescriptorError(f"{field} must be a non-empty string")
             values[field] = value.strip()
 
-        if values["reasoning_effort"] != "low":
-            raise TaskDescriptorError("reasoning_effort must be low")
+        if values["reasoning_effort"] not in REASONING_EFFORTS:
+            raise TaskDescriptorError("reasoning_effort must be xhigh or legacy low")
         if values["risk_class"] not in RISK_CLASSES:
             raise TaskDescriptorError("risk_class must be low, medium or high")
         if not BRANCH_RE.fullmatch(values["base_branch"]):
