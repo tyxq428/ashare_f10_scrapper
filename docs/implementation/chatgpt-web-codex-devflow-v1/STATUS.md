@@ -8,7 +8,7 @@ current_stage: W05
 last_completed_stage: W04
 branch: main
 pull_request: 30
-next_action: verify_exact_main_then_continue_real_codex_thin_slice
+next_action: merge_auto_recovery_controller_then_run_real_unattended_codex_thin_slice
 post_merge: RUNNING
 human_intervention_required: false
 ```

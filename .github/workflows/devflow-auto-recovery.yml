@@ -1,0 +1,226 @@
+name: Devflow Auto Recovery
+
+on:
+  workflow_run:
+    workflows:
+      - Codex Task
+      - Devflow Relay Health
+      - Devflow Secret Audit
+      - Devflow State Consistency
+    types:
+      - completed
+
+permissions:
+  actions: write
+  contents: write
+
+concurrency:
+  group: devflow-auto-recovery-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  recover:
+    if: github.event.workflow_run.conclusion != 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Collect bounded source metadata and safe artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: ${{ github.event.workflow_run.id }}
+          SOURCE_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/devflow-source-artifacts
+          gh api "repos/${{ github.repository }}/actions/runs/${SOURCE_RUN}/jobs?filter=latest&per_page=100" \
+            > /tmp/devflow-source-jobs.json
+          gh run download "$SOURCE_RUN" --repo "${{ github.repository }}" \
+            --dir /tmp/devflow-source-artifacts >/dev/null 2>&1 || true
+          if [[ -n "$SOURCE_BRANCH" ]]; then
+            git fetch --no-tags origin \
+              "+refs/heads/${SOURCE_BRANCH}:refs/remotes/origin/${SOURCE_BRANCH}" \
+              >/dev/null 2>&1 || true
+            git show "refs/remotes/origin/${SOURCE_BRANCH}:.agent/current_task.yaml" \
+              > /tmp/devflow-source-task.yaml 2>/dev/null || true
+          fi
+
+      - name: Classify failure before any notification
+        id: decision
+        shell: bash
+        env:
+          SOURCE_NAME: ${{ github.event.workflow_run.name }}
+          SOURCE_RUN: ${{ github.event.workflow_run.id }}
+          SOURCE_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          SOURCE_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        run: |
+          set -euo pipefail
+          if [[ ! -s /tmp/devflow-source-task.yaml && "$SOURCE_NAME" == "Devflow State Consistency" ]]; then
+            MAIN_SHA="$(git rev-parse origin/main)"
+            python - "$SOURCE_RUN" "$MAIN_SHA" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          source_run = int(sys.argv[1])
+          main_sha = sys.argv[2]
+          value = {
+              "schema_version": 1,
+              "task_id": f"devflow-state-consistency-{source_run}",
+              "objective": "Repair the deterministic devflow state or validation failure without widening scope.",
+              "base_branch": "main",
+              "publish_branch": f"codex/devflow-state-consistency-{source_run}",
+              "allowed_files": [
+                  "scripts/devflow/state_model.py",
+                  "scripts/devflow/validate_state.py",
+                  "scripts/devflow/render_task_docs.py",
+                  "scripts/devflow/validate_workflows.py",
+                  "tests/test_devflow.py"
+              ],
+              "forbidden_patterns": [".github/**", ".env", "secrets/**", "src/**", "docs/**"],
+              "required_changes": [
+                  "Run the deterministic devflow tests and repair only the failing validator or state model.",
+                  "Do not alter business semantics, workflows, secrets or task scope."
+              ],
+              "acceptance_notes": ["The failure is reproducible by the trusted devflow gate."],
+              "gate_profile": "devflow-targeted",
+              "full_gate_profile": "repository-full",
+              "post_merge_profile": "repository-full",
+              "reasoning_effort": "low",
+              "session_limit": 1,
+              "automatic_second_session": 0,
+              "recovery_generation": 0,
+              "max_recovery_generations": 1,
+              "parent_task_id": None,
+              "parent_run_id": source_run,
+              "risk_class": "low",
+              "auto_merge": True,
+              "expected_base_sha": main_sha,
+              "stop_conditions": [
+                  "any changed path outside allowed_files",
+                  "secret audit match",
+                  "business or architecture decision required"
+              ]
+          }
+          Path('/tmp/devflow-source-task.yaml').write_text(json.dumps(value, indent=2) + '\n')
+          PY
+          fi
+
+          args=(
+            --source-workflow "$SOURCE_NAME"
+            --source-run-id "$SOURCE_RUN"
+            --conclusion "$SOURCE_CONCLUSION"
+            --run-attempt "$SOURCE_ATTEMPT"
+            --jobs-json /tmp/devflow-source-jobs.json
+            --artifact-root /tmp/devflow-source-artifacts
+            --output /tmp/devflow-recovery-decision.json
+          )
+          if [[ -s /tmp/devflow-source-task.yaml ]]; then
+            args+=(--task-file /tmp/devflow-source-task.yaml)
+            echo "task_available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "task_available=false" >> "$GITHUB_OUTPUT"
+          fi
+          python scripts/devflow/recovery_policy.py "${args[@]}"
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          from pathlib import Path
+          value = json.loads(Path('/tmp/devflow-recovery-decision.json').read_text())
+          for key in ('action', 'reason_code', 'fingerprint', 'notification_type'):
+              raw = value.get(key)
+              print(f"{key}={'' if raw is None else raw}")
+          PY
+
+      - name: Retry only failed jobs within infrastructure or Codex budget
+        if: steps.decision.outputs.action == 'RETRY' || steps.decision.outputs.action == 'RETRY_CODEX'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          gh api --method POST \
+            "repos/${{ github.repository }}/actions/runs/${SOURCE_RUN}/rerun-failed-jobs"
+          echo "AUTO_RECOVERY=FAILED_JOBS_RERUN" >> "$GITHUB_STEP_SUMMARY"
+          echo "SOURCE_RUN=${SOURCE_RUN}" >> "$GITHUB_STEP_SUMMARY"
+          echo "No task-control notification was emitted." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create one bounded Codex recovery generation
+        if: steps.decision.outputs.action == 'CODEX_REPAIR' && steps.decision.outputs.task_available == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: ${{ github.event.workflow_run.id }}
+          REASON_CODE: ${{ steps.decision.outputs.reason_code }}
+        run: |
+          set -euo pipefail
+          MAIN_SHA="$(git rev-parse origin/main)"
+          REASON="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          print(json.loads(Path('/tmp/devflow-recovery-decision.json').read_text())['reason'])
+          PY
+          )"
+          python scripts/devflow/recovery_task.py \
+            --original-task /tmp/devflow-source-task.yaml \
+            --source-run-id "$SOURCE_RUN" \
+            --reason-code "$REASON_CODE" \
+            --reason "$REASON" \
+            --expected-base-sha "$MAIN_SHA" \
+            --output /tmp/devflow-recovery-task.yaml
+          RECOVERY_TASK_ID="$(python -c 'import json; print(json.load(open("/tmp/devflow-recovery-task.yaml"))["task_id"])')"
+          RECOVERY_BRANCH="task/codex-${RECOVERY_TASK_ID}"
+          git switch -c "$RECOVERY_BRANCH" origin/main
+          mkdir -p .agent
+          cp /tmp/devflow-recovery-task.yaml .agent/current_task.yaml
+          git add .agent/current_task.yaml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Create bounded Codex recovery task ${RECOVERY_TASK_ID}"
+          git push origin "HEAD:refs/heads/${RECOVERY_BRANCH}"
+          gh api --method POST \
+            "repos/${{ github.repository }}/actions/workflows/codex-task.yml/dispatches" \
+            -f ref=main \
+            -f "inputs[task_branch]=${RECOVERY_BRANCH}"
+          echo "AUTO_RECOVERY=CODEX_REPAIR_DISPATCHED" >> "$GITHUB_STEP_SUMMARY"
+          echo "RECOVERY_TASK=${RECOVERY_TASK_ID}" >> "$GITHUB_STEP_SUMMARY"
+          echo "No task-control notification was emitted." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Escalate only after automatic policy requires human attention
+        if: >-
+          steps.decision.outputs.action == 'HUMAN_REQUIRED' ||
+          steps.decision.outputs.action == 'SECURITY_BLOCKED' ||
+          steps.decision.outputs.action == 'INTERRUPTED' ||
+          (steps.decision.outputs.action == 'CODEX_REPAIR' && steps.decision.outputs.task_available != 'true')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          value = json.loads(Path('/tmp/devflow-recovery-decision.json').read_text())
+          if value['action'] == 'CODEX_REPAIR':
+              value.update({
+                  'action': 'INTERRUPTED',
+                  'notification_type': 'INTERRUPTED',
+                  'reason_code': 'RECOVERY_TASK_CONTEXT_UNAVAILABLE',
+                  'reason': 'A bounded repair was eligible but the immutable task descriptor was unavailable.',
+                  'minimum_action': 'Review the failure bundle and recreate a trusted task descriptor from current main.',
+              })
+          payload = {'event_type': 'devflow_notify', 'client_payload': value}
+          Path('/tmp/devflow-notify-payload.json').write_text(json.dumps(payload))
+          PY
+          gh api --method POST "repos/${{ github.repository }}/dispatches" \
+            --input /tmp/devflow-notify-payload.json
+          echo "AUTO_RECOVERY=ESCALATED_AFTER_POLICY" >> "$GITHUB_STEP_SUMMARY"

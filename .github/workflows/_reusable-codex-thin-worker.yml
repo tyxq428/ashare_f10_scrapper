@@ -49,9 +49,9 @@ jobs:
       - name: Register private value masks
         shell: bash
         env:
-          ENDPOINT: ${{ secrets.AGENT_RESPONSES_ENDPOINT }}
-          API_KEY: ${{ secrets.AGENT_API_KEY }}
-          MODEL: ${{ secrets.AGENT_MODEL }}
+          ENDPOINT: ${{ secrets.AGENT_RESPONSES_ENDPOINT || secrets.CODEX_RESPONSES_ENDPOINT || secrets.CODEX_ENDPOINT }}
+          API_KEY: ${{ secrets.AGENT_API_KEY || secrets.CODEX_API_KEY || secrets.CODEX_TOKEN || secrets.OPENAI_API_KEY }}
+          MODEL: ${{ secrets.AGENT_MODEL || secrets.CODEX_MODEL }}
         run: |
           set +x
           python - <<'PY'
@@ -86,9 +86,9 @@ jobs:
         id: runtime
         continue-on-error: true
         env:
-          AGENT_RESPONSES_ENDPOINT: ${{ secrets.AGENT_RESPONSES_ENDPOINT }}
-          AGENT_API_KEY: ${{ secrets.AGENT_API_KEY }}
-          AGENT_MODEL: ${{ secrets.AGENT_MODEL }}
+          AGENT_RESPONSES_ENDPOINT: ${{ secrets.AGENT_RESPONSES_ENDPOINT || secrets.CODEX_RESPONSES_ENDPOINT || secrets.CODEX_ENDPOINT }}
+          AGENT_API_KEY: ${{ secrets.AGENT_API_KEY || secrets.CODEX_API_KEY || secrets.CODEX_TOKEN || secrets.OPENAI_API_KEY }}
+          AGENT_MODEL: ${{ secrets.AGENT_MODEL || secrets.CODEX_MODEL }}
           PYTHONPATH: scripts/devflow
         run: |
           python scripts/devflow/runtime_preflight.py \
@@ -100,7 +100,7 @@ jobs:
         continue-on-error: true
         shell: bash
         env:
-          AGENT_RESPONSES_ENDPOINT: ${{ secrets.AGENT_RESPONSES_ENDPOINT }}
+          AGENT_RESPONSES_ENDPOINT: ${{ secrets.AGENT_RESPONSES_ENDPOINT || secrets.CODEX_RESPONSES_ENDPOINT || secrets.CODEX_ENDPOINT }}
           PYTHONPATH: scripts/devflow
         run: |
           set -euo pipefail
@@ -127,16 +127,17 @@ jobs:
             cat /tmp/private-responses-forwarder-status.json
           exit 1
 
-      # One bounded Codex Session. Automatic second session is intentionally disabled.
+      # One bounded Codex session per task generation. A separate automatic
+      # recovery generation may be created only by the recovery policy.
       - name: Run one Codex Thin Worker session
         id: codex
         if: steps.runtime.outcome == 'success' && steps.forwarder.outcome == 'success'
         continue-on-error: true
         uses: openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56
         with:
-          openai-api-key: ${{ secrets.AGENT_API_KEY }}
+          openai-api-key: ${{ secrets.AGENT_API_KEY || secrets.CODEX_API_KEY || secrets.CODEX_TOKEN || secrets.OPENAI_API_KEY }}
           responses-api-endpoint: http://127.0.0.1:8787/v1/responses
-          model: ${{ secrets.AGENT_MODEL }}
+          model: ${{ secrets.AGENT_MODEL || secrets.CODEX_MODEL }}
           effort: low
           prompt-file: ${{ inputs.task_file }}
           output-file: /tmp/codex-result.json
@@ -176,9 +177,9 @@ jobs:
         if: always()
         shell: bash
         env:
-          AGENT_RESPONSES_ENDPOINT: ${{ secrets.AGENT_RESPONSES_ENDPOINT }}
-          AGENT_API_KEY: ${{ secrets.AGENT_API_KEY }}
-          AGENT_MODEL: ${{ secrets.AGENT_MODEL }}
+          AGENT_RESPONSES_ENDPOINT: ${{ secrets.AGENT_RESPONSES_ENDPOINT || secrets.CODEX_RESPONSES_ENDPOINT || secrets.CODEX_ENDPOINT }}
+          AGENT_API_KEY: ${{ secrets.AGENT_API_KEY || secrets.CODEX_API_KEY || secrets.CODEX_TOKEN || secrets.OPENAI_API_KEY }}
+          AGENT_MODEL: ${{ secrets.AGENT_MODEL || secrets.CODEX_MODEL }}
         run: |
           set -euo pipefail
           ARTIFACT=/tmp/codex-artifact
@@ -259,6 +260,10 @@ jobs:
           ref: ${{ inputs.task_branch }}
           fetch-depth: 0
 
+      - name: Preserve trusted task descriptor outside the product tree
+        run: |
+          cp "${{ inputs.task_file }}" /tmp/devflow-publish-task.yaml
+
       - name: Download audited handoff outside repository workspace
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
@@ -279,9 +284,10 @@ jobs:
           git switch -c "${{ inputs.publish_branch }}"
           git apply --index /tmp/codex-handoff/codex.patch
           python scripts/devflow/verify_changed_paths.py \
-            --task-file "${{ inputs.task_file }}" \
+            --task-file /tmp/devflow-publish-task.yaml \
             --status \
             --output /tmp/publish-scope-result.json
+          git rm -f .agent/current_task.yaml
 
       - name: Re-run trusted gate without relay secrets
         run: |
@@ -291,6 +297,7 @@ jobs:
             --output /tmp/publish-gate-result.json
 
       - name: Commit and push isolated product branch
+        id: publish
         shell: bash
         run: |
           set -euo pipefail
@@ -298,5 +305,37 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "Apply Codex thin-worker task ${{ inputs.task_id }}"
           git push origin "HEAD:refs/heads/${{ inputs.publish_branch }}"
+          echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "PUBLISHED_BRANCH=${{ inputs.publish_branch }}" >> "$GITHUB_STEP_SUMMARY"
           echo "PUBLISHED_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+
+  continue:
+    name: explicit-product-gate-dispatch
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Dispatch full product gate without relying on push recursion
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          payload = {
+              'event_type': 'devflow_product_gate',
+              'client_payload': {
+                  'task_id': '${{ inputs.task_id }}',
+                  'task_branch': '${{ inputs.task_branch }}',
+                  'publish_branch': '${{ inputs.publish_branch }}',
+              },
+          }
+          Path('/tmp/devflow-product-gate.json').write_text(json.dumps(payload))
+          PY
+          gh api --method POST "repos/${{ github.repository }}/dispatches" \
+            --input /tmp/devflow-product-gate.json
+          echo "NEXT_GATE=Devflow Product Gate" >> "$GITHUB_STEP_SUMMARY"

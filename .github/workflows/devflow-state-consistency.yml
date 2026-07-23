@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - "feature/chatgpt-web-codex-devflow-*"
+      - "feature/devflow-*"
     paths:
       - AGENTS.md
       - "**/AGENTS.md"
@@ -60,11 +61,16 @@ jobs:
             --output devflow-state-result.json \
             "${EXTRA_ARGS[@]}"
       - name: Validate devflow workflows and tests
+        shell: bash
         run: |
+          set -euo pipefail
           python -m compileall -q scripts/devflow
-          python scripts/devflow/validate_workflows.py
-          ruff check scripts/devflow tests/test_devflow.py
-          pytest -q tests/test_devflow.py
+          python scripts/devflow/validate_workflows.py \
+            2>&1 | tee devflow-workflow-validation.log
+          ruff check scripts/devflow tests/test_devflow.py \
+            2>&1 | tee devflow-ruff.log
+          pytest -q tests/test_devflow.py \
+            2>&1 | tee devflow-pytest.log
       - name: Upload diagnostics only on failure
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -73,5 +79,8 @@ jobs:
           path: |
             devflow-state-result.json
             devflow-workflow-validation.json
+            devflow-workflow-validation.log
+            devflow-ruff.log
+            devflow-pytest.log
           if-no-files-found: warn
           retention-days: 7

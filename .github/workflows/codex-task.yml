@@ -24,7 +24,7 @@ concurrency:
 
 jobs:
   read-task:
-    if: github.actor == 'tyxq428'
+    if: github.actor == 'tyxq428' || github.actor == 'github-actions[bot]'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -44,37 +44,34 @@ jobs:
         shell: bash
         env:
           CONTROL_BRANCH: ${{ inputs.task_branch || github.ref_name }}
+          EVENT_NAME: ${{ github.event_name }}
+          ACTOR: ${{ github.actor }}
         run: |
           python - <<'PY'
           from __future__ import annotations
 
-          import json
           import os
-          import re
+          import sys
           from pathlib import Path
 
-          value = json.loads(Path('.agent/current_task.yaml').read_text(encoding='utf-8'))
-          for key in ('task_id', 'publish_branch', 'allowed_files', 'gate_profile'):
-              if key not in value:
-                  raise SystemExit(f'missing task key: {key}')
-          if value.get('reasoning_effort') != 'low':
-              raise SystemExit('reasoning_effort must be low')
-          if value.get('session_limit') != 1 or value.get('automatic_second_session') != 0:
-              raise SystemExit('exactly one Codex session is allowed')
+          sys.path.insert(0, 'scripts/devflow')
+          from task_descriptor import load_task_descriptor
+
           control_branch = os.environ['CONTROL_BRANCH']
-          publish_branch = str(value['publish_branch'])
+          actor = os.environ['ACTOR']
+          event_name = os.environ['EVENT_NAME']
           if not control_branch.startswith('task/codex-'):
               raise SystemExit('untrusted control branch')
-          if not re.fullmatch(r'codex/[A-Za-z0-9._/-]+', publish_branch):
-              raise SystemExit('invalid publish branch')
-          if not isinstance(value['allowed_files'], list) or not value['allowed_files']:
-              raise SystemExit('allowed_files must be non-empty')
+          if actor == 'github-actions[bot]' and event_name != 'workflow_dispatch':
+              raise SystemExit('bot execution must use an explicit workflow_dispatch')
+
+          _raw, task = load_task_descriptor(Path('.agent/current_task.yaml'))
           with Path(os.environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as handle:
-              handle.write(f"task_id={value['task_id']}\n")
-              handle.write(f"task_branch={control_branch}\n")
+              handle.write(f'task_id={task.task_id}\n')
+              handle.write(f'task_branch={control_branch}\n')
               handle.write('task_file=.agent/current_task.yaml\n')
-              handle.write(f"gate_profile={value['gate_profile']}\n")
-              handle.write(f"publish_branch={publish_branch}\n")
+              handle.write(f'gate_profile={task.gate_profile}\n')
+              handle.write(f'publish_branch={task.publish_branch}\n')
           PY
 
   worker:

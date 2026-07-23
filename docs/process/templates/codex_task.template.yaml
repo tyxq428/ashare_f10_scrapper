@@ -5,16 +5,28 @@
   "base_branch": "main",
   "publish_branch": "codex/replace-me",
   "allowed_files": ["path/to/file.py", "tests/test_file.py"],
-  "forbidden_patterns": [".github/**", ".env", "secrets/**"],
+  "forbidden_patterns": [".github/**", ".env", "secrets/**", "docs/**"],
   "required_changes": ["replace-me"],
-  "gate_profile": "replace-me",
+  "acceptance_notes": ["keep the patch minimal"],
+  "gate_profile": "replace-me-targeted",
+  "full_gate_profile": "repository-full",
+  "post_merge_profile": "repository-full",
   "reasoning_effort": "low",
   "session_limit": 1,
   "automatic_second_session": 0,
+  "recovery_generation": 0,
+  "max_recovery_generations": 1,
+  "parent_task_id": null,
+  "parent_run_id": null,
+  "risk_class": "low",
+  "auto_merge": false,
+  "notify_completion": false,
+  "expected_base_sha": "0000000000000000000000000000000000000000",
   "stop_conditions": [
     "any changed path outside allowed_files",
     "secret audit match",
-    "targeted gate failure after the single session",
-    "business or architecture decision required"
+    "targeted gate failure after the bounded recovery budget",
+    "business or architecture decision required",
+    "main branch changed and cannot be replayed without conflict"
   ]
 }
