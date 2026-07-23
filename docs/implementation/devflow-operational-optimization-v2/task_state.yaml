@@ -1,11 +1,17 @@
 {
-  "schema_version": 1,
-  "state_revision": 2,
+  "schema_version": 2,
+  "state_revision": 3,
   "task_id": "devflow-operational-optimization-v2",
   "title": "Devflow operational optimization v2",
   "status": "RUNNING",
   "execution_status": "RUNNING",
-  "research_acceptance_status": "PENDING",
+  "acceptance": {
+    "domain": "generic",
+    "status": "PENDING",
+    "reason_code": null,
+    "details_path": null
+  },
+  "security_status": "PENDING",
   "working_branch": "feature/devflow-operational-optimization-v2",
   "pull_request": null,
   "base_sha_at_start": "4f9fbdc0c46d334c2789e74d65a1b7921d02d23f",
@@ -13,10 +19,15 @@
   "last_state_commit_sha": null,
   "current_stage": "W01",
   "last_completed_stage": "W00",
-  "last_successful_step": "W00_baseline_and_drift_audit_passed",
-  "next_action": "implement_xhigh_instruction_consistency_and_context_budget",
+  "last_successful_step": "W01_W05_implementation_ready_for_pull_request_gates",
+  "next_action": "open_pull_request_and_run_devflow_impact_upgrade_and_forced_full_gates",
   "gate_results": {
-    "W00": "PASS"
+    "W00": "PASS",
+    "W01_IMPLEMENTATION": "READY_FOR_GATE",
+    "W02_IMPLEMENTATION": "READY_FOR_GATE",
+    "W03_IMPLEMENTATION": "READY_FOR_GATE",
+    "W04_IMPLEMENTATION": "READY_FOR_GATE",
+    "W05_IMPLEMENTATION": "READY_FOR_GATE"
   },
   "retry_budget": {
     "infrastructure": 3,
@@ -42,5 +53,5 @@
     "acknowledged": true,
     "control_issue_number": null
   },
-  "updated_at_utc": "2026-07-23T14:02:56Z"
+  "updated_at_utc": "2026-07-23T15:17:31Z"
 }
