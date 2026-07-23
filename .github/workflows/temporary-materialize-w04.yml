@@ -42,14 +42,15 @@ jobs:
           python - <<'PY'
           from pathlib import Path, PurePosixPath
           import base64
-          import hashlib
           import tarfile
 
+          root = Path.cwd().resolve()
+          trusted_path = root / 'scripts/devflow/relay_health_check.py'
+          trusted_relay_health = trusted_path.read_bytes()
           chunks = [Path(f'.devflow-staging/w04.part{i:02d}') for i in range(7)]
           encoded = b''.join(path.read_bytes() for path in chunks)
           payload = base64.b64decode(encoded, validate=True)
           Path('/tmp/w04.tar.gz').write_bytes(payload)
-          root = Path.cwd().resolve()
           with tarfile.open('/tmp/w04.tar.gz', 'r:gz') as archive:
               members = archive.getmembers()
               for member in members:
@@ -60,6 +61,7 @@ jobs:
                   if root not in destination.parents and destination != root:
                       raise SystemExit('archive member escapes repository')
               archive.extractall(root, filter='data')
+          trusted_path.write_bytes(trusted_relay_health)
           print('TRANSPORT_ARCHIVE_VALIDATION=PASS')
           PY
       - name: Remove one-time transport files
