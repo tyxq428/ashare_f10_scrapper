@@ -1,0 +1,68 @@
+name: Devflow State Consistency
+
+on:
+  push:
+    branches:
+      - main
+      - "feature/chatgpt-web-codex-devflow-*"
+    paths:
+      - AGENTS.md
+      - "**/AGENTS.md"
+      - "docs/process/**"
+      - "docs/implementation/**"
+      - "scripts/devflow/**"
+      - "tests/test_devflow.py"
+      - ".github/workflows/*devflow*"
+      - ".github/workflows/*codex*"
+  pull_request:
+    paths:
+      - AGENTS.md
+      - "**/AGENTS.md"
+      - "docs/process/**"
+      - "docs/implementation/**"
+      - "scripts/devflow/**"
+      - "tests/test_devflow.py"
+      - ".github/workflows/*devflow*"
+      - ".github/workflows/*codex*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+
+jobs:
+  consistency:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install development dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Validate canonical state and process files
+        run: |
+          python scripts/devflow/validate_state.py \
+            --task-dir docs/implementation/chatgpt-web-codex-devflow-v1 \
+            --output devflow-state-result.json
+      - name: Validate devflow workflows and tests
+        run: |
+          python -m compileall -q scripts/devflow
+          python scripts/devflow/validate_workflows.py
+          ruff check scripts/devflow tests/test_devflow.py
+          pytest -q tests/test_devflow.py
+      - name: Upload diagnostics only on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: devflow-state-diagnostics-${{ github.run_id }}
+          path: |
+            devflow-state-result.json
+            devflow-workflow-validation.json
+          if-no-files-found: warn
+          retention-days: 7
