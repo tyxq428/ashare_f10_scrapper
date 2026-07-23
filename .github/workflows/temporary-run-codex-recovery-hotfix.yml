@@ -52,18 +52,34 @@ jobs:
           path: /tmp/codex-recovery-hotfix-apply.log
           if-no-files-found: error
           retention-days: 3
-      - name: Fail after diagnostic upload
+      - name: Fail after patch diagnostic upload
         if: steps.patch.outcome != 'success'
         run: exit 1
       - name: Validate without Codex
+        id: validate
         if: steps.patch.outcome == 'success'
+        continue-on-error: true
         run: |
-          python -m compileall -q scripts/devflow
-          python scripts/devflow/validate_workflows.py
-          ruff check scripts/devflow tests/test_devflow.py tests/test_devflow_codex_environment.py
-          pytest -q tests/test_devflow.py tests/test_devflow_codex_environment.py
+          set -o pipefail
+          {
+            python -m compileall -q scripts/devflow
+            python scripts/devflow/validate_workflows.py
+            ruff check scripts/devflow tests/test_devflow.py tests/test_devflow_codex_environment.py
+            pytest -q tests/test_devflow.py tests/test_devflow_codex_environment.py
+          } 2>&1 | tee /tmp/codex-recovery-hotfix-validation.log
+      - name: Upload bounded validation diagnostics
+        if: steps.validate.outcome != 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: codex-recovery-hotfix-validation-${{ github.run_id }}
+          path: /tmp/codex-recovery-hotfix-validation.log
+          if-no-files-found: error
+          retention-days: 3
+      - name: Fail after validation diagnostic upload
+        if: steps.patch.outcome == 'success' && steps.validate.outcome != 'success'
+        run: exit 1
       - name: Commit patch and remove temporary runners
-        if: steps.patch.outcome == 'success'
+        if: steps.patch.outcome == 'success' && steps.validate.outcome == 'success'
         run: |
           git rm .github/workflows/temporary-patch-codex-recovery-circuit-breaker.yml
           git rm .github/workflows/temporary-run-codex-recovery-hotfix.yml
