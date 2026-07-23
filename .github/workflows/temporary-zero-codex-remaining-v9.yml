@@ -1,3 +1,4 @@
+# Deterministic trigger; no Codex or relay access.
 name: Temporary Zero-Codex Remaining V9
 
 on:
