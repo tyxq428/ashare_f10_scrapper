@@ -1,0 +1,70 @@
+name: Temporary Materialize W04
+
+on:
+  push:
+    branches:
+      - feature/chatgpt-web-codex-devflow-v1
+    paths:
+      - .devflow-staging/w04.tar.gz.b64
+      - .github/workflows/temporary-materialize-w04.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: temporary-materialize-w04
+  cancel-in-progress: false
+
+jobs:
+  materialize:
+    if: github.actor == 'tyxq428'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: feature/chatgpt-web-codex-devflow-v1
+          fetch-depth: 0
+      - name: Decode and validate trusted bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          base64 --decode .devflow-staging/w04.tar.gz.b64 > /tmp/w04.tar.gz
+          python - <<'PY'
+          from pathlib import Path, PurePosixPath
+          import tarfile
+
+          root = Path.cwd().resolve()
+          with tarfile.open('/tmp/w04.tar.gz', 'r:gz') as archive:
+              members = archive.getmembers()
+              for member in members:
+                  path = PurePosixPath(member.name)
+                  if path.is_absolute() or '..' in path.parts:
+                      raise SystemExit('unsafe archive member')
+                  destination = (root / member.name).resolve()
+                  if root not in destination.parents and destination != root:
+                      raise SystemExit('archive member escapes repository')
+              archive.extractall(root, filter='data')
+          PY
+      - name: Remove one-time transport files
+        run: |
+          rm -f .devflow-staging/w04.tar.gz.b64
+          rmdir .devflow-staging 2>/dev/null || true
+          rm -f .github/workflows/temporary-materialize-w04.yml
+          rm -rf scripts/devflow/__pycache__ tests/__pycache__
+      - name: Validate materialized W04
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          python -m compileall -q scripts/devflow
+          python scripts/devflow/validate_workflows.py
+          pytest -q tests/test_devflow.py
+      - name: Commit and publish W04
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Complete W04 reusable Codex and secure workflows"
+          git push origin HEAD:feature/chatgpt-web-codex-devflow-v1
