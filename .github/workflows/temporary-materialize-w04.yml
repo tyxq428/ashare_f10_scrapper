@@ -7,6 +7,10 @@ on:
     paths:
       - .devflow-staging/w04.tar.gz.b64
       - .github/workflows/temporary-materialize-w04.yml
+  pull_request:
+    branches:
+      - main
+    types: [opened, reopened, synchronize]
 
 permissions:
   contents: write
