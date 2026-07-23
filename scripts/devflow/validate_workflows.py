@@ -55,7 +55,7 @@ def validate_file(path: Path) -> list[str]:
                 "http://127.0.0.1:8787/v1/responses",
                 "effort: low",
                 "safety-strategy: drop-sudo",
-                "automatic recovery generation",
+                "recovery generation",
                 "devflow_product_gate",
             ),
             errors,
@@ -103,7 +103,7 @@ def validate_file(path: Path) -> list[str]:
             (
                 "repository_dispatch",
                 "devflow_notify",
-                "/ack` only confirms",
+                "does **not** trigger repair",
                 "control_issue_number",
             ),
             errors,
