@@ -184,6 +184,7 @@ jobs:
         run: |
           set -euo pipefail
           PRODUCT_SHA="$(git rev-parse HEAD)"
+          python scripts/devflow/append_engineering_lessons.py
           python scripts/devflow/finalize_task.py \
             --product-sha "$PRODUCT_SHA" \
             --post-merge-run-id "${{ github.run_id }}" \
@@ -207,7 +208,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          PRODUCT_SHA="$(git rev-parse HEAD^)"
           python - <<'PY'
           import hashlib
           import json
