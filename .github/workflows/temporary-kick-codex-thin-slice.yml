@@ -1,4 +1,4 @@
-name: Temporary Observe Codex Thin Slice
+name: Temporary Patch Product Gate Identity
 
 on:
   push:
@@ -8,39 +8,63 @@ on:
       - .github/workflows/temporary-kick-codex-thin-slice.yml
 
 permissions:
-  actions: read
   contents: write
 
 jobs:
-  report:
+  patch:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          ref: main
+          ref: fix/product-gate-merge-identity
           fetch-depth: 0
-      - name: Read latest non-secret Codex workflow metadata
+      - name: Configure Bot identity and centralize merge-boundary failure
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TASK_BRANCH: task/codex-resilient-command-terminal-status-auto-v3
         run: |
           set -euo pipefail
-          gh api \
-            "repos/${{ github.repository }}/actions/workflows/codex-task.yml/runs?per_page=30" \
-            --jq '{task_branch: "'"${TASK_BRANCH}"'", observed_at_utc: now | todate, workflow_runs: [.workflow_runs[] | {id, status, conclusion, run_attempt, head_branch, head_sha, event, display_title, created_at, updated_at, html_url}]}' \
-            > /tmp/codex-run-status.json
-      - name: Publish only non-secret runtime metadata
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/workflows/devflow-product-gate.yml')
+          text = path.read_text(encoding='utf-8')
+          marker = '''        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          CURRENT_MAIN="$(git rev-parse origin/main)"
+'''
+          replacement = '''        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch --no-tags origin main
+          CURRENT_MAIN="$(git rev-parse origin/main)"
+'''
+          if marker not in text:
+              raise SystemExit('merge identity insertion marker not found')
+          text = text.replace(marker, replacement, 1)
+
+          start = text.index('      - name: Notify only when automatic merge is genuinely blocked\n')
+          end = text.index('      - name: Explicitly dispatch independent exact-main post-merge verification\n', start)
+          replacement_block = '''      - name: Fail closed when automatic merge boundary is blocked
+        if: >-
+          steps.full_gate.outcome == 'success' &&
+          steps.task.outputs.auto_merge == 'true' &&
+          steps.merge.outcome != 'success'
+        run: |
+          echo "AUTO_MERGE_BOUNDARY=BLOCKED"
+          exit 1
+
+'''
+          text = text[:start] + replacement_block + text[end:]
+          path.write_text(text, encoding='utf-8')
+          PY
+      - name: Commit deterministic patch
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git switch --orphan runtime-devflow-status
-          git rm -rf . >/dev/null 2>&1 || true
-          mkdir -p runtime
-          cp /tmp/codex-run-status.json runtime/codex-run-status.json
-          git add runtime/codex-run-status.json
-          git commit -m "Publish safe Codex runtime status"
-          git push --force origin HEAD:refs/heads/runtime/devflow-status
+          git add .github/workflows/devflow-product-gate.yml
+          git commit -m "Configure Product Gate Bot identity and centralized merge recovery"
+          git push origin HEAD:fix/product-gate-merge-identity
