@@ -1,0 +1,40 @@
+name: Temporary Run Codex Recovery Hotfix
+
+on:
+  push:
+    branches:
+      - fix/codex-recovery-circuit-breaker
+    paths:
+      - scripts/devflow/temporary_apply_codex_recovery_hotfix.py
+      - .github/workflows/temporary-run-codex-recovery-hotfix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: fix/codex-recovery-circuit-breaker
+          fetch-depth: 0
+      - name: Apply deterministic patch
+        run: python scripts/devflow/temporary_apply_codex_recovery_hotfix.py
+      - name: Validate without Codex
+        run: |
+          python -m compileall -q scripts/devflow
+          python scripts/devflow/validate_workflows.py
+          ruff check scripts/devflow tests/test_devflow.py tests/test_devflow_codex_environment.py
+          pytest -q tests/test_devflow.py tests/test_devflow_codex_environment.py
+      - name: Commit patch and remove temporary runners
+        run: |
+          git rm .github/workflows/temporary-patch-codex-recovery-circuit-breaker.yml
+          git rm .github/workflows/temporary-run-codex-recovery-hotfix.yml
+          git rm scripts/devflow/temporary_apply_codex_recovery_hotfix.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github scripts/devflow tests docs
+          git commit -m "Stop blocked Codex recovery loops and require immutable failure context"
+          git push origin HEAD:fix/codex-recovery-circuit-breaker
