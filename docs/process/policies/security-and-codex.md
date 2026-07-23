@@ -34,28 +34,28 @@ jobs:
       contents: read
 ```
 
-不得把 Secret-bearing Job 放进由本地 `workflow_call` 间接调用的 reusable workflow。正式运行已经证明：普通 Job 的 Environment presence 探针可读到三个 Secret，而旧 reusable workflow 边界中的同名表达式为空。为消除平台行为差异：
+不得把 Secret-bearing Job 放进由本地 `workflow_call` 间接调用的 reusable workflow。正式运行已证明普通 Job 可读取 Environment Secrets，而旧 reusable workflow 边界中的同名表达式为空：
 
 - `codex-task.yml` 直接拥有 Environment 和 Secret-bearing Job；
 - 可复用单元是 `.github/actions/codex-thin-worker/action.yml` composite action；
-- composite action 只接收显式 inputs，不直接读取 `secrets.*`；
-- `Codex Task` 只接受显式 `workflow_dispatch`，不使用任务分支 Push 触发旧分支中的 Workflow 版本。
+- composite action 只接收显式 inputs，不读取 `secrets.*`；
+- `Codex Task` 只接受显式 `workflow_dispatch`，不使用任务分支 Push 触发旧 Workflow 版本。
 
 ## 可信 Bot 授权
 
-自动接力由仓库自身 `github-actions[bot]` 发起 `workflow_dispatch`。官方 `openai/codex-action` 默认拒绝 Bot actor，因此必须显式配置：
+自动接力由仓库自身 `github-actions[bot]` 发起。官方 Codex Action 必须显式配置：
 
 ```yaml
 allow-bots: "true"
 allow-bot-users: github-actions[bot]
 ```
 
-同时必须保留入口 Workflow 的双重约束：
+同时保留入口双重约束：
 
 - `github.actor` 只能是仓库所有者或 `github-actions[bot]`；
-- 输入只能是 `task/codex-*` 可信控制分支，并由 Task Descriptor 校验器解析。
+- 输入只能是 `task/codex-*` 可信控制分支，并由 Task Descriptor 校验。
 
-禁止使用 `allow-users: "*"`、任意 Bot 通配符、Issue 评论直接触发 Secret Job或外部 Fork 内容。
+禁止任意用户/Bot 通配符、Issue 评论直接触发 Secret Job或外部 Fork 内容。
 
 ## 私有转发
 
@@ -65,62 +65,96 @@ Codex Action 只连接：
 http://127.0.0.1:8787/v1/responses
 ```
 
-Runner 内无日志 Forwarder 从 Environment Secret 读取真实上游并标准化到 Responses endpoint。Forwarder 不记录 URL、Header、请求体、模型 ID 或原始上游错误。
+Runner 内无日志 Forwarder 从 Environment Secret 读取真实上游。Forwarder 不记录 URL、Header、请求体、模型 ID 或原始上游错误。
+
+## XHigh 与版本化 Descriptor
+
+生产 Composite Action 固定：
+
+```yaml
+effort: xhigh
+```
+
+- schema-v2 Task Descriptor 必须显式 `reasoning_effort: xhigh`；
+- schema-v2 必须显式 Context Budget；
+- schema-v1 `low` 只用于读取历史元数据，`effective_reasoning_effort` 仍为 XHigh；
+- Recovery Generation 使用当前 schema-v2 和 XHigh；
+- 任何执行器、文档或模板回退到 Low 都由静态检查阻断；
+- 不支持因费用、延迟或超预算而静默降级到 High/Low。
+
+## Context Budget
+
+模型调用前必须执行 `context_budget.py`，默认限制：
+
+```yaml
+max_allowed_files: 5
+max_task_bytes: 32768
+max_total_allowed_file_bytes: 262144
+max_single_file_bytes: 131072
+max_log_excerpt_lines: 300
+include_chat_history: false
+include_full_sop: false
+```
+
+Context Budget 必须先于读取 Relay Secrets、启动 Forwarder 和调用模型。失败时：
+
+```text
+不调用模型
+→ 不消耗Codex额度
+→ HUMAN_REQUIRED: 缩小允许文件或拆分任务
+```
+
+不得通过降低推理强度、附加完整聊天历史或复制完整 SOP 绕过预算。`context-budget.json` 必须进入 Secret Audit、Manifest、Handoff 和 Publish 复核。
 
 ## 结构化输出交接
 
-官方 Action 使用 Output Schema约束最终消息，并通过 `final-message` output交给 Caller Job。不得把绝对 `/tmp` 路径作为官方 Action 的 `output-file` input。
+官方 Action 使用 Output Schema 约束最终消息，并通过 `final-message` output 交给 Caller Job。不得把绝对 `/tmp` 路径作为第三方 Action 的 `output-file` input。
 
-Caller Job必须：
+Caller Job 必须：
 
-1. 通过环境变量读取 `steps.codex.outputs.final-message`，禁止把模型输出拼接到 Shell 命令；
+1. 通过环境变量读取 `steps.codex.outputs.final-message`，不得拼接成 Shell；
 2. 使用 Python 解析 JSON；
 3. 将规范化结果写入工作区外的 `/tmp/codex-result.json`；
-4. 只有结果解析、Scope Guard、Targeted Gate 和 Secret Audit全部通过后才允许 Publish。
+4. 只有 Context、结果解析、Scope、Targeted Gate 和 Secret Audit 全部通过后才允许 Publish。
 
 ## 权限分离
 
-- Codex Job：`environment: agent-runtime`、`contents: read`、`persist-credentials: false`。
-- Composite Codex Action：只接收当前 Job 的 Key、Model 和 Prompt inputs；不拥有 GitHub 写权限。
-- Publish Job：`contents: write`，不声明 Environment，不接收任何 Relay Secret。
-- Product Gate、Auto Recovery 和 Post-Merge：不得声明 `agent-runtime` 或引用 Relay Secret。
-- Job 间只传经过扫描的 Patch、Manifest、结构化结果和 Gate 摘要。
-- Codex 控制分支中的 `.agent/current_task.yaml` 在产品分支提交前必须移除。
+- Codex Job：`agent-runtime`、`contents: read`、`persist-credentials: false`；
+- Composite Action：只接收 Key、Model 和 Prompt inputs，不拥有 GitHub 写权限；
+- Publish Job：`contents: write`，不声明 Environment，不接收 Relay Secret；
+- Product Gate、Auto Recovery、Branch GC 和 Post-Merge 不得引用 Relay Secret；
+- Job 间只传扫描过的 Patch、Manifest、Context、结构化结果和 Gate 摘要；
+- `.agent/current_task.yaml` 在产品分支提交前必须移除。
 
 ## Thin Worker 边界
 
 - 一个明确目标；
 - 显式允许路径和禁止路径；
 - 每个 Task Generation 一次 Session；
-- 正式运行固定 `effort: xhigh`；
-- 输出 Schema；
+- XHigh；
 - 一个 Targeted Gate；
 - 不做总规划、业务口径、Secret/Workflow 变更、长报告或无限修复；
-- 越界修改立即 `SECURITY_BLOCKED`，不得提交或自动重试。
-
-新任务模板与自动恢复生成器必须写入 `reasoning_effort: xhigh`。为让已经发布的历史控制分支继续完成 Product Gate/Post-Merge，Schema v1 解析器可只读兼容旧值 `low`；运行时不得根据旧值降级，实际 Codex Action 仍固定使用 `xhigh`。
+- 越界修改立即 `SECURITY_BLOCKED`，不得盲目重试。
 
 ## Recovery Generation
 
-自动恢复最多创建一个新的 Codex Recovery Generation。它必须：
+最多创建一个新的 Codex Recovery Generation。它必须：
 
 - 从最新安全基线或失败产品分支创建；
-- 继承原 `allowed_files`、`forbidden_patterns`、Gate 和风险等级；
+- 继承 `allowed_files`、`forbidden_patterns`、Context Budget、Gate 和风险等级；
 - 记录 parent task/run 和 generation；
-- 不扩大权限或上下文；
+- 不扩大权限、范围或上下文；
 - 再失败时进入人工或阻断状态。
 
 ## 低风险自动合并
 
-旧政策中的“禁止任何自动合并”改为更精确的边界：
-
-- 中高风险任务仍禁止自动合并；
+- 中高风险任务禁止自动合并；
 - `.github/**`、`docs/**`、`src/**`、Schema、Secrets、业务口径和不可逆变更禁止自动合并；
-- 只有 `risk_class=low`、明确 `auto_merge=true`、允许文件不超过 5 个且 Scope/Secret/Targeted/Full Gate 全部通过时，Product Gate 才能受控合并；
-- 合并冲突、权限或分支保护不允许强推，必须 `HUMAN_REQUIRED`；
-- 自动合并后必须 exact-main Post-Merge，失败时按同一恢复预算处理。
+- 只有 `risk_class=low`、`auto_merge=true`、允许文件不超过 5 个且 Context/Scope/Secret/Targeted/Full Gate 全部通过时才可受控合并；
+- 冲突、权限或分支保护不允许强推，必须 `HUMAN_REQUIRED`；
+- 自动合并后必须 exact-main Post-Merge。
 
-## 触发安全
+## 触发与供应链安全
 
 不支持：
 
@@ -131,4 +165,4 @@ Caller Job必须：
 - 自动扩大修改范围；
 - 无限 Codex 循环。
 
-所有生产 Action 固定到完整 commit SHA；阶段之间使用显式 `workflow_dispatch` 或 `repository_dispatch`，Payload 仅含非 Secret 标识和经过验证的任务引用。
+所有生产 Action 固定完整 commit SHA；阶段间使用显式 `workflow_dispatch` 或 `repository_dispatch`，Payload 仅含非 Secret 标识和经过验证的任务引用。
