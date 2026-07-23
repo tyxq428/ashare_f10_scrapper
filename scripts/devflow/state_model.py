@@ -46,6 +46,15 @@ def _require(data: dict[str, Any], key: str, expected: type) -> Any:
     return value
 
 
+def _optional_positive_int(data: dict[str, Any], key: str) -> int | None:
+    value = data.get(key)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise StateError(f"{key} must be a positive integer or null")
+    return value
+
+
 def stage_number(stage: str) -> int:
     if len(stage) != 3 or not stage.startswith("W") or not stage[1:].isdigit():
         raise StateError(f"invalid stage: {stage}")
@@ -59,10 +68,12 @@ class TaskState:
     execution_status: str
     research_acceptance_status: str
     working_branch: str
+    pull_request: int | None
     current_stage: str
     last_completed_stage: str | None
     post_merge_status: str
     human_required: bool
+    control_issue_number: int | None
 
     @classmethod
     def from_mapping(cls, data: dict[str, Any]) -> TaskState:
@@ -75,6 +86,7 @@ class TaskState:
         execution_status = _require(data, "execution_status", str)
         acceptance_status = _require(data, "research_acceptance_status", str)
         working_branch = _require(data, "working_branch", str)
+        pull_request = _optional_positive_int(data, "pull_request")
         current_stage = _require(data, "current_stage", str)
         stage_number(current_stage)
 
@@ -105,6 +117,9 @@ class TaskState:
                 if not isinstance(value, str) or not value.strip():
                     raise StateError(f"human_gate.{key} is required")
 
+        notification = _require(data, "notification", dict)
+        control_issue_number = _optional_positive_int(notification, "control_issue_number")
+
         if status == "DONE":
             if execution_status != "COMPLETED":
                 raise StateError("DONE requires execution_status COMPLETED")
@@ -124,7 +139,6 @@ class TaskState:
             _require(data, key, str)
         _require(data, "gate_results", dict)
         _require(data, "retry_budget", dict)
-        _require(data, "notification", dict)
 
         return cls(
             task_id=task_id,
@@ -132,10 +146,12 @@ class TaskState:
             execution_status=execution_status,
             research_acceptance_status=acceptance_status,
             working_branch=working_branch,
+            pull_request=pull_request,
             current_stage=current_stage,
             last_completed_stage=last_completed,
             post_merge_status=post_merge_status,
             human_required=human_required,
+            control_issue_number=control_issue_number,
         )
 
 
