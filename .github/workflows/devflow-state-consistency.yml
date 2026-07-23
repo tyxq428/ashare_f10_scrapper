@@ -13,11 +13,12 @@ on:
       - "docs/process/**"
       - "docs/implementation/**"
       - "scripts/devflow/**"
-      - "tests/test_devflow.py"
-      - "tests/test_devflow_codex_environment.py"
+      - "tests/test_devflow*.py"
       - ".github/actions/codex-thin-worker/**"
       - ".github/workflows/*devflow*"
       - ".github/workflows/*codex*"
+      - ".github/workflows/test.yml"
+      - ".github/workflows/e2e-688521.yml"
   pull_request:
     paths:
       - AGENTS.md
@@ -25,11 +26,12 @@ on:
       - "docs/process/**"
       - "docs/implementation/**"
       - "scripts/devflow/**"
-      - "tests/test_devflow.py"
-      - "tests/test_devflow_codex_environment.py"
+      - "tests/test_devflow*.py"
       - ".github/actions/codex-thin-worker/**"
       - ".github/workflows/*devflow*"
       - ".github/workflows/*codex*"
+      - ".github/workflows/test.yml"
+      - ".github/workflows/e2e-688521.yml"
   workflow_dispatch:
 
 permissions:
@@ -37,21 +39,30 @@ permissions:
 
 env:
   PYTHONDONTWRITEBYTECODE: "1"
+  PYTHONUNBUFFERED: "1"
 
 jobs:
   consistency:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           fetch-depth: 0
           persist-credentials: false
+
+      - uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
       - name: Install development dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
-      - name: Validate canonical state and process files
+
+      - name: Validate every indexed canonical task state
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -62,20 +73,25 @@ jobs:
             EXTRA_ARGS+=(--allow-checkout-branch)
           fi
           python scripts/devflow/validate_state.py \
-            --task-dir docs/implementation/chatgpt-web-codex-devflow-v1 \
+            --all-active \
             --output devflow-state-result.json \
             "${EXTRA_ARGS[@]}"
-      - name: Validate devflow workflows and tests
+
+      - name: Validate Devflow workflows, docs and tests
         shell: bash
         run: |
-          set -euo pipefail
+          set -o pipefail
           python -m compileall -q scripts/devflow
           python scripts/devflow/validate_workflows.py \
             2>&1 | tee devflow-workflow-validation.log
-          ruff check scripts/devflow tests/test_devflow.py tests/test_devflow_codex_environment.py \
+          python scripts/devflow/validate_docs.py \
+            --output devflow-docs-validation.json \
+            2>&1 | tee devflow-docs-validation.log
+          ruff check scripts/devflow tests/test_devflow*.py \
             2>&1 | tee devflow-ruff.log
-          pytest -q tests/test_devflow.py tests/test_devflow_codex_environment.py \
+          pytest -q tests/test_devflow*.py \
             2>&1 | tee devflow-pytest.log
+
       - name: Upload diagnostics only on failure
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -85,6 +101,8 @@ jobs:
             devflow-state-result.json
             devflow-workflow-validation.json
             devflow-workflow-validation.log
+            devflow-docs-validation.json
+            devflow-docs-validation.log
             devflow-ruff.log
             devflow-pytest.log
           if-no-files-found: warn

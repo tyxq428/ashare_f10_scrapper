@@ -12,8 +12,10 @@
 
 ```text
 INFRA_RETRYABLE       HTTP 408/425/429/5xx、超时、DNS、TLS、临时连接、Runner/Artifact错误
-MECHANICAL            Ruff、格式、可确定修复的缓存、临时文件或状态渲染问题
+MECHANICAL            Ruff、格式、缓存、临时文件、Git身份或状态渲染问题
 IMPLEMENTATION        代码逻辑、类型、单元测试或完整Gate失败
+CONTEXT_BUDGET        XHigh任务文件数/字节数/日志上下文超过批准预算
+CODEX_BLOCKED         模型明确BLOCKED、未验证SUCCESS或无可发布结构化结果
 DATA_QUALITY          解析可疑、缺失、单位或期间异常
 RESEARCH_REVIEW       来源冲突、覆盖缺口、部分来源不可用
 PERMISSION_BLOCKED    登录、验证码、Environment Secrets、GitHub权限
@@ -32,12 +34,22 @@ UNCLASSIFIED          无法通过安全摘要确定恢复路径
 → 下载Job/Step元数据和安全摘要Artifact
 → 生成root-cause fingerprint
 → 分类
-   ├─ RETRY：只重跑失败Job
-   ├─ RETRY_CODEX：同一Task Generation定向重跑一次失败Codex Job
-   ├─ CODEX_REPAIR：创建一个受限Recovery Generation
+   ├─ RETRY：只重跑已验证的基础设施失败Job
+   ├─ CODEX_REPAIR：在有效immutable scope内创建一个新Recovery Generation
    ├─ NOOP：成功或无需动作
    └─ HUMAN_REQUIRED / SECURITY_BLOCKED / INTERRUPTED：才通知
 ```
+
+生产路径不执行 `RETRY_CODEX`。相同 Task Descriptor、相同证据和相同失败不得触发第二次模型 Session。
+
+## Codex Circuit Breaker
+
+- `codex-result.status=BLOCKED`：立即 `INTERRUPTED/CODEX_DECLARED_BLOCKED`；
+- SUCCESS 但 `tests_passed != true`：`CODEX_RESULT_UNVERIFIED`；
+- 无可发布结构化结果：`CODEX_EXECUTION_FAILED_NO_RETRY`；
+- State Consistency 无 immutable Descriptor：`STATE_REPAIR_SCOPE_UNAVAILABLE`，禁止合成通用 scope；
+- Context Budget 失败发生在读取 Relay Secret 和调用模型前；
+- 只有确定性 Full/Post-Merge Gate 失败且有原始批准 scope 时，才能创建新 Recovery Generation。
 
 ## 预算
 
@@ -49,10 +61,10 @@ codex_recovery_generations: 1
 same_root_cause_limit: 2
 ```
 
-- 基础设施错误只重试失败步骤、失败组或失败 Job，保留成功缓存。
-- Codex 单个 Task Generation 只运行一次 Session；失败 Job 可以按策略重跑一次，但不会在同一 Session 内无限循环。
-- Targeted、Full 或 Post-Merge Gate 失败且仍在批准范围内时，最多创建一个新的受限 Codex Recovery Generation。
-- Recovery Generation 必须继承原允许路径、禁止路径、风险等级和 Gate，不得自动扩大范围。
+- 基础设施错误只重试失败步骤、失败组或失败 Job，保留成功检查点。
+- Codex 单个 Task Generation 只运行一次 Session；失败后不得自动重复相同 Generation。
+- Full 或 Post-Merge Gate 失败且仍在批准范围内时，最多创建一个新的 schema-v2 XHigh Recovery Generation。
+- Recovery 必须继承原允许路径、禁止路径、Context Budget、风险等级和 Gate，不得扩大范围。
 - 预算内恢复保持静默，不创建 Issue 评论、不发邮件。
 - 同一根因超过预算、无法安全分类或出现真正人工门槛后，才生成 Failure Bundle 并进入 `INTERRUPTED`、`HUMAN_REQUIRED` 或 `SECURITY_BLOCKED`。
 - 任何恢复都必须从最新稳定检查点继续，禁止无理由全量重跑。
@@ -63,7 +75,7 @@ Failure Bundle 只保留：
 
 - 稳定错误分类和 root-cause fingerprint；
 - 失败 Job/Step 名称；
-- 首个相关错误摘要；
+- Context、Codex、Scope、Secret 和 Gate 安全摘要；
 - 失败测试和当前 Diff 摘要；
 - 已完成 Gate、剩余预算和最小人工动作；
 - `HANDOFF.md` 恢复入口。

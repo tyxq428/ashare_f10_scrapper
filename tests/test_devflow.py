@@ -314,7 +314,7 @@ def test_infrastructure_failure_retries_silently() -> None:
     assert decision.notification_type is None
 
 
-def test_codex_failure_gets_one_silent_failed_job_rerun() -> None:
+def test_codex_failure_never_reruns_automatically() -> None:
     first = classify(
         source_workflow="Codex Task",
         source_run_id=102,
@@ -329,9 +329,11 @@ def test_codex_failure_gets_one_silent_failed_job_rerun() -> None:
         run_attempt=2,
         jobs_payload=failed_jobs("Run one Codex Thin Worker session"),
     )
-    assert first.action == "RETRY_CODEX"
-    assert first.notification_type is None
+    assert first.action == "INTERRUPTED"
+    assert first.reason_code == "CODEX_SESSION_NO_AUTOMATIC_RETRY"
+    assert first.notification_type == "INTERRUPTED"
     assert second.action == "INTERRUPTED"
+    assert second.reason_code == "CODEX_SESSION_NO_AUTOMATIC_RETRY"
 
 
 def test_missing_agent_runtime_secrets_are_a_real_human_gate(tmp_path: Path) -> None:

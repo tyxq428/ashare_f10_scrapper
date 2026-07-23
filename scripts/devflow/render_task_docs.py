@@ -14,7 +14,9 @@ def render_status(data: dict[str, object], state: TaskState) -> str:
 ```yaml
 status: {state.status}
 execution_status: {state.execution_status}
-research_acceptance_status: {state.research_acceptance_status}
+acceptance_domain: {state.acceptance_domain}
+acceptance_status: {state.acceptance_status}
+security_status: {state.security_status}
 current_stage: {state.current_stage}
 last_completed_stage: {state.last_completed_stage or 'null'}
 branch: {state.working_branch}
@@ -37,6 +39,9 @@ def render_handoff(data: dict[str, object], state: TaskState) -> str:
 ## 当前事实
 
 - 状态：{state.status}
+- 执行状态：{state.execution_status}
+- 领域验收：{state.acceptance_domain}/{state.acceptance_status}
+- 安全状态：{state.security_status}
 - 阶段：{state.current_stage}
 - 分支：`{state.working_branch}`
 - PR：{data.get('pull_request') or 'pending'}

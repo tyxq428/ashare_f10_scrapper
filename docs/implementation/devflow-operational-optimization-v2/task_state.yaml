@@ -1,0 +1,56 @@
+{
+  "schema_version": 2,
+  "state_revision": 1,
+  "task_id": "devflow-operational-optimization-v2",
+  "title": "Devflow operational optimization and minimal Codex eligibility",
+  "status": "VERIFYING",
+  "execution_status": "RUNNING",
+  "acceptance": {
+    "domain": "generic",
+    "status": "PENDING",
+    "reason_code": null,
+    "details_path": null
+  },
+  "security_status": "PENDING",
+  "working_branch": "feature/devflow-operational-optimization-v2-clean",
+  "pull_request": 50,
+  "base_sha_at_start": "fb895fd372007f41f611b40b4cb0eb57476a6b32",
+  "last_product_commit_sha": "fb895fd372007f41f611b40b4cb0eb57476a6b32",
+  "last_state_commit_sha": null,
+  "current_stage": "W06",
+  "last_completed_stage": "W05",
+  "last_successful_step": "zero_model_implementation_ready_for_ci",
+  "next_action": "run_pr50_zero_model_gates_and_forced_full_validation",
+  "gate_results": {
+    "W00_CODEX_FREEZE": "PASS:PR46",
+    "W01_CLEAN_REBUILD": "PASS",
+    "W02_DETERMINISTIC_REPAIRS": "PASS",
+    "W03_CONTEXT_AND_IMPACT": "PENDING_CI",
+    "W04_STATE_AND_BRANCH_GC": "PENDING_CI",
+    "W05_CODEX_ELIGIBILITY": "PENDING_CI"
+  },
+  "retry_budget": {
+    "infrastructure": 3,
+    "codex_sessions": 0,
+    "codex_recovery_generations": 0,
+    "replans": 2
+  },
+  "human_gate": {
+    "required": false,
+    "reason": null,
+    "minimum_action": null,
+    "resume_from": null
+  },
+  "post_merge": {
+    "status": "PENDING",
+    "merge_sha": null,
+    "verified_run_ids": []
+  },
+  "notification": {
+    "generation": 0,
+    "last_type": null,
+    "acknowledged": true,
+    "control_issue_number": null
+  },
+  "updated_at_utc": "2026-07-23T19:15:00Z"
+}
