@@ -50,6 +50,20 @@ LESSONS = """
 - **根因**：初始产品范围使用`git diff origin/main HEAD`。候选生成后`main`新增了观察/编排提交，双点Diff把`main`独有变化也算入候选差异。
 - **修复**：先验证`expected_base_sha`是候选祖先，再以`git merge-base origin/main HEAD`作为初始范围基线；合并前rebase到最新main后，再以`origin/main..HEAD`重跑范围和Full Gate。
 - **预防规则**：异步候选分支的初始差异必须相对共同祖先或固定批准基线计算，不能直接与移动主分支做双点Diff；真实Scope失败仍须Fail Closed。
+
+## GHA-019 Product Gate未配置Git提交身份导致假人工门槛
+
+- **现象**：Scope和Full Gate均通过，低风险候选进入自动合并后出现`Committer identity unknown`，系统错误发送`AUTO_MERGE_BLOCKED`人工通知。
+- **根因**：Runner执行`git rebase`/`git merge --no-ff`前没有固定`user.name`和`user.email`；同时Product Gate直接通知，没有先交给统一恢复分类。
+- **修复**：合并步骤固定使用`github-actions[bot]`提交身份；失败时Fail Closed并交给Auto Recovery。只有真实冲突、branch protection或权限拒绝才分类为`HUMAN_REQUIRED`。
+- **预防规则**：任何在Runner创建Commit的步骤都必须显式配置Git身份；机械配置缺失不得升级为用户决策。
+
+## GHA-020 Codex推理强度策略与历史Descriptor兼容
+
+- **现象**：正式Thin Worker长期硬编码`effort: low`，与后续任务要求的最高推理强度不一致；直接收紧Schema又会使已发布历史控制分支无法继续Gate。
+- **根因**：运行时策略、任务模板和历史元数据没有分层。
+- **修复**：正式Action固定`effort: xhigh`，新模板和Recovery Generation写入`reasoning_effort: xhigh`；Schema v1只读兼容历史`low`，但历史值不能降低实际运行强度。
+- **预防规则**：模型运行强度由版本化执行器强制；元数据迁移必须避免无意义重跑已经通过G1的历史候选。
 """.strip()
 
 
