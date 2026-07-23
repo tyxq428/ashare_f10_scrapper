@@ -65,7 +65,7 @@ class TaskState:
     human_required: bool
 
     @classmethod
-    def from_mapping(cls, data: dict[str, Any]) -> "TaskState":
+    def from_mapping(cls, data: dict[str, Any]) -> TaskState:
         schema_version = _require(data, "schema_version", int)
         if schema_version != 1:
             raise StateError(f"unsupported schema_version: {schema_version}")
