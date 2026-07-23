@@ -80,18 +80,40 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
-      - name: Check out candidate and enforce approved changed paths
+      - name: Check out candidate and enforce merge-base changed-path scope
+        id: scope
+        continue-on-error: true
         shell: bash
         env:
           PUBLISH_BRANCH: ${{ steps.task.outputs.publish_branch }}
+          EXPECTED_BASE_SHA: ${{ steps.task.outputs.expected_base_sha }}
         run: |
           set -euo pipefail
           git switch -C devflow-product-candidate "refs/remotes/origin/${PUBLISH_BRANCH}"
+          git merge-base --is-ancestor "$EXPECTED_BASE_SHA" HEAD
+          MERGE_BASE="$(git merge-base origin/main HEAD)"
+          [[ "$MERGE_BASE" =~ ^[0-9a-f]{40}$ ]]
+          echo "PRODUCT_SCOPE_MERGE_BASE=${MERGE_BASE}" >> "$GITHUB_STEP_SUMMARY"
           python scripts/devflow/verify_changed_paths.py \
             --task-file /tmp/devflow-task.yaml \
-            --base origin/main \
+            --base "$MERGE_BASE" \
             --head HEAD \
             --output /tmp/product-scope-result.json
+
+      - name: Upload bounded changed-path scope diagnostics
+        if: steps.scope.outcome != 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: product-scope-failure-${{ github.run_id }}
+          path: /tmp/product-scope-result.json
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Fail closed on changed-path scope violation
+        if: steps.scope.outcome != 'success'
+        run: |
+          echo "PRODUCT_SCOPE=SECURITY_BLOCKED"
+          exit 1
 
       - name: Run full product gate
         id: full_gate
