@@ -1,0 +1,174 @@
+name: Devflow Branch Garbage Collection
+
+on:
+  repository_dispatch:
+    types:
+      - devflow_branch_gc
+  workflow_dispatch:
+    inputs:
+      merge_sha:
+        description: Verified product merge SHA already contained in the default branch
+        required: true
+        type: string
+      task_branch:
+        description: Managed task/codex-* branch
+        required: true
+        type: string
+      publish_branch:
+        description: Managed codex/* branch
+        required: true
+        type: string
+      execute:
+        description: Delete branches approved by the deterministic planner
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pull-requests: read
+
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+  PYTHONUNBUFFERED: "1"
+
+concurrency:
+  group: devflow-branch-gc-${{ github.event.client_payload.task_id || inputs.task_branch }}
+  cancel-in-progress: false
+
+jobs:
+  plan-and-optionally-delete:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Validate bounded branch cleanup request
+        id: request
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_PAYLOAD: ${{ toJson(github.event.client_payload) }}
+          INPUT_MERGE_SHA: ${{ inputs.merge_sha }}
+          INPUT_TASK_BRANCH: ${{ inputs.task_branch }}
+          INPUT_PUBLISH_BRANCH: ${{ inputs.publish_branch }}
+          INPUT_EXECUTE: ${{ inputs.execute }}
+        run: |
+          set -euo pipefail
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          if os.environ['EVENT_NAME'] == 'repository_dispatch':
+              value = json.loads(os.environ['DISPATCH_PAYLOAD'])
+              merge_sha = value.get('merge_sha', '')
+              task_branch = value.get('task_branch', '')
+              publish_branch = value.get('publish_branch', '')
+              execute = value.get('execute', False)
+          else:
+              merge_sha = os.environ['INPUT_MERGE_SHA']
+              task_branch = os.environ['INPUT_TASK_BRANCH']
+              publish_branch = os.environ['INPUT_PUBLISH_BRANCH']
+              execute = os.environ['INPUT_EXECUTE'].lower() == 'true'
+
+          if not re.fullmatch(r'[0-9a-f]{40}', str(merge_sha)):
+              raise SystemExit('invalid merge_sha')
+          if not re.fullmatch(r'task/codex-[A-Za-z0-9._/-]+', str(task_branch)):
+              raise SystemExit('invalid task branch')
+          if not re.fullmatch(r'codex/[A-Za-z0-9._/-]+', str(publish_branch)):
+              raise SystemExit('invalid publish branch')
+          if not isinstance(execute, bool):
+              raise SystemExit('execute must be boolean')
+
+          request = {
+              'merge_sha': merge_sha,
+              'task_branch': task_branch,
+              'publish_branch': publish_branch,
+              'execute': execute,
+          }
+          Path('/tmp/branch-gc-request.json').write_text(
+              json.dumps(request, indent=2, sort_keys=True) + '\n',
+              encoding='utf-8',
+          )
+          for key, item in request.items():
+              output = str(item).lower() if isinstance(item, bool) else item
+              print(f'{key}={output}')
+          PY
+
+      - name: Collect open pull request heads and current main
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api --paginate --slurp \
+            "repos/${{ github.repository }}/pulls?state=open&per_page=100" \
+            --jq '[.[][] | {head: .head.ref}]' \
+            > /tmp/open-pull-requests.json
+          git fetch --no-tags origin main
+
+      - name: Build deterministic dry-run plan
+        shell: bash
+        env:
+          MERGE_SHA: ${{ steps.request.outputs.merge_sha }}
+          TASK_BRANCH: ${{ steps.request.outputs.task_branch }}
+          PUBLISH_BRANCH: ${{ steps.request.outputs.publish_branch }}
+        run: |
+          set -euo pipefail
+          python scripts/devflow/branch_gc.py \
+            --default-branch main \
+            --active-tasks docs/implementation/ACTIVE_TASKS.yaml \
+            --open-prs /tmp/open-pull-requests.json \
+            --merge-sha "$MERGE_SHA" \
+            --candidate "$TASK_BRANCH" \
+            --candidate "$PUBLISH_BRANCH" \
+            --output branch-gc-plan.json
+          {
+            echo "## Managed branch cleanup plan"
+            echo '```json'
+            cat branch-gc-plan.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Delete only planner-approved managed branches
+        if: steps.request.outputs.execute == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY' > /tmp/deletable-branches.txt
+          import json
+          from pathlib import Path
+          value = json.loads(Path('branch-gc-plan.json').read_text())
+          for branch in value.get('deletable', []):
+              print(branch)
+          PY
+          while IFS= read -r branch; do
+            [[ -n "$branch" ]] || continue
+            if git ls-remote --exit-code --heads origin \
+              "refs/heads/${branch}" >/dev/null 2>&1; then
+              git push origin --delete "$branch"
+              echo "DELETED_MANAGED_BRANCH=${branch}" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "MANAGED_BRANCH_ALREADY_ABSENT=${branch}" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done < /tmp/deletable-branches.txt
+
+      - name: Record dry-run default
+        if: steps.request.outputs.execute != 'true'
+        run: |
+          echo "BRANCH_GC_MODE=DRY_RUN" >> "$GITHUB_STEP_SUMMARY"
+          echo "No remote branch was deleted." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload bounded cleanup plan
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: devflow-branch-gc-${{ github.run_id }}
+          path: branch-gc-plan.json
+          if-no-files-found: error
+          retention-days: 7

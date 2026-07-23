@@ -1,13 +1,109 @@
 name: Devflow State Consistency
 
 on:
+  push:
+    branches:
+      - main
+      - "feature/chatgpt-web-codex-devflow-*"
+      - "feature/devflow-*"
+      - "fix/codex-environment-secret-*"
+    paths:
+      - AGENTS.md
+      - "**/AGENTS.md"
+      - "docs/process/**"
+      - "docs/implementation/**"
+      - "scripts/devflow/**"
+      - "tests/test_devflow*.py"
+      - ".github/actions/codex-thin-worker/**"
+      - ".github/workflows/*devflow*"
+      - ".github/workflows/*codex*"
+      - ".github/workflows/test.yml"
+      - ".github/workflows/e2e-688521.yml"
+  pull_request:
+    paths:
+      - AGENTS.md
+      - "**/AGENTS.md"
+      - "docs/process/**"
+      - "docs/implementation/**"
+      - "scripts/devflow/**"
+      - "tests/test_devflow*.py"
+      - ".github/actions/codex-thin-worker/**"
+      - ".github/workflows/*devflow*"
+      - ".github/workflows/*codex*"
+      - ".github/workflows/test.yml"
+      - ".github/workflows/e2e-688521.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
 
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+  PYTHONUNBUFFERED: "1"
+
 jobs:
-  paused-during-materialization:
+  consistency:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - run: echo "State checks are temporarily paused on this closed staging branch; Codex remains disabled."
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install development dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Validate every indexed canonical task state
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          EXTRA_ARGS=()
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            EXTRA_ARGS+=(--allow-checkout-branch)
+          fi
+          python scripts/devflow/validate_state.py \
+            --all-active \
+            --output devflow-state-result.json \
+            "${EXTRA_ARGS[@]}"
+
+      - name: Validate Devflow workflows, docs and tests
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m compileall -q scripts/devflow
+          python scripts/devflow/validate_workflows.py \
+            2>&1 | tee devflow-workflow-validation.log
+          python scripts/devflow/validate_docs.py \
+            --output devflow-docs-validation.json \
+            2>&1 | tee devflow-docs-validation.log
+          ruff check scripts/devflow tests/test_devflow*.py \
+            2>&1 | tee devflow-ruff.log
+          pytest -q tests/test_devflow*.py \
+            2>&1 | tee devflow-pytest.log
+
+      - name: Upload diagnostics only on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: devflow-state-diagnostics-${{ github.run_id }}
+          path: |
+            devflow-state-result.json
+            devflow-workflow-validation.json
+            devflow-workflow-validation.log
+            devflow-docs-validation.json
+            devflow-docs-validation.log
+            devflow-ruff.log
+            devflow-pytest.log
+          if-no-files-found: warn
+          retention-days: 7
