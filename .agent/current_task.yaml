@@ -9,7 +9,8 @@
     "scripts/devflow/validate_state.py",
     "scripts/devflow/render_task_docs.py",
     "scripts/devflow/validate_workflows.py",
-    "tests/test_devflow.py"
+    "tests/test_devflow.py",
+    "tests/test_devflow_codex_environment.py"
   ],
   "forbidden_patterns": [
     ".github/**",
@@ -19,15 +20,16 @@
     "docs/**"
   ],
   "required_changes": [
-    "Run the deterministic devflow tests and repair only the failing validator or state model.",
-    "Do not alter business semantics, workflows, secrets or task scope.",
+    "Run the deterministic devflow tests and repair only the failing validator, state model, or directly failing test fixture.",
+    "Do not alter business semantics, workflows, secrets or unrelated task scope.",
     "Repair failure BOUNDED_CODE_REPAIR_ELIGIBLE: A deterministic code or policy gate failed within an approved bounded recovery scope.",
-    "Do not widen the allowed file set or change business semantics."
+    "The only approved scope extension is tests/test_devflow_codex_environment.py so the legacy-low fixture can explicitly use schema version 1."
   ],
   "acceptance_notes": [
     "The failure is reproducible by the trusted devflow gate.",
     "Parent workflow run: 30017768433",
-    "This is the only automatic Codex recovery generation."
+    "This is the only automatic Codex recovery generation.",
+    "User explicitly approved the minimal test-fixture scope correction after runs 30017442748 and 30017841410 reproduced the same block."
   ],
   "gate_profile": "devflow-targeted",
   "full_gate_profile": "repository-full",
