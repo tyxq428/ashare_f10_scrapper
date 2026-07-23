@@ -2,19 +2,28 @@
 
 ## 适用条件
 
-问题已被明确诊断；修改范围通常不超过 2–5 个文件；无业务口径、Workflow/Secret、Schema 和破坏性迁移；有 Targeted、Full 和 Post-Merge Gate。
+问题已明确诊断；修改范围通常不超过 2–5 个文件；无业务口径、Workflow/Secret、Schema 和破坏性迁移；有 Targeted、Full 和 Post-Merge Gate。
 
-## 任务描述
+## schema-v2 任务描述
 
-从模板生成 `.agent/current_task.yaml`，必须包含：
+从模板生成 `.agent/current_task.yaml`：
 
 ```yaml
+schema_version: 2
 allowed_files: 明确路径
 forbidden_patterns: 包含 .github/**、docs/**、secrets/**、.env
 gate_profile: Targeted Gate
 full_gate_profile: Full Gate
 post_merge_profile: exact-main Gate
 reasoning_effort: xhigh
+context_budget:
+  max_allowed_files: 5
+  max_task_bytes: 32768
+  max_total_allowed_file_bytes: 262144
+  max_single_file_bytes: 131072
+  max_log_excerpt_lines: 300
+  include_chat_history: false
+  include_full_sop: false
 risk_class: low | medium | high
 auto_merge: true | false
 notify_completion: true | false
@@ -27,44 +36,61 @@ max_recovery_generations: 1
 
 ## 正常成功路径
 
-1. Web Supervisor 先写当前 `Wxx_plan.md`。
-2. 从最新 `main` 创建 `task/codex-<slug>` 控制分支并提交任务描述；任务中不得包含 Secret。
-3. 通过 `workflow_dispatch` 显式启动默认分支上的 `Codex Task`，输入只包含可信控制分支名；不依赖任务分支 Push。
-4. `Codex Task` 验证 Task Descriptor，并在普通 Job 上直接声明 `environment: agent-runtime`。
-5. 入口只允许仓库所有者或 `github-actions[bot]`；Composite action显式配置 `allow-bots: true` 和 `allow-bot-users: github-actions[bot]`，不开放任意用户或 Bot。
-6. Secret-bearing Codex Job 以 `contents: read` checkout 控制分支，运行安全预检和 localhost Forwarder，再调用 `.github/actions/codex-thin-worker/action.yml` 完成一次 `xhigh` Codex Session。
-7. 官方 Action 在 Output Schema约束下返回 `final-message`；Caller Job通过环境变量交给 Python解析，规范化写入工作区外的 `/tmp/codex-result.json`，不得把模型输出拼接为 Shell。
-8. 同一 Secret-bearing Job继续执行 Scope Guard、Targeted Gate、Secret Audit 和 Patch Manifest；Composite action只接收显式 Key/Model inputs，不直接读取 `secrets.*`。
-9. Secret-free Publish Job验证 Manifest、应用 Patch、重跑 Targeted Gate，移除任务描述后 Push 隔离产品分支。
-10. Publish 成功后显式发送 `devflow_product_gate`，不依赖 Push 递归触发。
-11. Product Gate从控制分支重新读取 immutable descriptor，执行 Scope Guard 和 Full Gate。
-12. 若 `risk_class=low` 且 `auto_merge=true`，同步最新 `main`、必要时 rebase并重跑 Gate，然后自动合并。
-13. 合并后显式发送 `devflow_post_merge`，在 exact main执行 Post-Merge Profile。
-14. Post-Merge通过后自动更新 canonical state、阶段结果和最终报告；`notify_completion=true` 时发送一次完成通知。
+1. Web Supervisor 先写 `Wxx_plan.md`；
+2. 从最新 `main` 创建 `task/codex-<slug>` 并提交不含 Secret 的 Descriptor；
+3. `workflow_dispatch` 启动默认分支上的 `Codex Task`；
+4. 入口验证 actor、控制分支和 Task Descriptor；
+5. Secret-bearing Job 直接声明 `agent-runtime`，权限为 `contents: read`；
+6. **在读取 Relay Secret 和模型调用前**运行 Context Budget；
+7. Context PASS 后注册 Mask、验证 Runtime、启动 localhost Forwarder；
+8. Composite Action 以 `effort: xhigh` 执行一次 Session；
+9. Output Schema 约束 `final-message`，Caller 用 Python 写入 `/tmp/codex-result.json`；
+10. 同一只读 Job 执行 Scope、Targeted Gate、Secret Audit 和 Manifest；
+11. Handoff 同时包含 `context-budget.json`，Publish 必须再次验证；
+12. Secret-free Publish 应用 Patch、重跑 Scope/G1、移除任务描述并推送产品分支；
+13. 显式发送 `devflow_product_gate`；
+14. Product Gate 执行 Scope、Full Gate、必要 rebase 和低风险自动合并；
+15. 显式发送 `devflow_post_merge`；
+16. exact-main PASS 后收尾、通知完成，并派发 Branch GC dry-run。
 
-## XHigh 迁移规则
+## Context Budget 失败
 
-- 正式 Composite Action 固定 `effort: xhigh`；
-- 新模板和自动恢复生成器固定 `reasoning_effort: xhigh`；
-- Schema v1 暂时只读兼容历史 `low` Descriptor，保证已发布候选能够继续 Gate/Post-Merge；
-- 历史字段不会降低实际运行强度，任何新模型调用仍使用 `xhigh`；
-- 已完成并通过 G1 的低强度历史候选不因政策迁移而无意义重跑模型。
+```text
+Context Budget FAIL
+→ Secrets不读取
+→ Forwarder不启动
+→ Codex不调用
+→ 不消耗模型额度
+→ 要求缩小允许文件或拆分任务
+```
 
-## 为什么不用 Secret-bearing reusable workflow
+禁止通过降级推理强度、附加完整聊天历史、复制完整 SOP 或扩大日志来绕过预算。
 
-`agent-runtime` Environment Secrets必须直接绑定到入口 Workflow的普通 Job。正式探针已证明普通 Job可以读取三项 Secret，而旧本地 `workflow_call` 边界中的同名表达式为空。后续可复用性由 composite action提供；不得重新把 Environment Secret Job移回 reusable workflow。
+## XHigh 兼容规则
 
-## 为什么不用绝对 output-file
+- 生产 Composite Action 固定 `effort: xhigh`；
+- 新模板和 Recovery Generation 使用 schema-v2/XHigh；
+- schema-v1 `low` Descriptor 只读兼容，`effective_reasoning_effort` 仍为 XHigh；
+- schema-v2 Low 直接拒绝；
+- 已完成历史候选不因元数据迁移无意义重跑模型；
+- Upgrade Compatibility 每次验证该边界。
 
-官方 Action示例将 `output-file` 放在仓库相对路径，且始终提供 `final-message` output。为了避免工作区 Scope Guard污染和绝对路径兼容性差异，正式流程不向官方 Action传 `/tmp` output-file，而是从 `final-message` 安全写入 `/tmp`。
+## Secret 与输出边界
+
+- Secret-bearing reusable workflow 不受支持；Environment 直接绑定普通 Job；
+- 可复用性由本地 Composite Action提供；
+- 不向第三方 Action 传绝对 `/tmp` output-file；
+- 模型输出不得拼接为 Shell；
+- Context、结果、Patch、Scope、Gate、Secret Audit 和 Manifest 位于工作区外；
+- Publish、Product Gate、Post-Merge 和 Branch GC 不接收 Relay Secret。
 
 ## 自动恢复
 
-- Runner、checkout、依赖、网络、Artifact 等基础设施失败：最多三次只重跑失败 Job，静默。
-- Codex Task失败：同一 Task Generation最多定向重跑一次失败 Job，静默。
-- Full/Post-Merge Gate失败：在允许范围内最多创建一个 Recovery Generation，静默。
-- Recovery Generation继承原范围和 Gate，不允许扩大文件清单。
-- Scope/Secret安全失败、业务决策、权限或预算耗尽才通知。
+- Runner、checkout、依赖、网络、Artifact：最多三次只重跑失败 Job；
+- Codex 执行/G1：同一 Generation 最多定向重跑一次；
+- Full/Post-Merge：最多创建一个继承原范围和 Context 的 schema-v2 XHigh Recovery Generation；
+- Context、Scope、Secret、安全、业务决策、权限或预算耗尽才通知；
+- 可恢复过程保持静默。
 
 ## 默认预算
 
@@ -74,19 +100,20 @@ codex_sessions_per_generation: 1
 automatic_second_session: 0
 max_recovery_generations: 1
 infrastructure_retries: 3
-output_tokens_observation_limit: 4000
-total_input_tokens_observation_limit: 200000
+context_budget:
+  max_allowed_files: 5
+  max_task_bytes: 32768
+  max_total_allowed_file_bytes: 262144
+  max_single_file_bytes: 131072
+  max_log_excerpt_lines: 300
 ```
-
-XHigh 会增加时延和 Token 使用，因此仍严格保持每个 Generation 一次 Session、零自动第二 Session；只有新的、受限 Recovery Generation 才能再次调用模型。
 
 ## 人工边界
 
-以下任务不得开启自动合并：
+以下任务不得自动合并：
 
-- `.github/**` 或 Secrets变更；
+- `.github/**`、Secrets、Schema 或迁移；
 - 业务语义、官方来源优先级和研究口径；
-- 数据 Schema或破坏性迁移；
-- 允许路径超过 5 个；
+- 允许路径超过 5 个或超 Context Budget；
 - 无确定性 Full/Post-Merge Gate；
 - 需要登录、验证码、外部账号配置或不可逆操作。
