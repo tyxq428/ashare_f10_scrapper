@@ -4,6 +4,7 @@ import argparse
 import json
 import re
 from copy import deepcopy
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -26,13 +27,13 @@ def build_recovery_descriptor(
     reason: str,
     expected_base_sha: str,
 ) -> dict[str, Any]:
-    _descriptor = load_task_descriptor_from_mapping(original)
-    generation = _descriptor.recovery_generation + 1
-    if generation > _descriptor.max_recovery_generations:
+    descriptor = load_task_descriptor_from_mapping(original)
+    generation = descriptor.recovery_generation + 1
+    if generation > descriptor.max_recovery_generations:
         raise TaskDescriptorError("recovery generation budget exhausted")
 
     value = deepcopy(original)
-    parent_task_id = _descriptor.parent_task_id or _descriptor.task_id
+    parent_task_id = descriptor.parent_task_id or descriptor.task_id
     base_task_id = parent_task_id
     value["task_id"] = f"{base_task_id}-recovery-g{generation}"
     value["parent_task_id"] = base_task_id
@@ -52,6 +53,8 @@ def build_recovery_descriptor(
     notes.append(f"Parent workflow run: {source_run_id}")
     notes.append("This is the only automatic Codex recovery generation.")
     value["acceptance_notes"] = notes
+    value["reasoning_effort"] = "xhigh"
+    value["context_budget"] = asdict(descriptor.context_budget)
     value["automatic_second_session"] = 0
     value["session_limit"] = 1
 
