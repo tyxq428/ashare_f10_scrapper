@@ -50,7 +50,13 @@ def validate_active_index(repo: Path, state: TaskState, state_path: Path) -> lis
     return errors
 
 
-def validate(repo: Path, task_dir: Path, *, check_git: bool = True) -> dict[str, object]:
+def validate(
+    repo: Path,
+    task_dir: Path,
+    *,
+    check_git: bool = True,
+    check_checkout_branch: bool = True,
+) -> dict[str, object]:
     state_path = task_dir / "task_state.yaml"
     errors: list[str] = []
     try:
@@ -69,16 +75,17 @@ def validate(repo: Path, task_dir: Path, *, check_git: bool = True) -> dict[str,
         product_sha = mapping["last_product_commit_sha"]
         if not git_is_ancestor(repo, product_sha):
             errors.append("last_product_commit_sha is not an ancestor of HEAD")
-        current_branch = subprocess.run(
-            ["git", "-C", str(repo), "branch", "--show-current"],
-            check=False,
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
-        if current_branch and current_branch != state.working_branch and state.status != "DONE":
-            errors.append(
-                f"working_branch mismatch: state={state.working_branch}, checkout={current_branch}"
-            )
+        if check_checkout_branch:
+            current_branch = subprocess.run(
+                ["git", "-C", str(repo), "branch", "--show-current"],
+                check=False,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            if current_branch and current_branch != state.working_branch and state.status != "DONE":
+                errors.append(
+                    f"working_branch mismatch: state={state.working_branch}, checkout={current_branch}"
+                )
 
     return {
         "status": "PASS" if not errors else "FAIL",
@@ -98,11 +105,21 @@ def main() -> int:
     parser.add_argument("--repo", type=Path, default=Path("."))
     parser.add_argument("--output", type=Path)
     parser.add_argument("--no-git", action="store_true")
+    parser.add_argument(
+        "--allow-checkout-branch",
+        action="store_true",
+        help="keep commit ancestry checks but allow a PR checkout branch to differ from canonical working_branch",
+    )
     args = parser.parse_args()
 
     repo = args.repo.resolve()
     task_dir = (repo / args.task_dir).resolve() if not args.task_dir.is_absolute() else args.task_dir
-    result = validate(repo, task_dir, check_git=not args.no_git)
+    result = validate(
+        repo,
+        task_dir,
+        check_git=not args.no_git,
+        check_checkout_branch=not args.allow_checkout_branch,
+    )
     text = json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True)
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)

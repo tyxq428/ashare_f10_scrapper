@@ -11,6 +11,8 @@ sys.path.insert(0, str(DEVFLOW))
 
 from endpoint_utils import normalize_responses_endpoint  # noqa: E402
 from gate_profiles import get_gate_profile  # noqa: E402
+from private_responses_forwarder import run_server  # noqa: E402
+from runtime_preflight import inspect_runtime  # noqa: E402
 from secret_audit import secret_variants  # noqa: E402
 from state_model import StateError, TaskState, load_json_yaml  # noqa: E402
 from validate_workflows import validate_file  # noqa: E402
@@ -89,6 +91,34 @@ def test_endpoint_normalization(raw: str, expected: str) -> None:
 def test_endpoint_requires_https() -> None:
     with pytest.raises(ValueError, match="HTTPS"):
         normalize_responses_endpoint("http://relay.invalid/v1")
+
+
+def test_runtime_preflight_reports_only_safe_checks() -> None:
+    endpoint = "https://relay.invalid/v1"
+    api_key = "secret-key-value"
+    model = "private-model"
+    result = inspect_runtime(endpoint, api_key, model)
+    assert result["status"] == "PASS"
+    serialized = json.dumps(result)
+    assert endpoint not in serialized
+    assert api_key not in serialized
+    assert model not in serialized
+
+
+def test_runtime_preflight_classifies_missing_values() -> None:
+    result = inspect_runtime("", "", "")
+    assert result["status"] == "FAIL"
+    assert set(result["failure_codes"]) == {"MISSING_ENDPOINT", "MISSING_API_KEY", "MISSING_MODEL"}
+
+
+def test_forwarder_invalid_configuration_writes_safe_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("AGENT_RESPONSES_ENDPOINT", raising=False)
+    status_file = tmp_path / "status.json"
+    assert run_server(0, status_file) == 2
+    status = json.loads(status_file.read_text(encoding="utf-8"))
+    assert status == {"failure_class": "INVALID_OR_MISSING_ENDPOINT", "status": "FAILED"}
 
 
 def test_scope_guard_fails_closed() -> None:

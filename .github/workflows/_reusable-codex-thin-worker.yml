@@ -82,29 +82,55 @@ jobs:
                   print(f"::add-mask::{value}")
           PY
 
+      - name: Validate runtime configuration without exposing values
+        id: runtime
+        continue-on-error: true
+        env:
+          AGENT_RESPONSES_ENDPOINT: ${{ secrets.AGENT_RESPONSES_ENDPOINT }}
+          AGENT_API_KEY: ${{ secrets.AGENT_API_KEY }}
+          AGENT_MODEL: ${{ secrets.AGENT_MODEL }}
+          PYTHONPATH: scripts/devflow
+        run: |
+          python scripts/devflow/runtime_preflight.py \
+            --output /tmp/devflow-runtime-preflight.json
+
       - name: Start localhost-only no-log Responses forwarder
+        id: forwarder
+        if: steps.runtime.outcome == 'success'
+        continue-on-error: true
         shell: bash
         env:
           AGENT_RESPONSES_ENDPOINT: ${{ secrets.AGENT_RESPONSES_ENDPOINT }}
           PYTHONPATH: scripts/devflow
         run: |
           set -euo pipefail
-          nohup python scripts/devflow/private_responses_forwarder.py --port 8787 \
-            >/dev/null 2>&1 &
+          nohup python scripts/devflow/private_responses_forwarder.py \
+            --port 8787 \
+            --status-file /tmp/private-responses-forwarder-status.json \
+            >/tmp/private-responses-forwarder.log 2>&1 &
           echo $! > /tmp/private-responses-forwarder.pid
           for attempt in $(seq 1 30); do
             if curl --silent --show-error --fail http://127.0.0.1:8787/health >/dev/null; then
               echo "PRIVATE_RESPONSES_FORWARDER=READY"
               exit 0
             fi
+            if ! kill -0 "$(cat /tmp/private-responses-forwarder.pid)" 2>/dev/null; then
+              echo "PRIVATE_RESPONSES_FORWARDER=PROCESS_EXITED"
+              test ! -s /tmp/private-responses-forwarder-status.json || \
+                cat /tmp/private-responses-forwarder-status.json
+              exit 1
+            fi
             sleep 0.5
           done
-          echo "PRIVATE_RESPONSES_FORWARDER=FAILED"
+          echo "PRIVATE_RESPONSES_FORWARDER=HEALTH_TIMEOUT"
+          test ! -s /tmp/private-responses-forwarder-status.json || \
+            cat /tmp/private-responses-forwarder-status.json
           exit 1
 
       # One bounded Codex Session. Automatic second session is intentionally disabled.
       - name: Run one Codex Thin Worker session
         id: codex
+        if: steps.runtime.outcome == 'success' && steps.forwarder.outcome == 'success'
         continue-on-error: true
         uses: openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56
         with:
@@ -128,20 +154,23 @@ jobs:
 
       - name: Verify Codex changed-path scope
         id: scope
+        if: steps.codex.outcome == 'success'
         continue-on-error: true
         run: |
-          mkdir -p artifact
+          mkdir -p /tmp/codex-artifact
           python scripts/devflow/verify_changed_paths.py \
             --task-file "${{ inputs.task_file }}" \
             --status \
-            --output artifact/scope-result.json
+            --output /tmp/codex-artifact/scope-result.json
 
       - name: Run trusted targeted gate
         id: gate
+        if: steps.codex.outcome == 'success'
         continue-on-error: true
         run: |
+          mkdir -p /tmp/codex-artifact
           python scripts/devflow/run_gate_profile.py "${{ inputs.gate_profile }}" \
-            --output artifact/gate-result.json
+            --output /tmp/codex-artifact/gate-result.json
 
       - name: Build minimal handoff and manifest
         if: always()
@@ -152,53 +181,69 @@ jobs:
           AGENT_MODEL: ${{ secrets.AGENT_MODEL }}
         run: |
           set -euo pipefail
-          mkdir -p artifact
+          ARTIFACT=/tmp/codex-artifact
+          mkdir -p "$ARTIFACT"
+          test ! -s /tmp/devflow-runtime-preflight.json || \
+            cp /tmp/devflow-runtime-preflight.json "$ARTIFACT/runtime-preflight.json"
+          test ! -s /tmp/private-responses-forwarder-status.json || \
+            cp /tmp/private-responses-forwarder-status.json "$ARTIFACT/forwarder-status.json"
           if [[ -s /tmp/codex-result.json ]]; then
-            cp /tmp/codex-result.json artifact/codex-result.json
+            cp /tmp/codex-result.json "$ARTIFACT/codex-result.json"
           else
-            printf '%s\n' '{"status":"BLOCKED","summary":"Codex did not produce a structured result","changed_files":[],"commands_run":[],"tests_passed":false,"blocking_reason":"missing output"}' > artifact/codex-result.json
+            printf '%s\n' '{"status":"BLOCKED","summary":"Codex did not produce a structured result","changed_files":[],"commands_run":[],"tests_passed":false,"blocking_reason":"runtime or Codex execution did not complete"}' > "$ARTIFACT/codex-result.json"
           fi
-          git diff --binary > artifact/codex.patch
-          test -s artifact/codex.patch
+          test -s "$ARTIFACT/scope-result.json" || \
+            printf '%s\n' '{"status":"BLOCKED","changed_files":[],"violations":[],"reason":"scope verification did not run"}' > "$ARTIFACT/scope-result.json"
+          test -s "$ARTIFACT/gate-result.json" || \
+            printf '%s\n' '{"status":"BLOCKED","reason":"targeted gate did not run"}' > "$ARTIFACT/gate-result.json"
+          git diff --binary > "$ARTIFACT/codex.patch"
           python scripts/devflow/secret_audit.py \
-            artifact/codex.patch \
-            artifact/codex-result.json \
-            artifact/scope-result.json \
-            artifact/gate-result.json \
-            --output artifact/secret-audit.json
+            "$ARTIFACT/codex.patch" \
+            "$ARTIFACT/codex-result.json" \
+            "$ARTIFACT/scope-result.json" \
+            "$ARTIFACT/gate-result.json" \
+            "$ARTIFACT/runtime-preflight.json" \
+            "$ARTIFACT/forwarder-status.json" \
+            --allow-missing \
+            --output "$ARTIFACT/secret-audit.json"
           (
-            cd artifact
-            sha256sum codex.patch codex-result.json scope-result.json gate-result.json secret-audit.json \
-              > manifest.sha256
+            cd "$ARTIFACT"
+            sha256sum codex.patch codex-result.json scope-result.json gate-result.json \
+              secret-audit.json runtime-preflight.json forwarder-status.json \
+              2>/dev/null > manifest.sha256 || true
           )
+          test -s "$ARTIFACT/manifest.sha256"
 
       - name: Upload audited handoff only
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: codex-handoff-${{ inputs.task_id }}-${{ github.run_id }}
-          path: artifact/
+          path: /tmp/codex-artifact/
           if-no-files-found: error
           retention-days: 7
 
-      - name: Enforce Codex, scope, gate and secret outcomes
+      - name: Enforce runtime, Codex, scope, gate and secret outcomes
         if: always()
         shell: bash
         run: |
           set -euo pipefail
+          test "${{ steps.runtime.outcome }}" = "success"
+          test "${{ steps.forwarder.outcome }}" = "success"
           test "${{ steps.codex.outcome }}" = "success"
           test "${{ steps.scope.outcome }}" = "success"
           test "${{ steps.gate.outcome }}" = "success"
           python - <<'PY'
           import json
           from pathlib import Path
-          for name in ("scope-result.json", "gate-result.json", "secret-audit.json"):
-              value = json.loads((Path("artifact") / name).read_text(encoding="utf-8"))
-              if value.get("status") != "PASS":
-                  raise SystemExit(f"{name} did not pass")
-          result = json.loads(Path("artifact/codex-result.json").read_text(encoding="utf-8"))
-          if result.get("status") != "SUCCESS" or not result.get("tests_passed"):
-              raise SystemExit("Codex structured result did not report verified success")
+          root = Path('/tmp/codex-artifact')
+          for name in ('scope-result.json', 'gate-result.json', 'secret-audit.json'):
+              value = json.loads((root / name).read_text(encoding='utf-8'))
+              if value.get('status') != 'PASS':
+                  raise SystemExit(f'{name} did not pass')
+          result = json.loads((root / 'codex-result.json').read_text(encoding='utf-8'))
+          if result.get('status') != 'SUCCESS' or not result.get('tests_passed'):
+              raise SystemExit('Codex structured result did not report verified success')
           PY
 
   publish:
@@ -228,8 +273,8 @@ jobs:
           python - <<'PY'
           import json
           from pathlib import Path
-          if json.loads(Path("/tmp/codex-handoff/secret-audit.json").read_text())["status"] != "PASS":
-              raise SystemExit("secret audit did not pass")
+          if json.loads(Path('/tmp/codex-handoff/secret-audit.json').read_text())['status'] != 'PASS':
+              raise SystemExit('secret audit did not pass')
           PY
           git switch -c "${{ inputs.publish_branch }}"
           git apply --index /tmp/codex-handoff/codex.patch

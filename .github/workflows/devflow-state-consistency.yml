@@ -46,10 +46,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
       - name: Validate canonical state and process files
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
         run: |
+          set -euo pipefail
+          EXTRA_ARGS=()
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            EXTRA_ARGS+=(--allow-checkout-branch)
+          fi
           python scripts/devflow/validate_state.py \
             --task-dir docs/implementation/chatgpt-web-codex-devflow-v1 \
-            --output devflow-state-result.json
+            --output devflow-state-result.json \
+            "${EXTRA_ARGS[@]}"
       - name: Validate devflow workflows and tests
         run: |
           python -m compileall -q scripts/devflow

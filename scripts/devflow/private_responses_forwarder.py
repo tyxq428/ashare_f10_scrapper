@@ -6,10 +6,28 @@ import os
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Any
 
 from endpoint_utils import normalize_responses_endpoint
 
-UPSTREAM_ENDPOINT = normalize_responses_endpoint(os.environ["AGENT_RESPONSES_ENDPOINT"])
+
+def write_status(path: Path | None, status: str, failure_class: str | None = None) -> None:
+    if path is None:
+        return
+    payload: dict[str, Any] = {"status": status}
+    if failure_class is not None:
+        payload["failure_class"] = failure_class
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
+
+
+class ForwarderServer(ThreadingHTTPServer):
+    upstream_endpoint: str
+
+    def __init__(self, server_address: tuple[str, int], upstream_endpoint: str):
+        self.upstream_endpoint = upstream_endpoint
+        super().__init__(server_address, Handler)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -55,7 +73,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         request = urllib.request.Request(
-            UPSTREAM_ENDPOINT,
+            self.server.upstream_endpoint,  # type: ignore[attr-defined]
             data=body,
             headers={
                 "Authorization": authorization,
@@ -93,13 +111,37 @@ class Handler(BaseHTTPRequestHandler):
             )
 
 
+def run_server(port: int, status_file: Path | None = None) -> int:
+    try:
+        upstream_endpoint = normalize_responses_endpoint(
+            os.environ.get("AGENT_RESPONSES_ENDPOINT", "")
+        )
+    except ValueError:
+        write_status(status_file, "FAILED", "INVALID_OR_MISSING_ENDPOINT")
+        print("PRIVATE_RESPONSES_FORWARDER_FAILURE=INVALID_OR_MISSING_ENDPOINT")
+        return 2
+
+    try:
+        server = ForwarderServer(("127.0.0.1", port), upstream_endpoint)
+    except OSError:
+        write_status(status_file, "FAILED", "LOCAL_BIND_FAILED")
+        print("PRIVATE_RESPONSES_FORWARDER_FAILURE=LOCAL_BIND_FAILED")
+        return 3
+
+    write_status(status_file, "READY")
+    try:
+        server.serve_forever(poll_interval=0.25)
+    finally:
+        server.server_close()
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=8787)
+    parser.add_argument("--status-file", type=Path)
     args = parser.parse_args()
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
-    server.serve_forever(poll_interval=0.25)
-    return 0
+    return run_server(args.port, args.status_file)
 
 
 if __name__ == "__main__":
