@@ -45,8 +45,11 @@ jobs:
           import tarfile
 
           root = Path.cwd().resolve()
-          trusted_path = root / 'scripts/devflow/relay_health_check.py'
-          trusted_relay_health = trusted_path.read_bytes()
+          trusted_paths = [
+              root / 'scripts/devflow/relay_health_check.py',
+              root / 'scripts/devflow/validate_workflows.py',
+          ]
+          trusted_sources = {path: path.read_bytes() for path in trusted_paths}
           chunks = [Path(f'.devflow-staging/w04.part{i:02d}') for i in range(7)]
           encoded = b''.join(path.read_bytes() for path in chunks)
           payload = base64.b64decode(encoded, validate=True)
@@ -61,7 +64,9 @@ jobs:
                   if root not in destination.parents and destination != root:
                       raise SystemExit('archive member escapes repository')
               archive.extractall(root, filter='data')
-          trusted_path.write_bytes(trusted_relay_health)
+          for path, content in trusted_sources.items():
+              path.parent.mkdir(parents=True, exist_ok=True)
+              path.write_bytes(content)
           print('TRANSPORT_ARCHIVE_VALIDATION=PASS')
           PY
       - name: Remove one-time transport files
