@@ -11,6 +11,10 @@ permissions:
   issues: write
   contents: read
 
+concurrency:
+  group: devflow-task-control-chatgpt-web-codex-devflow-v1
+  cancel-in-progress: false
+
 jobs:
   notify-failure-only:
     if: github.event.workflow_run.conclusion != 'success'
@@ -27,21 +31,29 @@ jobs:
         run: |
           set -euo pipefail
           TITLE="[TASK CONTROL] chatgpt-web-codex-devflow-v1"
-          NUMBER="$(gh issue list --repo "${{ github.repository }}" --state open \
-            --search "${TITLE} in:title" --json number,title \
-            --jq ".[] | select(.title == \"${TITLE}\") | .number" | head -n 1)"
+          NUMBER="$(gh api --paginate "/repos/${{ github.repository }}/issues?state=open&per_page=100" \
+            --jq ".[] | select(.pull_request == null and .title == \"${TITLE}\") | .number" \
+            | head -n 1)"
           if [[ -z "$NUMBER" ]]; then
             URL="$(gh issue create --repo "${{ github.repository }}" --title "$TITLE" \
               --body "Single valuable-notification channel for the devflow migration." --assignee tyxq428)"
             NUMBER="${URL##*/}"
           fi
+
+          MARKER="devflow-event:${SOURCE_RUN}:INFRA_POST_MERGE_FAILURE"
+          if gh api --paginate "/repos/${{ github.repository }}/issues/${NUMBER}/comments?per_page=100" \
+            --jq '.[].body' | grep -Fq "$MARKER"; then
+            echo "VALUABLE_NOTIFICATION=ALREADY_RECORDED"
+            exit 0
+          fi
+
           gh issue comment "$NUMBER" --repo "${{ github.repository }}" --body "@tyxq428
 
-[TASK][INTERRUPTED]
+          [TASK][INTERRUPTED]
 
-- Stage: PR-A independent post-merge verification
-- Conclusion: \`${CONCLUSION}\`
-- Run: ${SOURCE_URL}
-- Minimum action: inspect the failed exact-main gate and resume from \`docs/implementation/chatgpt-web-codex-devflow-v1/HANDOFF.md\`.
+          - Stage: PR-A independent post-merge verification
+          - Conclusion: \`${CONCLUSION}\`
+          - Run: ${SOURCE_URL}
+          - Minimum action: inspect the failed exact-main gate and resume from \`docs/implementation/chatgpt-web-codex-devflow-v1/HANDOFF.md\`.
 
-<!-- devflow-event:${SOURCE_RUN}:INFRA_POST_MERGE_FAILURE -->"
+          <!-- ${MARKER} -->"
