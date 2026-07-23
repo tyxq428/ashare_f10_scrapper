@@ -1,0 +1,43 @@
+name: Temporary Patch Codex v2 Action Reference
+
+on:
+  push:
+    branches:
+      - feature/devflow-operational-optimization-v2
+    paths:
+      - .github/workflows/temporary-patch-codex-v2-reference.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: feature/devflow-operational-optimization-v2
+          persist-credentials: true
+      - name: Point Codex Task at the versioned XHigh action
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('.github/workflows/codex-task.yml')
+          text = path.read_text(encoding='utf-8')
+          old = 'uses: ./.github/actions/codex-thin-worker\n'
+          new = 'uses: ./.github/actions/codex-thin-worker-v2\n'
+          if text.count(old) != 1:
+              raise SystemExit('expected exactly one legacy action reference')
+          path.write_text(text.replace(old, new), encoding='utf-8')
+          PY
+      - name: Commit deterministic reference update
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/codex-task.yml
+          git commit -m "Use the versioned XHigh Codex action"
+          git push origin HEAD:feature/devflow-operational-optimization-v2
