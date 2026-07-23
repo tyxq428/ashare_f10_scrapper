@@ -219,12 +219,23 @@ def classify(
         "FAILURE",
         "TIMEOUT",
     }:
+        blocked = codex_result.get("status") == "BLOCKED"
         return _decision(
             action="INTERRUPTED",
-            reason_code="CODEX_TERMINAL_NO_RETRY",
+            reason_code=("CODEX_BLOCKED_NO_RETRY" if blocked else "CODEX_TERMINAL_NO_RETRY"),
             reason="The single approved Codex session produced a terminal non-publishable result.",
             minimum_action="Inspect the immutable evidence in ChatGPT Web; never rerun this task fingerprint.",
             notification_type="INTERRUPTED",
+            **common,
+        )
+
+    if _contains_marker(failure_steps, SECURITY_STEP_MARKERS):
+        return _decision(
+            action="SECURITY_BLOCKED",
+            reason_code="SECURITY_CONTROL_FAILED",
+            reason="A security, secret or changed-path scope control failed.",
+            minimum_action="Review the bounded safe summary before any further execution.",
+            notification_type="SECURITY_BLOCKED",
             **common,
         )
 
@@ -244,9 +255,14 @@ def classify(
                 notification_type="HUMAN_REQUIRED",
                 **common,
             )
+        reason_code = {
+            "Devflow State Consistency": "STATE_CONSISTENCY_WEB_REPAIR_REQUIRED",
+            "Devflow Product Gate": "PRODUCT_GATE_WEB_REPAIR_REQUIRED",
+            "Devflow Post Merge": "POST_MERGE_WEB_REPAIR_REQUIRED",
+        }[source_workflow]
         return _decision(
             action="INTERRUPTED",
-            reason_code="WEB_REPAIR_REQUIRED",
+            reason_code=reason_code,
             reason="Framework, state, gate and post-merge failures are handled by ChatGPT Web, not Codex.",
             minimum_action="Diagnose the actual failing branch and paths in ChatGPT Web, then rerun deterministic gates.",
             notification_type="INTERRUPTED",
