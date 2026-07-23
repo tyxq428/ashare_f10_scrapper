@@ -28,9 +28,40 @@ if start_marker in text:
 path.write_text(text, encoding="utf-8")
 
 # Auto Recovery no longer embeds a synthesized descriptor, so the workflow
-# should not be required to contain a literal reasoning_effort field. XHigh is
-# enforced by recovery_task.py and the production Composite Action instead.
+# should not be required to contain a literal reasoning_effort field.
 path = Path("scripts/devflow/validate_workflows.py")
 text = path.read_text(encoding="utf-8")
 text = text.replace('                \'"reasoning_effort": "xhigh"\',\n', "", 1)
 path.write_text(text, encoding="utf-8")
+
+# Recovery generations themselves normalize the policy to XHigh.
+path = Path("scripts/devflow/recovery_task.py")
+text = path.read_text(encoding="utf-8")
+marker = '    value["automatic_second_session"] = 0\n'
+if '    value["reasoning_effort"] = "xhigh"\n' not in text:
+    if marker not in text:
+        raise SystemExit("recovery XHigh marker not found")
+    text = text.replace(marker, '    value["reasoning_effort"] = "xhigh"\n' + marker, 1)
+path.write_text(text, encoding="utf-8")
+
+# Test the generator rather than a removed inline workflow literal.
+path = Path("tests/test_devflow_codex_environment.py")
+text = path.read_text(encoding="utf-8")
+old = '''def test_auto_recovery_generates_xhigh_tasks() -> None:
+    workflow = REPO / ".github/workflows/devflow-auto-recovery.yml"
+    text = workflow.read_text(encoding="utf-8")
+    assert '"reasoning_effort": "xhigh"' in text
+    assert '"reasoning_effort": "low"' not in text
+    assert validate_file(workflow) == []
+'''
+new = '''def test_recovery_generator_forces_xhigh_tasks() -> None:
+    script = REPO / "scripts/devflow/recovery_task.py"
+    text = script.read_text(encoding="utf-8")
+    assert 'value["reasoning_effort"] = "xhigh"' in text
+
+    workflow = REPO / ".github/workflows/devflow-auto-recovery.yml"
+    assert validate_file(workflow) == []
+'''
+if old not in text:
+    raise SystemExit("legacy XHigh workflow test marker not found")
+path.write_text(text.replace(old, new, 1), encoding="utf-8")
