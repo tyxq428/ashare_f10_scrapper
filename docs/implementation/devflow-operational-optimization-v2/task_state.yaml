@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "state_revision": 1,
+  "task_id": "devflow-operational-optimization-v2",
+  "title": "Devflow operational optimization v2",
+  "status": "RUNNING",
+  "execution_status": "RUNNING",
+  "research_acceptance_status": "PENDING",
+  "working_branch": "feature/devflow-operational-optimization-v2",
+  "pull_request": null,
+  "base_sha_at_start": "4f9fbdc0c46d334c2789e74d65a1b7921d02d23f",
+  "last_product_commit_sha": "4f9fbdc0c46d334c2789e74d65a1b7921d02d23f",
+  "last_state_commit_sha": null,
+  "current_stage": "W00",
+  "last_completed_stage": null,
+  "last_successful_step": "contract_and_master_plan_created",
+  "next_action": "execute_W00_baseline_then_W01_xhigh_context_budget",
+  "gate_results": {},
+  "retry_budget": {
+    "infrastructure": 3,
+    "codex_sessions": 1,
+    "codex_recovery_generations": 1,
+    "same_root_cause_limit": 2,
+    "replans": 2
+  },
+  "human_gate": {
+    "required": false,
+    "reason": null,
+    "minimum_action": null,
+    "resume_from": null
+  },
+  "post_merge": {
+    "status": "PENDING",
+    "merge_sha": null,
+    "verified_run_ids": []
+  },
+  "notification": {
+    "generation": 0,
+    "last_type": null,
+    "acknowledged": true,
+    "control_issue_number": null
+  },
+  "updated_at_utc": "2026-07-23T13:59:10Z"
+}
