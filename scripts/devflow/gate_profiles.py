@@ -26,17 +26,20 @@ DEVFLOW_TESTS = [
     "tests/test_devflow_change_impact.py",
     "tests/test_devflow_branch_gc.py",
     "tests/test_devflow_state_v2.py",
+    "tests/test_devflow_validate_docs.py",
 ]
 
 GATE_PROFILES: dict[str, list[list[str]]] = {
     "devflow-targeted": [
         ["python", "-m", "compileall", "-q", "scripts/devflow"],
         ["python", "scripts/devflow/validate_workflows.py"],
+        ["python", "scripts/devflow/validate_docs.py"],
         ["pytest", "-q", *DEVFLOW_TESTS],
     ],
     "devflow-auto-recovery-targeted": [
         ["python", "-m", "compileall", "-q", "scripts/devflow"],
         ["python", "scripts/devflow/validate_workflows.py"],
+        ["python", "scripts/devflow/validate_docs.py"],
         ["ruff", "check", "scripts/devflow", *DEVFLOW_TESTS],
         ["pytest", "-q", *DEVFLOW_TESTS],
     ],
