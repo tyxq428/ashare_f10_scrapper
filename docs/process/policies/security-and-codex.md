@@ -140,3 +140,8 @@ Caller Job必须：
 - State Consistency、Workflow、安全策略和 Devflow Core 改动默认由 ChatGPT Web Supervisor 直接诊断和修改，不从缺失上下文的失败 Run 合成 Codex Descriptor；
 - 只有不可变 Task Descriptor、可复现失败证据、真实失败分支和覆盖失败路径的允许范围同时存在时，才允许自动 Codex Repair；
 - 紧急熔断必须在模型调用之前生效，并覆盖默认分支及仍可能被重跑的旧任务分支。
+
+## 用户级零额度冻结
+
+仓库级 `.devflow/codex-policy.yaml` 是模型调用总开关。`mode: disabled` 时，Composite Action 必须在任何 Endpoint、Forwarder 或模型步骤之前返回 `CODEX_POLICY_DISABLED`，并且不得引用 `openai/codex-action`。冻结期间不得由 Bot、Auto Recovery、失败 Job 重跑或人工误触发绕过。解除冻结必须通过经过审查的 Policy 变更，并绑定一次性任务授权。
+

@@ -39,18 +39,15 @@ def test_codex_entry_job_owns_environment_secret_boundary() -> None:
     assert validate_file(workflow) == []
 
 
-def test_reusable_unit_allows_only_trusted_repository_bot_and_uses_xhigh() -> None:
+def test_reusable_unit_stops_before_model_when_policy_is_disabled() -> None:
     action = REPO / ".github/actions/codex-thin-worker/action.yml"
     text = action.read_text(encoding="utf-8")
+    policy = json.loads((REPO / ".devflow/codex-policy.yaml").read_text(encoding="utf-8"))
+    assert policy["mode"] == "disabled"
     assert "using: composite" in text
-    assert "openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56" in text
-    assert "http://127.0.0.1:8787/v1/responses" in text
-    assert "effort: xhigh" in text
-    assert "effort: low" not in text
-    assert 'allow-bots: "true"' in text
-    assert "allow-bot-users: github-actions[bot]" in text
-    assert "allow-users:" not in text
-    assert "${{ inputs.api-key }}" in text
+    assert "CODEX_POLICY_DISABLED" in text
+    assert "CODEX_MODEL_INVOCATION=DISABLED" in text
+    assert "openai/codex-action@" not in text
     assert "secrets." not in text
     assert validate_file(action) == []
 
@@ -79,7 +76,7 @@ def test_recovery_generator_forces_xhigh_tasks() -> None:
 def test_structured_result_uses_action_output_not_absolute_output_file() -> None:
     action = REPO / ".github/actions/codex-thin-worker/action.yml"
     action_text = action.read_text(encoding="utf-8")
-    assert "value: ${{ steps.run-codex.outputs.final-message }}" in action_text
+    assert "value: ${{ steps.policy.outputs.final-message }}" in action_text
     assert "output-file:" not in action_text
 
     workflow = REPO / ".github/workflows/codex-task.yml"

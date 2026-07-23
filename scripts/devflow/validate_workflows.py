@@ -26,6 +26,18 @@ def _require_fragments(path: Path, text: str, fragments: tuple[str, ...], errors
             errors.append(f"{path}: missing policy fragment: {fragment}")
 
 
+def _codex_policy_mode() -> str:
+    path = Path(".devflow/codex-policy.yaml")
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError("cannot load .devflow/codex-policy.yaml") from exc
+    mode = value.get("mode")
+    if mode not in {"disabled", "enabled"}:
+        raise ValueError("codex policy mode must be disabled or enabled")
+    return mode
+
+
 def validate_file(path: Path) -> list[str]:
     errors: list[str] = []
     text = path.read_text(encoding="utf-8")
@@ -73,23 +85,41 @@ def validate_file(path: Path) -> list[str]:
             errors.append(f"{path}: publish and continuation jobs must not use agent-runtime")
 
     if path.as_posix().endswith(".github/actions/codex-thin-worker/action.yml"):
-        _require_fragments(
-            path,
-            text,
-            (
-                "using: composite",
-                "openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56",
-                "http://127.0.0.1:8787/v1/responses",
-                "effort: xhigh",
-                "safety-strategy: drop-sudo",
-                'allow-bots: "true"',
-                "allow-bot-users: github-actions[bot]",
-                "value: ${{ steps.run-codex.outputs.final-message }}",
-                "${{ inputs.api-key }}",
-                "${{ inputs.model }}",
-            ),
-            errors,
-        )
+        try:
+            mode = _codex_policy_mode()
+        except ValueError as exc:
+            errors.append(f"{path}: {exc}")
+            mode = "invalid"
+        if mode == "disabled":
+            _require_fragments(
+                path,
+                text,
+                (
+                    "using: composite",
+                    "CODEX_POLICY_DISABLED",
+                    "CODEX_MODEL_INVOCATION=DISABLED",
+                    "value: ${{ steps.policy.outputs.final-message }}",
+                ),
+                errors,
+            )
+            if "openai/codex-action@" in text:
+                errors.append(f"{path}: disabled policy must stop before the official Codex action")
+        elif mode == "enabled":
+            _require_fragments(
+                path,
+                text,
+                (
+                    "using: composite",
+                    "openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56",
+                    "http://127.0.0.1:8787/v1/responses",
+                    "effort: xhigh",
+                    "safety-strategy: drop-sudo",
+                    "value: ${{ steps.run-codex.outputs.final-message }}",
+                    "${{ inputs.api-key }}",
+                    "${{ inputs.model }}",
+                ),
+                errors,
+            )
         if "secrets." in text:
             errors.append(f"{path}: composite action must receive explicit inputs, not read secrets directly")
         if "output-file:" in text:
