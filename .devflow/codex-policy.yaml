@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "mode": "disabled",
+  "manual_approval_required": true,
+  "allowed_actors": [
+    "tyxq428"
+  ],
+  "auto_recovery_dispatch": false,
+  "allow_github_actions_bot": false,
+  "retry_failed_codex_job": false,
+  "limits": {
+    "calls_per_task": 1,
+    "calls_per_fingerprint": 1,
+    "recovery_generations": 0,
+    "automatic_second_session": 0
+  },
+  "terminal_results": [
+    "BLOCKED",
+    "NO_CHANGES",
+    "UNVERIFIED",
+    "FAILURE",
+    "TIMEOUT"
+  ],
+  "freeze_reason": "User-directed zero-Codex optimization window",
+  "frozen_at_utc": "2026-07-23T16:50:00Z"
+}
