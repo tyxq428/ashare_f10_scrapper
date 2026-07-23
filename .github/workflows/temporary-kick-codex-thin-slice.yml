@@ -11,8 +11,41 @@ permissions:
   actions: write
   contents: write
 
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+
 jobs:
+  direct-environment-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: agent-runtime
+      deployment: false
+    permissions:
+      contents: read
+    steps:
+      - name: Verify exact Environment Secret presence without exposing values
+        shell: bash
+        env:
+          ENDPOINT: ${{ secrets.AGENT_RESPONSES_ENDPOINT }}
+          API_KEY: ${{ secrets.AGENT_API_KEY }}
+          MODEL: ${{ secrets.AGENT_MODEL }}
+        run: |
+          set +x
+          python - <<'PY'
+          import os
+          values = {
+              "endpoint_present": bool(os.environ.get("ENDPOINT")),
+              "api_key_present": bool(os.environ.get("API_KEY")),
+              "model_present": bool(os.environ.get("MODEL")),
+          }
+          print("AGENT_RUNTIME_PRESENCE=" + ",".join(f"{k}:{str(v).lower()}" for k, v in values.items()))
+          if not all(values.values()):
+              raise SystemExit("AGENT_RUNTIME_ENVIRONMENT_SECRETS_UNAVAILABLE")
+          PY
+
   dispatch-and-report:
+    needs: direct-environment-probe
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -20,7 +53,7 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
-      - name: Dispatch trusted control branch only when no active run exists
+      - name: Dispatch a fresh trusted Codex run only when no active run exists
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
