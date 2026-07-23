@@ -56,12 +56,14 @@ jobs:
           import json
           import os
           import sys
+          from dataclasses import asdict
           from pathlib import Path
 
           sys.path.insert(0, 'scripts/devflow')
           from task_descriptor import load_task_descriptor
 
-          policy = json.loads(Path('.devflow/codex-policy.yaml').read_text(encoding='utf-8'))
+          policy_file = Path('.devflow/codex-policy.yaml')
+          policy = json.loads(policy_file.read_text(encoding='utf-8'))
           _raw, task = load_task_descriptor(Path('.agent/current_task.yaml'))
           if policy.get('mode') != 'enabled':
               print('CODEX_POLICY_DISABLED=PASS')
@@ -70,15 +72,16 @@ jobs:
           from codex_eligibility import evaluate
 
           result = evaluate(
-              task_file=Path('.agent/current_task.yaml'),
-              approval_file=Path(os.environ['APPROVAL_FILE']),
-              reproduction_file=Path(os.environ['REPRODUCTION_FILE']),
+              repo=Path('.').resolve(),
+              task_file=Path('.agent/current_task.yaml').resolve(),
+              policy_file=policy_file.resolve(),
+              approval_file=Path(os.environ['APPROVAL_FILE']).resolve(),
+              ledger_file=Path('docs/implementation/CODEX_USAGE_LEDGER.json').resolve(),
+              reproduction_file=Path(os.environ['REPRODUCTION_FILE']).resolve(),
               actor=os.environ['ACTOR'],
-              ledger_file=Path('docs/implementation/CODEX_USAGE_LEDGER.json'),
-              repo=Path('.'),
           )
-          print(json.dumps(result, ensure_ascii=False, sort_keys=True))
-          if result.get('decision') != 'CODEX_ELIGIBLE':
+          print(json.dumps(asdict(result), ensure_ascii=False, sort_keys=True))
+          if not result.codex_allowed:
               raise SystemExit('CODEX_NOT_ELIGIBLE')
           print(f"CODEX_CANDIDATE_REQUIRES_REVIEWED_WORKFLOW_ENABLEMENT={task.task_id}")
           PY
