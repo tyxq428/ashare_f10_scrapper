@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "tasks": [
+    {
+      "task_id": "chatgpt-web-codex-devflow-v1",
+      "title": "ChatGPT Web Supervisor + Codex Thin Worker development flow",
+      "status": "RUNNING",
+      "branch": "feature/chatgpt-web-codex-devflow-v1-clean",
+      "pull_request": null,
+      "current_stage": "W04",
+      "state_path": "docs/implementation/chatgpt-web-codex-devflow-v1/task_state.yaml"
+    }
+  ]
+}
