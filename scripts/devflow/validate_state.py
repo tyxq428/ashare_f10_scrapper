@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -16,6 +17,33 @@ def git_is_ancestor(repo: Path, ancestor: str, head: str = "HEAD") -> bool:
         stderr=subprocess.DEVNULL,
     )
     return result.returncode == 0
+
+
+def stage_number(stage: str) -> int | None:
+    match = re.fullmatch(r"W(\d{2})", stage)
+    return int(match.group(1)) if match else None
+
+
+def branch_matches_state(current_branch: str, state: TaskState) -> bool:
+    """Return whether the checkout branch is valid for the canonical task state.
+
+    Before merge the canonical working branch remains authoritative. Once a task
+    has an associated PR and reaches W05 or later, the same state must also be
+    valid on ``main`` for merge and independent post-merge verification.
+    Detached PR merge checkouts are accepted because they expose no local branch.
+    """
+
+    if not current_branch or state.status == "DONE":
+        return True
+    if current_branch == state.working_branch:
+        return True
+    number = stage_number(state.current_stage)
+    return (
+        current_branch == "main"
+        and state.pull_request is not None
+        and number is not None
+        and number >= 5
+    )
 
 
 def validate_active_index(repo: Path, state: TaskState, state_path: Path) -> list[str]:
@@ -82,7 +110,7 @@ def validate(
                 capture_output=True,
                 text=True,
             ).stdout.strip()
-            if current_branch and current_branch != state.working_branch and state.status != "DONE":
+            if not branch_matches_state(current_branch, state):
                 errors.append(
                     f"working_branch mismatch: state={state.working_branch}, checkout={current_branch}"
                 )
@@ -108,7 +136,7 @@ def main() -> int:
     parser.add_argument(
         "--allow-checkout-branch",
         action="store_true",
-        help="keep commit ancestry checks but allow a PR checkout branch to differ from canonical working_branch",
+        help="keep ancestry checks but skip checkout-branch matching for trusted PR merge refs",
     )
     args = parser.parse_args()
 
