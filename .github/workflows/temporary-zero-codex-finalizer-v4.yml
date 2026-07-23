@@ -1,3 +1,4 @@
+# Triggered after installation; deterministic only, no Codex or relay access.
 name: Temporary Zero-Codex Finalizer V4
 
 on:
