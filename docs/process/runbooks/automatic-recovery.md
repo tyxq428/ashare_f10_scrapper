@@ -46,12 +46,16 @@
 
 Publish 成功后显式发送 `devflow_product_gate`：
 
-1. 从控制分支读取 immutable descriptor；
-2. 检查产品分支相对 `main` 的 changed paths；
-3. 运行 Full Gate；
-4. 失败且有预算时创建 Recovery Generation；
-5. 通过且批准低风险自动合并时，必要时 rebase 并重新 Gate；
-6. 合并后发送 `devflow_post_merge`。
+1. 从控制分支读取 immutable descriptor，并确认 `expected_base_sha` 是候选分支祖先；
+2. 计算候选分支与当前 `main` 的 Merge Base，只校验 Merge Base 到候选 HEAD 的新增路径；
+3. 真实 Scope Violation时 Fail Closed、上传仅含路径的摘要，并进入 `SECURITY_BLOCKED`；
+4. Scope通过后运行 Full Gate；
+5. Full Gate失败且有预算时创建 Recovery Generation；
+6. Full Gate通过且批准低风险自动合并时，若 `main` 已推进则 rebase；
+7. rebase后再次以最新 `origin/main` 校验 Scope并重跑 Full Gate；
+8. 合并后发送 `devflow_post_merge`。
+
+不得在候选生成后直接使用 `git diff origin/main HEAD` 作为初始 Scope，因为移动的 `main` 会把自身独有提交误算为候选变化。
 
 ## Post-Merge
 

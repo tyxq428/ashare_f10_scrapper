@@ -121,6 +121,10 @@ def validate_file(path: Path) -> list[str]:
                 "devflow_product_gate",
                 "verify_changed_paths.py",
                 "run_gate_profile.py",
+                "git merge-base --is-ancestor",
+                "git merge-base origin/main HEAD",
+                "product-scope-result.json",
+                "Fail closed on changed-path scope violation",
                 "auto_merge",
                 "devflow_post_merge",
             ),
@@ -128,6 +132,8 @@ def validate_file(path: Path) -> list[str]:
         )
         if "environment: agent-runtime" in text:
             errors.append(f"{path}: product gate must not access relay Environment Secrets")
+        if "--base origin/main" in text.split("Reconcile latest main", 1)[0]:
+            errors.append(f"{path}: initial scope must use the merge base, not a moving main tip")
 
     if path.name == "devflow-incident.yml":
         _require_fragments(

@@ -19,6 +19,27 @@
 - Secret-free Publish Job、Product Gate 和 Post-Merge 不得引用 `agent-runtime` Environment。
 - 机械格式问题应由同版本工具修复并留下回归，不反复人工猜测。
 
+## Product Gate 范围基线
+
+候选产品分支创建后，`main` 可能继续出现文档、编排或其他不相关提交。初始 Product Gate不得使用双点：
+
+```text
+git diff origin/main HEAD
+```
+
+因为它会把 `main` 独有的后续提交也计算为候选差异，产生假 Scope Violation。正确顺序：
+
+```text
+1. 验证 expected_base_sha 是候选分支祖先；
+2. 计算 merge_base = git merge-base origin/main HEAD；
+3. 只校验 merge_base..HEAD 的新增路径；
+4. Scope通过后执行 Full Gate；
+5. 合并前若main已推进，rebase到最新main；
+6. rebase后再以 origin/main..HEAD校验范围并重跑Full Gate。
+```
+
+Merge Base只解决移动主分支带来的差异口径，不会放宽任务起点和允许路径。真实 Scope失败必须 Fail Closed，产生只含路径的安全 Artifact，并由 Auto Recovery分类为 `SECURITY_BLOCKED`；不得用 Codex扩大范围绕过。
+
 ## 低风险自动合并
 
 只有 Task Descriptor 同时满足以下条件，Actions 才可以自动合并：
