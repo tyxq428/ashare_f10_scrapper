@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "state_revision": 1,
+  "task_id": "replace-me",
+  "title": "replace-me",
+  "status": "RUNNING",
+  "execution_status": "RUNNING",
+  "acceptance_status": "PENDING",
+  "current_stage": "W00",
+  "last_completed_stage": null,
+  "working_branch": "feature/replace-me",
+  "delivery_base": "main",
+  "pull_request": null,
+  "base_sha_at_start": "",
+  "last_product_commit_sha": "",
+  "post_merge_gate": "PENDING",
+  "human_gate": {"required": false, "reason": null, "minimum_action": null},
+  "next_action": "commit_W00_plan",
+  "recovery_entry": "docs/implementation/replace-me/HANDOFF.md",
+  "notification_generation": 0,
+  "updated_at_utc": ""
+}

@@ -1,26 +1,22 @@
 {
   "schema_version": 1,
-  "state_revision": 1,
+  "state_revision": 2,
   "task_id": "chatgpt-web-codex-devflow-v1",
   "title": "ChatGPT Web Supervisor + GitHub Actions Executor + Codex Thin Worker",
   "status": "RUNNING",
   "execution_status": "RUNNING",
   "acceptance_status": "PENDING",
-  "current_stage": "W01",
-  "last_completed_stage": "W00",
+  "current_stage": "W02",
+  "last_completed_stage": "W01",
   "working_branch": "feature/chatgpt-web-codex-devflow-v1",
   "delivery_base": "main",
   "pull_request": null,
   "base_sha_at_start": "75a5b93b047bd844fc5d0b7950507cba746fdd50",
   "last_product_commit_sha": "75a5b93b047bd844fc5d0b7950507cba746fdd50",
   "post_merge_gate": "PENDING",
-  "human_gate": {
-    "required": false,
-    "reason": null,
-    "minimum_action": null
-  },
-  "next_action": "materialize_layered_instructions_policies_runbooks_and_templates",
+  "human_gate": {"required": false, "reason": null, "minimum_action": null},
+  "next_action": "implement_state_validation_rendering_and_templates",
   "recovery_entry": "docs/implementation/chatgpt-web-codex-devflow-v1/HANDOFF.md",
   "notification_generation": 0,
-  "updated_at_utc": "2026-07-23T03:54:00Z"
+  "updated_at_utc": "2026-07-23T04:00:00Z"
 }

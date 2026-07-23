@@ -2,27 +2,17 @@
 
 ## 已完成
 
-- 从 `main@75a5b93b047bd844fc5d0b7950507cba746fdd50` 创建正式功能分支；
-- 审计当前开放 PR，没有发现并行活动 PR 路径冲突；
-- 固定任务合同、W00—W08 主计划和 Secret/权限边界；
-- 确认现有 Test、长任务心跳、有限重试和工程经验库可继续复用。
+- W00 基线、合同、唯一状态和安全边界；
+- W01 根级/Scoped Agent 指令、Policies、Runbooks、Templates 和 SOP v2 来源映射。
 
 ## 当前阶段
 
-`W01_layered_instructions`
+`W02_canonical_state_and_consistency_engine`
 
 ## 下一动作
 
-建立分层 `AGENTS.md`、Policies、Runbooks、Templates，并保存 W01 结果。
+先提交 `W02_plan.md`，然后实现 `scripts/devflow/state_model.py`、`validate_state.py`、`render_task_docs.py` 及对应确定性测试。
 
-## 恢复读取顺序
+## 恢复入口
 
-1. `task_state.yaml`；
-2. 当前分支 HEAD 和 Checks；
-3. `W01_plan.md`；
-4. `docs/process/README.md`；
-5. 聊天历史仅作补充。
-
-## 人工动作
-
-无。除真实权限、安全、不可逆风险或业务决策外直接继续。
+读取 `task_state.yaml`、当前 branch HEAD/Checks、W02 plan 和 `docs/process/README.md`。无人工门槛。

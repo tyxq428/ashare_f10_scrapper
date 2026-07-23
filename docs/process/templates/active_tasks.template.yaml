@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "tasks": [
+    {
+      "task_id": "replace-me",
+      "title": "replace-me",
+      "status": "RUNNING",
+      "branch": "feature/replace-me",
+      "pull_request": null,
+      "state_file": "docs/implementation/replace-me/task_state.yaml"
+    }
+  ]
+}
