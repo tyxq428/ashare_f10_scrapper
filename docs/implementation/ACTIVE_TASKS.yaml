@@ -16,7 +16,7 @@
       "status": "RUNNING",
       "branch": "feature/devflow-operational-optimization-v2",
       "pull_request": null,
-      "current_stage": "W00",
+      "current_stage": "W01",
       "state_path": "docs/implementation/devflow-operational-optimization-v2/task_state.yaml"
     }
   ]
