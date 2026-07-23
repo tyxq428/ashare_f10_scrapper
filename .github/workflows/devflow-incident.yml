@@ -15,6 +15,12 @@ permissions:
   issues: write
   contents: read
 
+# Shared with Devflow Infrastructure Incident. Serial execution plus the Issues
+# REST listing prevents concurrent workers from creating duplicate control issues.
+concurrency:
+  group: devflow-task-control-chatgpt-web-codex-devflow-v1
+  cancel-in-progress: false
+
 jobs:
   valuable-notification:
     if: >-
@@ -53,9 +59,9 @@ jobs:
             ACTION="Review the failed job and bounded diagnostics, then resume from HANDOFF.md."
           fi
 
-          ISSUE_NUMBER="$(gh issue list --repo "${{ github.repository }}" --state open \
-            --search "${CONTROL_TITLE} in:title" --json number,title \
-            --jq ".[] | select(.title == \"${CONTROL_TITLE}\") | .number" | head -n 1)"
+          ISSUE_NUMBER="$(gh api --paginate "/repos/${{ github.repository }}/issues?state=open&per_page=100" \
+            --jq ".[] | select(.pull_request == null and .title == \"${CONTROL_TITLE}\") | .number" \
+            | head -n 1)"
           if [[ -z "$ISSUE_NUMBER" ]]; then
             BODY=$(cat <<EOF
           This issue is the single notification and acknowledgement channel for task \`${TASK_ID}\`.
@@ -66,6 +72,13 @@ jobs:
             ISSUE_URL="$(gh issue create --repo "${{ github.repository }}" \
               --title "$CONTROL_TITLE" --body "$BODY" --assignee tyxq428)"
             ISSUE_NUMBER="${ISSUE_URL##*/}"
+          fi
+
+          MARKER="devflow-event:${SOURCE_RUN}:${TYPE}"
+          if gh api --paginate "/repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments?per_page=100" \
+            --jq '.[].body' | grep -Fq "$MARKER"; then
+            echo "VALUABLE_NOTIFICATION=ALREADY_RECORDED"
+            exit 0
           fi
 
           COMMENT=$(cat <<EOF
@@ -81,7 +94,7 @@ jobs:
           - Minimum action: ${ACTION}
           - Recovery: \`docs/implementation/${TASK_ID}/HANDOFF.md\`
 
-          Acknowledge with \`/ack\`. <!-- devflow-event:${SOURCE_RUN}:${TYPE} -->
+          Acknowledge with \`/ack\`. <!-- ${MARKER} -->
           EOF
           )
           gh issue comment "$ISSUE_NUMBER" --repo "${{ github.repository }}" --body "$COMMENT"
