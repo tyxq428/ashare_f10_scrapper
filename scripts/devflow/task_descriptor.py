@@ -56,7 +56,7 @@ class TaskDescriptor:
     parent_run_id: int | None
 
     @classmethod
-    def from_mapping(cls, data: dict[str, Any]) -> "TaskDescriptor":
+    def from_mapping(cls, data: dict[str, Any]) -> TaskDescriptor:
         if data.get("schema_version") != 1:
             raise TaskDescriptorError("schema_version must be 1")
 

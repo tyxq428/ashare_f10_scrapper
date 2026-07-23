@@ -9,7 +9,6 @@ from typing import Any
 
 from task_descriptor import TaskDescriptorError, load_task_descriptor
 
-
 TERMINAL_INFRA_CONCLUSIONS = {"cancelled", "timed_out", "stale", "startup_failure"}
 INFRA_STEP_MARKERS = (
     "set up job",

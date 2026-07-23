@@ -1,7 +1,6 @@
 import argparse
 from pathlib import Path
 
-
 LESSONS = """
 ## GHA-012 原始Workflow失败直接升级为用户中断
 

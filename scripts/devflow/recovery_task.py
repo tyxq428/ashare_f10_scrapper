@@ -9,7 +9,6 @@ from typing import Any
 
 from task_descriptor import TaskDescriptorError, load_task_descriptor
 
-
 SAFE_TEXT = re.compile(r"[^A-Za-z0-9 _./:+\-(),\[\]]+")
 
 
