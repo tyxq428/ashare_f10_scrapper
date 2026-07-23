@@ -20,6 +20,27 @@ CODEX_MODEL
 
 不得进入仓库、Variables、日志、Issue、PR、Artifact、Failure Bundle 或异常正文。扫描完整值、去尾斜杠值、hostname、URL 编码、标准 Base64 和 Base64URL 编码变体。
 
+## Environment 绑定边界
+
+`agent-runtime` 必须直接声明在入口 Workflow 的普通 Secret-bearing Job 上：
+
+```yaml
+jobs:
+  codex:
+    environment:
+      name: agent-runtime
+      deployment: false
+    permissions:
+      contents: read
+```
+
+不得把 Secret-bearing Job 放进由本地 `workflow_call` 间接调用的 reusable workflow。正式运行已经证明：普通 Job 的 Environment presence 探针可读到三个 Secret，而旧 reusable workflow 边界中的同名表达式为空。为消除平台行为差异：
+
+- `codex-task.yml` 直接拥有 Environment 和 Secret-bearing Job；
+- 可复用单元是 `.github/actions/codex-thin-worker/action.yml` composite action；
+- composite action 只接收显式 inputs，不直接读取 `secrets.*`；
+- `Codex Task` 只接受显式 `workflow_dispatch`，不使用任务分支 Push 触发旧分支中的 Workflow 版本。
+
 ## 私有转发
 
 Codex Action 只连接：
@@ -33,6 +54,7 @@ Runner 内无日志 Forwarder 从 Environment Secret 读取真实上游并标准
 ## 权限分离
 
 - Codex Job：`environment: agent-runtime`、`contents: read`、`persist-credentials: false`。
+- Composite Codex Action：只接收当前 Job 的 Key、Model、Prompt 和输出路径 inputs；不拥有 GitHub 写权限。
 - Publish Job：`contents: write`，不声明 Environment，不接收任何 Relay Secret。
 - Product Gate、Auto Recovery 和 Post-Merge：不得声明 `agent-runtime` 或引用 Relay Secret。
 - Job 间只传经过扫描的 Patch、Manifest、结构化结果和 Gate 摘要。
@@ -80,4 +102,4 @@ Runner 内无日志 Forwarder 从 Environment Secret 读取真实上游并标准
 - 自动扩大修改范围；
 - 无限 Codex 循环。
 
-所有生产 Action 固定到完整 commit SHA；阶段之间使用显式 `repository_dispatch`，Payload 仅含非 Secret 标识和经过验证的任务引用。
+所有生产 Action 固定到完整 commit SHA；阶段之间使用显式 `workflow_dispatch` 或 `repository_dispatch`，Payload 仅含非 Secret 标识和经过验证的任务引用。

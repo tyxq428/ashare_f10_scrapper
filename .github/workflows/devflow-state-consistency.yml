@@ -6,6 +6,7 @@ on:
       - main
       - "feature/chatgpt-web-codex-devflow-*"
       - "feature/devflow-*"
+      - "fix/codex-environment-secret-*"
     paths:
       - AGENTS.md
       - "**/AGENTS.md"
@@ -13,6 +14,8 @@ on:
       - "docs/implementation/**"
       - "scripts/devflow/**"
       - "tests/test_devflow.py"
+      - "tests/test_devflow_codex_environment.py"
+      - ".github/actions/codex-thin-worker/**"
       - ".github/workflows/*devflow*"
       - ".github/workflows/*codex*"
   pull_request:
@@ -23,6 +26,8 @@ on:
       - "docs/implementation/**"
       - "scripts/devflow/**"
       - "tests/test_devflow.py"
+      - "tests/test_devflow_codex_environment.py"
+      - ".github/actions/codex-thin-worker/**"
       - ".github/workflows/*devflow*"
       - ".github/workflows/*codex*"
   workflow_dispatch:
@@ -67,9 +72,9 @@ jobs:
           python -m compileall -q scripts/devflow
           python scripts/devflow/validate_workflows.py \
             2>&1 | tee devflow-workflow-validation.log
-          ruff check scripts/devflow tests/test_devflow.py \
+          ruff check scripts/devflow tests/test_devflow.py tests/test_devflow_codex_environment.py \
             2>&1 | tee devflow-ruff.log
-          pytest -q tests/test_devflow.py \
+          pytest -q tests/test_devflow.py tests/test_devflow_codex_environment.py \
             2>&1 | tee devflow-pytest.log
       - name: Upload diagnostics only on failure
         if: failure()
