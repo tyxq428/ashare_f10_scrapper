@@ -1,0 +1,96 @@
+name: Devflow Post Merge
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/temporary-final-postmerge-runner.yml
+  schedule:
+    - cron: "13,43 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+
+concurrency:
+  group: temporary-final-postmerge-runner
+  cancel-in-progress: false
+
+jobs:
+  wait-and-verify-final-exact-main:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Wait for finalization marker produced by the verified thin slice
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 180); do
+            git fetch origin main --quiet
+            if git cat-file -e origin/main:.devflow/finalize/chatgpt-web-codex-devflow-v1.json 2>/dev/null; then
+              git reset --hard origin/main
+              echo "FINALIZATION_MARKER=READY"
+              exit 0
+            fi
+            echo "[final-heartbeat] waiting for finalization marker; attempt=${attempt}/180"
+            sleep 30
+          done
+          echo "FINALIZATION_MARKER=TIMEOUT"
+          exit 1
+      - name: Validate marker and exact-main product ancestry
+        run: |
+          python - <<'PY'
+          import json
+          import subprocess
+          from pathlib import Path
+          path = Path('.devflow/finalize/chatgpt-web-codex-devflow-v1.json')
+          value = json.loads(path.read_text(encoding='utf-8'))
+          if value.get('task_id') != 'chatgpt-web-codex-devflow-v1':
+              raise SystemExit('unexpected task id')
+          sha = value.get('product_sha')
+          if not isinstance(sha, str) or len(sha) != 40:
+              raise SystemExit('invalid product SHA')
+          if subprocess.run(['git', 'merge-base', '--is-ancestor', sha, 'HEAD']).returncode != 0:
+              raise SystemExit('product SHA is not an ancestor of exact main')
+          PY
+      - name: Run final devflow, thin-slice and full repository gates
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          python scripts/devflow/validate_state.py \
+            --task-dir docs/implementation/chatgpt-web-codex-devflow-v1 \
+            --no-git \
+            --output final-state-result.json
+          python scripts/devflow/validate_workflows.py
+          pytest -q tests/test_devflow.py
+          ruff check scripts/run_resilient_command.py tests/test_resilient_fetch.py
+          pytest -q tests/test_resilient_fetch.py
+          python -m compileall -q src scripts
+          node --check src/ashare_f10/web/research-grid.js
+          node --check src/ashare_f10/web/static-search-worker.js
+          node --check src/ashare_f10/web/app.js
+          node --check src/ashare_f10/web/job-center-v2.js
+          node --check src/ashare_f10/web/raw-pack.js
+          node --check src/ashare_f10/web/run.js
+          node --check src/ashare_f10/web/research-pack.js
+          node tests/static-search-worker-smoke.cjs
+          ruff check src tests scripts/run_resilient_fetch.py scripts/run_resilient_command.py
+          pytest --cov=ashare_f10 --cov-report=term-missing
+      - name: Remove this one-time runner after successful verification
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git reset --hard origin/main
+          rm -f .github/workflows/temporary-final-postmerge-runner.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Remove completed final post-merge runner"
+          git push origin HEAD:main
