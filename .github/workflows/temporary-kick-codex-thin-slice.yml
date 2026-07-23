@@ -1,4 +1,4 @@
-name: Temporary Patch Product Gate Identity
+name: Temporary Redispatch Existing V3 Product Candidate
 
 on:
   push:
@@ -10,61 +10,36 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: temporary-redispatch-v3-product-candidate
+  cancel-in-progress: false
+
 jobs:
-  patch:
+  dispatch:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-        with:
-          ref: fix/product-gate-merge-identity
-          fetch-depth: 0
-      - name: Configure Bot identity and centralize merge-boundary failure
+      - name: Dispatch the existing validated v3 candidate once
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           python - <<'PY'
+          import json
           from pathlib import Path
 
-          path = Path('.github/workflows/devflow-product-gate.yml')
-          text = path.read_text(encoding='utf-8')
-          marker = '''        run: |
-          set -euo pipefail
-          git fetch --no-tags origin main
-          CURRENT_MAIN="$(git rev-parse origin/main)"
-'''
-          replacement = '''        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch --no-tags origin main
-          CURRENT_MAIN="$(git rev-parse origin/main)"
-'''
-          if marker not in text:
-              raise SystemExit('merge identity insertion marker not found')
-          text = text.replace(marker, replacement, 1)
-
-          start = text.index('      - name: Notify only when automatic merge is genuinely blocked\n')
-          end = text.index('      - name: Explicitly dispatch independent exact-main post-merge verification\n', start)
-          replacement_block = '''      - name: Fail closed when automatic merge boundary is blocked
-        if: >-
-          steps.full_gate.outcome == 'success' &&
-          steps.task.outputs.auto_merge == 'true' &&
-          steps.merge.outcome != 'success'
-        run: |
-          echo "AUTO_MERGE_BOUNDARY=BLOCKED"
-          exit 1
-
-'''
-          text = text[:start] + replacement_block + text[end:]
-          path.write_text(text, encoding='utf-8')
+          payload = {
+              "event_type": "devflow_product_gate",
+              "client_payload": {
+                  "task_id": "resilient-command-terminal-status-auto-v3",
+                  "task_branch": "task/codex-resilient-command-terminal-status-auto-v3",
+                  "publish_branch": "codex/resilient-command-terminal-status-auto-v3",
+              },
+          }
+          Path("/tmp/devflow-product-gate.json").write_text(json.dumps(payload), encoding="utf-8")
           PY
-      - name: Commit deterministic patch
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .github/workflows/devflow-product-gate.yml
-          git commit -m "Configure Product Gate Bot identity and centralized merge recovery"
-          git push origin HEAD:fix/product-gate-merge-identity
+          gh api --method POST "repos/${{ github.repository }}/dispatches" \
+            --input /tmp/devflow-product-gate.json
+          echo "REDISPATCHED_PRODUCT_GATE=resilient-command-terminal-status-auto-v3" \
+            >> "$GITHUB_STEP_SUMMARY"
