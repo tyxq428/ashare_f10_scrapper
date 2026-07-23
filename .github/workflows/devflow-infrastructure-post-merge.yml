@@ -65,3 +65,101 @@ jobs:
             devflow-workflow-validation.json
           if-no-files-found: warn
           retention-days: 7
+
+  zero-codex-finalize-operational-optimization:
+    if: github.event.head_commit.message == 'Diagnose deterministic zero-Codex operational optimization finalizer'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: feature/devflow-operational-optimization-v2-clean
+          fetch-depth: 0
+      - uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Verify repository-wide model freeze
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          policy = json.loads(Path('.devflow/codex-policy.yaml').read_text())
+          assert policy['mode'] == 'disabled'
+          action = Path('.github/actions/codex-thin-worker/action.yml').read_text()
+          assert 'openai/codex-action@' not in action
+          assert 'CODEX_POLICY_DISABLED' in action
+          print('ZERO_CODEX_FREEZE=PASS')
+          PY
+      - name: Install deterministic dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Apply deterministic finalizer and run bounded gates
+        id: finalize
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          {
+            python scripts/devflow/temporary_patch_finalizer.py
+            python scripts/devflow/temporary_finalize_operational_optimization.py
+            ruff format scripts/devflow tests/test_devflow*.py
+            ruff check --fix scripts/devflow tests/test_devflow*.py
+            python -m compileall -q scripts/devflow
+            python scripts/devflow/validate_workflows.py
+            python scripts/devflow/validate_docs.py --output /tmp/devflow-docs-validation.json
+            python scripts/devflow/upgrade_compatibility.py --output /tmp/devflow-upgrade-compatibility.json
+            ruff check scripts/devflow tests/test_devflow*.py
+            pytest -q tests/test_devflow*.py
+          } 2>&1 | tee /tmp/zero-codex-finalizer.log
+      - name: Publish unique safe diagnostic on failure
+        if: steps.finalize.outcome != 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git reset --hard "origin/feature/devflow-operational-optimization-v2-clean"
+          mkdir -p docs/implementation/devflow-operational-optimization-v2
+          FILE="docs/implementation/devflow-operational-optimization-v2/FINALIZER_DIAGNOSTIC_${{ github.run_id }}.md"
+          {
+            echo '# Zero-Codex Finalizer Diagnostic'
+            echo
+            echo "Run: ${{ github.run_id }}"
+            echo
+            echo '```text'
+            tail -n 250 /tmp/zero-codex-finalizer.log
+            echo '```'
+          } > "$FILE"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$FILE"
+          git commit -m "Record zero-Codex finalizer diagnostic ${{ github.run_id }}"
+          git push origin HEAD:feature/devflow-operational-optimization-v2-clean
+          exit 1
+      - name: Commit verified clean optimization branch
+        if: steps.finalize.outcome == 'success'
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Complete zero-Codex Devflow operational optimization"
+          git push origin HEAD:feature/devflow-operational-optimization-v2-clean
+      - name: Remove one-shot finalizer from main
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          git switch -C main origin/main
+          git show eb74e072bd3c9d2be8f6e214d695b7357582f53e:.github/workflows/devflow-infrastructure-post-merge.yml \
+            > .github/workflows/devflow-infrastructure-post-merge.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/devflow-infrastructure-post-merge.yml
+          git commit -m "Remove zero-Codex operational optimization diagnostic runner"
+          git push origin HEAD:main
