@@ -1,3 +1,4 @@
+# One-shot deterministic migration; contains no Codex invocation.
 name: Temporary Migrate Operational Optimization
 
 on:
