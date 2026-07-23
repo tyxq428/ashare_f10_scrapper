@@ -7,8 +7,6 @@ on:
       - Devflow Relay Health
       - Devflow Secret Audit
       - Devflow State Consistency
-      - Devflow Product Gate
-      - Devflow Post Merge
     types:
       - completed
 
@@ -67,6 +65,56 @@ jobs:
           SOURCE_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
         run: |
           set -euo pipefail
+          if [[ ! -s /tmp/devflow-source-task.yaml && "$SOURCE_NAME" == "Devflow State Consistency" ]]; then
+            MAIN_SHA="$(git rev-parse origin/main)"
+            python - "$SOURCE_RUN" "$MAIN_SHA" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          source_run = int(sys.argv[1])
+          main_sha = sys.argv[2]
+          value = {
+              "schema_version": 1,
+              "task_id": f"devflow-state-consistency-{source_run}",
+              "objective": "Repair the deterministic devflow state or validation failure without widening scope.",
+              "base_branch": "main",
+              "publish_branch": f"codex/devflow-state-consistency-{source_run}",
+              "allowed_files": [
+                  "scripts/devflow/state_model.py",
+                  "scripts/devflow/validate_state.py",
+                  "scripts/devflow/render_task_docs.py",
+                  "scripts/devflow/validate_workflows.py",
+                  "tests/test_devflow.py"
+              ],
+              "forbidden_patterns": [".github/**", ".env", "secrets/**", "src/**", "docs/**"],
+              "required_changes": [
+                  "Run the deterministic devflow tests and repair only the failing validator or state model.",
+                  "Do not alter business semantics, workflows, secrets or task scope."
+              ],
+              "acceptance_notes": ["The failure is reproducible by the trusted devflow gate."],
+              "gate_profile": "devflow-targeted",
+              "full_gate_profile": "repository-full",
+              "post_merge_profile": "repository-full",
+              "reasoning_effort": "low",
+              "session_limit": 1,
+              "automatic_second_session": 0,
+              "recovery_generation": 0,
+              "max_recovery_generations": 1,
+              "parent_task_id": None,
+              "parent_run_id": source_run,
+              "risk_class": "low",
+              "auto_merge": True,
+              "expected_base_sha": main_sha,
+              "stop_conditions": [
+                  "any changed path outside allowed_files",
+                  "secret audit match",
+                  "business or architecture decision required"
+              ]
+          }
+          Path('/tmp/devflow-source-task.yaml').write_text(json.dumps(value, indent=2) + '\n')
+          PY
+          fi
+
           args=(
             --source-workflow "$SOURCE_NAME"
             --source-run-id "$SOURCE_RUN"
@@ -78,6 +126,9 @@ jobs:
           )
           if [[ -s /tmp/devflow-source-task.yaml ]]; then
             args+=(--task-file /tmp/devflow-source-task.yaml)
+            echo "task_available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "task_available=false" >> "$GITHUB_OUTPUT"
           fi
           python scripts/devflow/recovery_policy.py "${args[@]}"
           python - <<'PY' >> "$GITHUB_OUTPUT"
@@ -104,7 +155,7 @@ jobs:
           echo "No task-control notification was emitted." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Create one bounded Codex recovery generation
-        if: steps.decision.outputs.action == 'CODEX_REPAIR' && hashFiles('/tmp/devflow-source-task.yaml') != ''
+        if: steps.decision.outputs.action == 'CODEX_REPAIR' && steps.decision.outputs.task_available == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -149,7 +200,7 @@ jobs:
           steps.decision.outputs.action == 'HUMAN_REQUIRED' ||
           steps.decision.outputs.action == 'SECURITY_BLOCKED' ||
           steps.decision.outputs.action == 'INTERRUPTED' ||
-          (steps.decision.outputs.action == 'CODEX_REPAIR' && hashFiles('/tmp/devflow-source-task.yaml') == '')
+          (steps.decision.outputs.action == 'CODEX_REPAIR' && steps.decision.outputs.task_available != 'true')
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -167,10 +218,7 @@ jobs:
                   'reason': 'A bounded repair was eligible but the immutable task descriptor was unavailable.',
                   'minimum_action': 'Review the failure bundle and recreate a trusted task descriptor from current main.',
               })
-          payload = {
-              'event_type': 'devflow_notify',
-              'client_payload': value,
-          }
+          payload = {'event_type': 'devflow_notify', 'client_payload': value}
           Path('/tmp/devflow-notify-payload.json').write_text(json.dumps(payload))
           PY
           gh api --method POST "repos/${{ github.repository }}/dispatches" \
