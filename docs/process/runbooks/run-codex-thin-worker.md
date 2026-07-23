@@ -84,13 +84,16 @@ Context Budget FAIL
 - Context、结果、Patch、Scope、Gate、Secret Audit 和 Manifest 位于工作区外；
 - Publish、Product Gate、Post-Merge 和 Branch GC 不接收 Relay Secret。
 
-## 自动恢复
+## 单 Session Circuit Breaker
 
-- Runner、checkout、依赖、网络、Artifact：最多三次只重跑失败 Job；
-- Codex 执行/G1：同一 Generation 最多定向重跑一次；
-- Full/Post-Merge：最多创建一个继承原范围和 Context 的 schema-v2 XHigh Recovery Generation；
-- Context、Scope、Secret、安全、业务决策、权限或预算耗尽才通知；
-- 可恢复过程保持静默。
+- 每个 Generation 只能进行一次模型 Session，生产 Auto Recovery 不执行 `RETRY_CODEX`；
+- `codex-result.status=BLOCKED` 时禁止相同 Descriptor 自动重跑；
+- Codex 返回 SUCCESS 但测试未验证时禁止相同 Session 重跑；
+- Codex 无结构化可发布结果时停止并要求诊断安全结果包；
+- State Consistency 没有 immutable Task Descriptor 时禁止合成通用修改范围；
+- 只有 Full/Post-Merge 等确定性 Gate 失败且存在原批准 scope 时，才可创建一个新的 schema-v2 XHigh Recovery Generation；
+- Runner、checkout、依赖、网络和 Artifact 等已验证基础设施错误仍可最多三次只重跑失败 Job；
+- Context、Scope、Secret、安全、业务决策、权限或预算耗尽才通知。
 
 ## 默认预算
 
