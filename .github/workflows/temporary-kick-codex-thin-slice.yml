@@ -1,4 +1,4 @@
-name: Temporary Kick Codex Thin Slice
+name: Temporary Observe Codex Thin Slice
 
 on:
   push:
@@ -8,11 +8,11 @@ on:
       - .github/workflows/temporary-kick-codex-thin-slice.yml
 
 permissions:
-  actions: write
+  actions: read
   contents: write
 
 jobs:
-  dispatch:
+  report:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -20,28 +20,15 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
-      - name: Dispatch the trusted task generation once
+      - name: Read latest non-secret Codex workflow metadata
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           TASK_BRANCH: task/codex-resilient-command-terminal-status-auto-v3
         run: |
           set -euo pipefail
-          ACTIVE="$(gh api --paginate \
-            "repos/${{ github.repository }}/actions/workflows/codex-task.yml/runs?per_page=100" \
-            --jq '[.workflow_runs[] | select((.status == "queued" or .status == "in_progress") and .display_title == "Codex Task")] | length')"
-          if [[ "$ACTIVE" != "0" ]]; then
-            echo "CODEX_TASK_ALREADY_ACTIVE=${ACTIVE}" >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          gh api --method POST \
-            "repos/${{ github.repository }}/actions/workflows/codex-task.yml/dispatches" \
-            -f ref=main \
-            -f "inputs[task_branch]=${TASK_BRANCH}"
-          echo "CODEX_TASK_DISPATCHED=${TASK_BRANCH}" >> "$GITHUB_STEP_SUMMARY"
-          sleep 8
           gh api \
-            "repos/${{ github.repository }}/actions/workflows/codex-task.yml/runs?per_page=20" \
+            "repos/${{ github.repository }}/actions/workflows/codex-task.yml/runs?per_page=30" \
             --jq '{task_branch: "'"${TASK_BRANCH}"'", observed_at_utc: now | todate, workflow_runs: [.workflow_runs[] | {id, status, conclusion, run_attempt, head_branch, head_sha, event, display_title, created_at, updated_at, html_url}]}' \
             > /tmp/codex-run-status.json
       - name: Publish only non-secret runtime metadata
