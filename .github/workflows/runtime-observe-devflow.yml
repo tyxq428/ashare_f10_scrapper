@@ -1,0 +1,79 @@
+name: Runtime Observe Devflow
+
+on:
+  push:
+    branches:
+      - runtime/devflow-observer
+    paths:
+      - .github/workflows/runtime-observe-devflow.yml
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  observe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: runtime/devflow-observer
+          fetch-depth: 0
+      - name: Collect public-safe workflow metadata
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+          from datetime import UTC, datetime
+          from pathlib import Path
+
+          repo = os.environ['GITHUB_REPOSITORY']
+          workflows = {
+              'codex_task': 'codex-task.yml',
+              'product_gate': 'devflow-product-gate.yml',
+              'post_merge': 'devflow-post-merge.yml',
+              'auto_recovery': 'devflow-auto-recovery.yml',
+              'incident': 'devflow-incident.yml',
+          }
+          result = {'observed_at_utc': datetime.now(UTC).isoformat(), 'workflows': {}}
+          for key, workflow in workflows.items():
+              process = subprocess.run(
+                  ['gh', 'api', f'repos/{repo}/actions/workflows/{workflow}/runs?per_page=20'],
+                  check=True,
+                  capture_output=True,
+                  text=True,
+              )
+              payload = json.loads(process.stdout)
+              result['workflows'][key] = [
+                  {
+                      field: run.get(field)
+                      for field in (
+                          'id', 'name', 'display_title', 'status', 'conclusion', 'event',
+                          'head_branch', 'head_sha', 'run_attempt', 'created_at', 'updated_at', 'html_url'
+                      )
+                  }
+                  for run in payload.get('workflow_runs', [])[:20]
+              ]
+          Path('/tmp/devflow-runtime-status.json').write_text(
+              json.dumps(result, indent=2, sort_keys=True) + '\n', encoding='utf-8'
+          )
+          PY
+      - name: Publish status to isolated orphan branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch --orphan runtime-devflow-status
+          git rm -rf . >/dev/null 2>&1 || true
+          mkdir -p runtime
+          cp /tmp/devflow-runtime-status.json runtime/devflow-runtime-status.json
+          git add runtime/devflow-runtime-status.json
+          git commit -m "Publish safe devflow runtime status"
+          git push --force origin HEAD:refs/heads/runtime/devflow-status
