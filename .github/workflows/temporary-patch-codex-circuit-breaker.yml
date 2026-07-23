@@ -1,0 +1,263 @@
+name: Temporary Patch Codex Circuit Breaker
+
+on:
+  push:
+    branches:
+      - fix/codex-blocked-circuit-breaker
+    paths:
+      - .github/workflows/temporary-patch-codex-circuit-breaker.yml
+
+permissions:
+  contents: write
+
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: fix/codex-blocked-circuit-breaker
+          fetch-depth: 0
+
+      - name: Patch recovery policy and remove unsafe synthetic repair scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          policy = Path('scripts/devflow/recovery_policy.py')
+          text = policy.read_text(encoding='utf-8')
+
+          old_summaries = '''    secret_audit = _find_summary(artifact_root, "secret-audit.json")
+              scope_result = _find_summary(artifact_root, "scope-result.json")
+              runtime_preflight = _find_summary(artifact_root, "runtime-preflight.json")
+          '''.replace('              ', '    ')
+          new_summaries = old_summaries + '    codex_result = _find_summary(artifact_root, "codex-result.json")\n'
+          if old_summaries not in text:
+              raise SystemExit('recovery summary marker not found')
+          text = text.replace(old_summaries, new_summaries, 1)
+
+          old_codex = '''    if source_workflow == "Codex Task" or _contains_marker(failure_steps, CODEX_STEP_MARKERS):
+              if run_attempt < 2:
+                  return _decision(
+                      action="RETRY_CODEX",
+                      reason_code="CODEX_SESSION_OR_TARGET_GATE_FAILED",
+                      reason="The bounded Codex session or its targeted gate failed before publication.",
+                      minimum_action="No user action; rerun the failed Codex job once using the same immutable task descriptor.",
+                      notification_type=None,
+                      **common,
+                  )
+              return _decision(
+                  action="INTERRUPTED",
+                  reason_code="CODEX_RETRY_EXHAUSTED",
+                  reason="The same bounded Codex task failed after one automatic session retry.",
+                  minimum_action="Review the structured Codex result and targeted gate summary before replanning.",
+                  notification_type="INTERRUPTED",
+                  **common,
+              )
+          '''.replace('              ', '    ')
+          new_codex = '''    if source_workflow == "Codex Task" or _contains_marker(failure_steps, CODEX_STEP_MARKERS):
+              if codex_result is not None:
+                  status = codex_result.get("status")
+                  if status == "BLOCKED":
+                      return _decision(
+                          action="INTERRUPTED",
+                          reason_code="CODEX_DECLARED_BLOCKED",
+                          reason=(
+                              "The bounded Codex worker completed and explicitly reported BLOCKED. "
+                              "Rerunning the identical immutable generation would repeat the same model call."
+                          ),
+                          minimum_action=(
+                              "Fix the deterministic root cause or create a new approved task descriptor "
+                              "with the required scope before dispatching Codex again."
+                          ),
+                          notification_type="INTERRUPTED",
+                          **common,
+                      )
+                  if status == "SUCCESS" and codex_result.get("tests_passed") is not True:
+                      return _decision(
+                          action="INTERRUPTED",
+                          reason_code="CODEX_RESULT_UNVERIFIED",
+                          reason="Codex returned SUCCESS without verified tests; the same model session must not be repeated.",
+                          minimum_action="Inspect the targeted gate and correct the deterministic task or test definition.",
+                          notification_type="INTERRUPTED",
+                          **common,
+                      )
+              return _decision(
+                  action="INTERRUPTED",
+                  reason_code="CODEX_EXECUTION_FAILED_NO_RETRY",
+                  reason=(
+                      "The Codex generation failed and did not produce a verified publishable result. "
+                      "Policy permits one model session per generation and forbids an automatic identical rerun."
+                  ),
+                  minimum_action="Diagnose the safe result bundle before creating a new generation.",
+                  notification_type="INTERRUPTED",
+                  **common,
+              )
+          '''.replace('              ', '    ')
+          if old_codex not in text:
+              raise SystemExit('old Codex retry block not found')
+          text = text.replace(old_codex, new_codex, 1)
+
+          state_marker = '''    if source_workflow in {"Devflow Product Gate", "Devflow Post Merge", "Devflow State Consistency"}:
+          '''
+          state_guard = '''    if source_workflow == "Devflow State Consistency" and (
+              task_file is None or not task_file.is_file()
+          ):
+              return _decision(
+                  action="INTERRUPTED",
+                  reason_code="STATE_REPAIR_SCOPE_UNAVAILABLE",
+                  reason=(
+                      "State Consistency failed without an immutable task descriptor. "
+                      "Synthesizing a generic Codex scope is forbidden because it can exclude the real failing files."
+                  ),
+                  minimum_action="Repair the deterministic failure in the source branch, then rerun State Consistency.",
+                  notification_type="INTERRUPTED",
+                  **common,
+              )
+
+          '''.replace('              ', '    ')
+          if state_marker not in text:
+              raise SystemExit('state recovery marker not found')
+          text = text.replace(state_marker, state_guard + state_marker, 1)
+          policy.write_text(text, encoding='utf-8')
+
+          workflow = Path('.github/workflows/devflow-auto-recovery.yml')
+          text = workflow.read_text(encoding='utf-8')
+          start = text.index('          if [[ ! -s /tmp/devflow-source-task.yaml && "$SOURCE_NAME" == "Devflow State Consistency" ]]; then\n')
+          end_marker = '          args=(\n'
+          end = text.index(end_marker, start)
+          text = text[:start] + '          # Never synthesize a generic Codex scope for State Consistency failures.\n          # Without an immutable task descriptor the classifier stops before model dispatch.\n\n' + text[end:]
+          text = text.replace(
+              "      - name: Retry only failed jobs within infrastructure or Codex budget\n        if: steps.decision.outputs.action == 'RETRY' || steps.decision.outputs.action == 'RETRY_CODEX'\n",
+              "      - name: Retry only failed jobs for verified infrastructure failures\n        if: steps.decision.outputs.action == 'RETRY'\n",
+              1,
+          )
+          workflow.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Add circuit-breaker regression tests
+        shell: bash
+        run: |
+          cat > tests/test_devflow_recovery_circuit_breaker.py <<'PY'
+          from __future__ import annotations
+
+          import json
+          import sys
+          from pathlib import Path
+
+          DEVFLOW = Path(__file__).resolve().parents[1] / "scripts" / "devflow"
+          sys.path.insert(0, str(DEVFLOW))
+
+          from recovery_policy import classify  # noqa: E402
+
+
+          def failed_jobs(step_name: str) -> dict[str, object]:
+              return {
+                  "jobs": [
+                      {
+                          "name": "job",
+                          "steps": [
+                              {"name": "Set up job", "conclusion": "success"},
+                              {"name": step_name, "conclusion": "failure"},
+                          ],
+                      }
+                  ]
+              }
+
+
+          def write_codex_result(root: Path, value: dict[str, object]) -> None:
+              root.mkdir(parents=True, exist_ok=True)
+              (root / "codex-result.json").write_text(json.dumps(value), encoding="utf-8")
+
+
+          def test_blocked_codex_result_is_never_retried(tmp_path: Path) -> None:
+              write_codex_result(
+                  tmp_path,
+                  {
+                      "status": "BLOCKED",
+                      "tests_passed": False,
+                      "changed_files": [],
+                      "blocking_reason": "approved scope excludes the failing file",
+                  },
+              )
+              decision = classify(
+                  source_workflow="Codex Task",
+                  source_run_id=1,
+                  conclusion="failure",
+                  run_attempt=1,
+                  jobs_payload=failed_jobs("Enforce runtime, Codex, scope, gate and secret outcomes"),
+                  artifact_root=tmp_path,
+              )
+              assert decision.action == "INTERRUPTED"
+              assert decision.reason_code == "CODEX_DECLARED_BLOCKED"
+              assert decision.notification_type == "INTERRUPTED"
+
+
+          def test_codex_failure_without_result_has_no_automatic_second_session(tmp_path: Path) -> None:
+              decision = classify(
+                  source_workflow="Codex Task",
+                  source_run_id=2,
+                  conclusion="failure",
+                  run_attempt=1,
+                  jobs_payload=failed_jobs("Run one Codex Thin Worker session"),
+                  artifact_root=tmp_path,
+              )
+              assert decision.action == "INTERRUPTED"
+              assert decision.reason_code == "CODEX_EXECUTION_FAILED_NO_RETRY"
+
+
+          def test_state_consistency_without_descriptor_does_not_synthesize_codex_scope(tmp_path: Path) -> None:
+              decision = classify(
+                  source_workflow="Devflow State Consistency",
+                  source_run_id=3,
+                  conclusion="failure",
+                  run_attempt=1,
+                  jobs_payload=failed_jobs("Validate Devflow workflows, docs and tests"),
+                  artifact_root=tmp_path,
+                  task_file=tmp_path / "missing-task.json",
+              )
+              assert decision.action == "INTERRUPTED"
+              assert decision.reason_code == "STATE_REPAIR_SCOPE_UNAVAILABLE"
+
+
+          def test_verified_infrastructure_failure_still_retries_silently(tmp_path: Path) -> None:
+              decision = classify(
+                  source_workflow="Codex Task",
+                  source_run_id=4,
+                  conclusion="failure",
+                  run_attempt=1,
+                  jobs_payload=failed_jobs("Run actions/checkout@sha"),
+                  artifact_root=tmp_path,
+              )
+              assert decision.action == "RETRY"
+              assert decision.notification_type is None
+          PY
+
+      - name: Validate the hotfix without invoking Codex
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m compileall -q scripts/devflow
+          python scripts/devflow/validate_workflows.py
+          pytest -q tests/test_devflow_recovery_circuit_breaker.py
+          ruff check scripts/devflow/recovery_policy.py tests/test_devflow_recovery_circuit_breaker.py
+
+      - name: Commit the emergency circuit breaker atomically
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/temporary-patch-codex-circuit-breaker.yml
+          git add scripts/devflow/recovery_policy.py \
+            .github/workflows/devflow-auto-recovery.yml \
+            tests/test_devflow_recovery_circuit_breaker.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Stop repeated Codex sessions after deterministic BLOCKED results"
+          git push origin HEAD:fix/codex-blocked-circuit-breaker
