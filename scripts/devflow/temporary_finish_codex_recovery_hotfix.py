@@ -26,3 +26,11 @@ if start_marker in text:
 '''
     text = text[:start] + replacement + end_marker + text[end + len(end_marker):]
 path.write_text(text, encoding="utf-8")
+
+# Auto Recovery no longer embeds a synthesized descriptor, so the workflow
+# should not be required to contain a literal reasoning_effort field. XHigh is
+# enforced by recovery_task.py and the production Composite Action instead.
+path = Path("scripts/devflow/validate_workflows.py")
+text = path.read_text(encoding="utf-8")
+text = text.replace('                \'"reasoning_effort": "xhigh"\',\n', "", 1)
+path.write_text(text, encoding="utf-8")
