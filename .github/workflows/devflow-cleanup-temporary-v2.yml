@@ -1,0 +1,49 @@
+name: Devflow Cleanup Temporary V2
+
+on:
+  workflow_run:
+    workflows:
+      - Devflow Finalize State
+    types:
+      - completed
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Remove all one-time migration orchestration
+        run: |
+          set -euo pipefail
+          git pull --ff-only origin main
+          rm -f .github/workflows/temporary-bootstrap-devflow-w05-w06.yml
+          rm -f .github/workflows/temporary-merge-devflow-pr-b.yml
+          rm -f .github/workflows/temporary-after-codex-merge-pr-b.yml
+          rm -f .github/workflows/temporary-product-branch-gate.yml
+          rm -f .github/workflows/temporary-dispatch-product-gate.yml
+          rm -f .github/workflows/temporary-codex-recovery-controller.yml
+          rm -f .github/workflows/temporary-dispatch-codex-control.yml
+          rm -f .github/workflows/temporary-dispatch-codex-control-secure.yml
+          rm -f .github/workflows/temporary-cancel-obsolete-dispatcher-v2.yml
+          rm -f .github/workflows/temporary-replace-codex-dispatcher.yml
+          rm -f .github/workflows/temporary-prepare-devflow-finalization.yml
+          rm -f .github/workflows/temporary-final-postmerge-runner.yml
+          rm -f .github/workflows/temporary-devflow-watchdog.yml
+          rm -f .github/workflows/temporary-pr-a-controller.yml
+          rm -f .github/workflows/devflow-cleanup-temporary.yml
+          rm -f .github/workflows/devflow-cleanup-temporary-v2.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "Remove all temporary devflow orchestration"
+            git push origin HEAD:main
+          fi
