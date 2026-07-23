@@ -42,6 +42,7 @@
   "auto_merge": true,
   "notify_completion": true,
   "expected_base_sha": "62515cc92bc489f7e1327bfe9a7f67929b6d6f68",
+  "dispatch_nonce": 2,
   "stop_conditions": [
     "any changed path outside allowed_files",
     "secret audit match",
