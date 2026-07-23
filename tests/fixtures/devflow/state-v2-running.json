@@ -1,0 +1,44 @@
+{
+  "schema_version": 2,
+  "state_revision": 1,
+  "task_id": "generic-running",
+  "title": "Generic running task",
+  "status": "RUNNING",
+  "execution_status": "RUNNING",
+  "acceptance": {
+    "domain": "generic",
+    "status": "PENDING",
+    "reason_code": null,
+    "details_path": null
+  },
+  "security_status": "PENDING",
+  "working_branch": "feature/generic-running",
+  "pull_request": null,
+  "base_sha_at_start": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "last_product_commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "last_state_commit_sha": null,
+  "current_stage": "W01",
+  "last_completed_stage": "W00",
+  "last_successful_step": "baseline",
+  "next_action": "execute_W01",
+  "gate_results": {},
+  "retry_budget": {"infrastructure": 3, "codex_sessions": 1},
+  "human_gate": {
+    "required": false,
+    "reason": null,
+    "minimum_action": null,
+    "resume_from": null
+  },
+  "post_merge": {
+    "status": "PENDING",
+    "merge_sha": null,
+    "verified_run_ids": []
+  },
+  "notification": {
+    "generation": 0,
+    "last_type": null,
+    "acknowledged": true,
+    "control_issue_number": null
+  },
+  "updated_at_utc": "2026-07-23T00:00:00Z"
+}
