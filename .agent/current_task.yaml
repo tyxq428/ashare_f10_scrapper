@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "task_id": "resilient-command-terminal-status-v1",
+  "objective": "Fix the real terminal-state defect in the finite retry command wrapper: after the last retryable failure the process exits, but the persisted report currently remains RETRYING instead of FAILED.",
+  "base_branch": "main",
+  "publish_branch": "codex/resilient-command-terminal-status-v1",
+  "allowed_files": [
+    "scripts/run_resilient_command.py",
+    "tests/test_resilient_fetch.py"
+  ],
+  "forbidden_patterns": [
+    ".github/**",
+    ".env",
+    "secrets/**",
+    "src/**",
+    "docs/**"
+  ],
+  "required_changes": [
+    "Persist PASS only when the command returns zero.",
+    "Persist RETRYING only when the failure is retryable and another attempt will actually run.",
+    "Persist FAILED when the failure is non-retryable or the retry budget has been exhausted.",
+    "Preserve attempt-level retryable=true on a final exhausted retryable failure while making the overall report status FAILED.",
+    "Add deterministic regression coverage for success, non-retryable failure, an intermediate retryable failure, and an exhausted retryable failure.",
+    "Keep the patch minimal and do not redesign the retry engine or change existing backoff and heartbeat behavior."
+  ],
+  "acceptance_notes": [
+    "Use the existing test module and existing main/run_streamed entry points where practical.",
+    "Do not weaken existing network retry classifications.",
+    "Do not write a long report; return only the required structured result."
+  ],
+  "gate_profile": "resilient-command-targeted",
+  "reasoning_effort": "low",
+  "session_limit": 1,
+  "automatic_second_session": 0,
+  "stop_conditions": [
+    "any changed path outside allowed_files",
+    "secret audit match",
+    "targeted gate failure after the single session",
+    "business or architecture decision required"
+  ]
+}
