@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "state_revision": 11,
+  "state_revision": 12,
   "task_id": "chatgpt-web-codex-devflow-v1",
   "title": "ChatGPT Web Supervisor + GitHub Actions Executor + Codex Thin Worker",
   "status": "DONE",
@@ -30,10 +30,10 @@
     "W05_HF04_DIRECT_ENVIRONMENT_BOUNDARY": "PASS:PR38",
     "W05_HF05_TRUSTED_BOT_OUTPUT": "PASS:PR39",
     "W05_HF06_MERGE_BASE_SCOPE": "PASS:PR40",
+    "W05_HF07_MERGE_IDENTITY": "PASS:PR41",
+    "W05_HF08_XHIGH_POLICY": "PASS:PR41",
     "W05_REAL_CODEX_V3": "PASS:29996706248",
-    "W05_PRODUCT_FULL_GATE": "PASS:29998952457",
-    "W05_HF07_MERGE_IDENTITY": "RUNNING",
-    "W05_HF08_XHIGH_POLICY": "RUNNING",
+    "W05_PRODUCT_FULL_GATE": "PASS:30001538021",
     "post_merge": "PASS",
     "W05": "PASS",
     "W06": "PASS",
@@ -70,5 +70,5 @@
     "acknowledged": false,
     "control_issue_number": 32
   },
-  "updated_at_utc": "2026-07-23T11:03:54Z"
+  "updated_at_utc": "2026-07-23T11:07:22Z"
 }
