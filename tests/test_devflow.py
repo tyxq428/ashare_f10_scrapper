@@ -40,7 +40,12 @@ def valid_state() -> dict[str, object]:
         "retry_budget": {"infrastructure": 3, "codex_sessions": 1},
         "human_gate": {"required": False, "reason": None, "minimum_action": None, "resume_from": None},
         "post_merge": {"status": "PENDING", "merge_sha": None, "verified_run_ids": []},
-        "notification": {"generation": 0, "last_type": None, "acknowledged": True},
+        "notification": {
+            "generation": 0,
+            "last_type": None,
+            "acknowledged": True,
+            "control_issue_number": None,
+        },
         "updated_at_utc": "2026-07-23T00:00:00Z",
     }
 
@@ -52,6 +57,31 @@ def test_state_accepts_execution_and_research_status_separately() -> None:
     state = TaskState.from_mapping(data)
     assert state.execution_status == "COMPLETED"
     assert state.research_acceptance_status == "REVIEW_REQUIRED"
+
+
+def test_state_exposes_pull_request_and_control_issue() -> None:
+    data = valid_state()
+    data["pull_request"] = 30
+    data["notification"]["control_issue_number"] = 32  # type: ignore[index]
+    state = TaskState.from_mapping(data)
+    assert state.pull_request == 30
+    assert state.control_issue_number == 32
+
+
+@pytest.mark.parametrize(("field", "value"), [("pull_request", 0), ("pull_request", True)])
+def test_pull_request_must_be_a_positive_integer_or_null(field: str, value: object) -> None:
+    data = valid_state()
+    data[field] = value
+    with pytest.raises(StateError, match="positive integer or null"):
+        TaskState.from_mapping(data)
+
+
+@pytest.mark.parametrize("value", [0, -1, True, "32"])
+def test_control_issue_number_must_be_a_positive_integer_or_null(value: object) -> None:
+    data = valid_state()
+    data["notification"]["control_issue_number"] = value  # type: ignore[index]
+    with pytest.raises(StateError, match="positive integer or null"):
+        TaskState.from_mapping(data)
 
 
 def test_done_requires_post_merge_pass() -> None:
