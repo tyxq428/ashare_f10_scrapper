@@ -66,6 +66,7 @@ jobs:
               'post_merge_profile': task.post_merge_profile,
               'expected_base_sha': task.expected_base_sha,
               'auto_merge': str(task.auto_merge).lower(),
+              'notify_completion': str(task.notify_completion).lower(),
               'risk_class': task.risk_class,
               'recovery_generation': task.recovery_generation,
               'max_recovery_generations': task.max_recovery_generations,
@@ -107,7 +108,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           SOURCE_RUN: ${{ github.run_id }}
-          TASK_ID: ${{ steps.task.outputs.task_id }}
           PUBLISH_BRANCH: ${{ steps.task.outputs.publish_branch }}
           RECOVERY_GENERATION: ${{ steps.task.outputs.recovery_generation }}
           MAX_RECOVERY_GENERATIONS: ${{ steps.task.outputs.max_recovery_generations }}
@@ -143,6 +143,7 @@ jobs:
           echo "dispatched=true" >> "$GITHUB_OUTPUT"
           echo "exhausted=false" >> "$GITHUB_OUTPUT"
           echo "PRODUCT_GATE_RECOVERY=${RECOVERY_TASK_ID}" >> "$GITHUB_STEP_SUMMARY"
+          echo "No task-control notification was emitted." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Notify only when product recovery budget is exhausted
         if: steps.full_gate.outcome != 'success' && steps.recovery.outputs.dispatched != 'true'
@@ -162,7 +163,7 @@ jobs:
                   'reason_code': 'PRODUCT_GATE_REPAIR_EXHAUSTED',
                   'reason': 'The full product gate still fails after the approved Codex recovery budget.',
                   'minimum_action': 'Review the bounded gate result and decide whether to widen scope or change the plan.',
-                  'fingerprint': 'product-gate-repair-exhausted',
+                  'fingerprint': 'product-gate-repair-exhausted-${{ steps.task.outputs.task_id }}',
                   'source_workflow': 'Devflow Product Gate',
                   'source_run_id': int('${{ github.run_id }}'),
                   'failure_steps': ['Run full product gate'],
@@ -172,7 +173,7 @@ jobs:
           PY
           gh api --method POST "repos/${{ github.repository }}/dispatches" \
             --input /tmp/devflow-notify.json
-          exit 1
+          echo "PRODUCT_GATE=BLOCKED_AFTER_RECOVERY_BUDGET" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Stop this generation after recovery dispatch
         if: steps.full_gate.outcome != 'success' && steps.recovery.outputs.dispatched == 'true'
@@ -214,6 +215,7 @@ jobs:
           steps.full_gate.outcome == 'success' &&
           steps.task.outputs.auto_merge == 'true' &&
           steps.task.outputs.risk_class == 'low'
+        continue-on-error: true
         shell: bash
         env:
           PUBLISH_BRANCH: ${{ steps.task.outputs.publish_branch }}
@@ -241,8 +243,40 @@ jobs:
           echo "merge_sha=${MERGE_SHA}" >> "$GITHUB_OUTPUT"
           echo "AUTO_MERGED_SHA=${MERGE_SHA}" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Notify only when automatic merge is genuinely blocked
+        if: >-
+          steps.full_gate.outcome == 'success' &&
+          steps.task.outputs.auto_merge == 'true' &&
+          steps.merge.outcome != 'success'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          payload = {
+              'event_type': 'devflow_notify',
+              'client_payload': {
+                  'action': 'HUMAN_REQUIRED',
+                  'notification_type': 'HUMAN_REQUIRED',
+                  'reason_code': 'AUTO_MERGE_BLOCKED',
+                  'reason': 'The low-risk candidate passed all gates but could not be safely merged because of a conflict, permission or branch-protection boundary.',
+                  'minimum_action': 'Review the merge boundary; no additional code repair is requested.',
+                  'fingerprint': 'auto-merge-blocked-${{ steps.task.outputs.task_id }}',
+                  'source_workflow': 'Devflow Product Gate',
+                  'source_run_id': int('${{ github.run_id }}'),
+                  'failure_steps': ['Reconcile latest main, re-run gate if needed, and merge low-risk candidate'],
+              },
+          }
+          Path('/tmp/devflow-notify.json').write_text(json.dumps(payload))
+          PY
+          gh api --method POST "repos/${{ github.repository }}/dispatches" \
+            --input /tmp/devflow-notify.json
+
       - name: Explicitly dispatch independent exact-main post-merge verification
-        if: steps.merge.outputs.merge_sha != ''
+        if: steps.merge.outcome == 'success' && steps.merge.outputs.merge_sha != ''
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -259,6 +293,8 @@ jobs:
                   'publish_branch': '${{ steps.task.outputs.publish_branch }}',
                   'merge_sha': '${{ steps.merge.outputs.merge_sha }}',
                   'post_merge_profile': '${{ steps.task.outputs.post_merge_profile }}',
+                  'product_gate_run_id': int('${{ github.run_id }}'),
+                  'notify_completion': '${{ steps.task.outputs.notify_completion }}',
                   'recovery_generation': int('${{ steps.task.outputs.recovery_generation }}'),
                   'max_recovery_generations': int('${{ steps.task.outputs.max_recovery_generations }}'),
               },
