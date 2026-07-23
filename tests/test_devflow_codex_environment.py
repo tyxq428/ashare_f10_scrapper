@@ -7,7 +7,22 @@ REPO = Path(__file__).resolve().parents[1]
 DEVFLOW = REPO / "scripts" / "devflow"
 sys.path.insert(0, str(DEVFLOW))
 
+from recovery_policy import classify  # noqa: E402
 from validate_workflows import validate_file  # noqa: E402
+
+
+def _failed_job(step_name: str) -> dict[str, object]:
+    return {
+        "jobs": [
+            {
+                "name": "gate-and-continue",
+                "steps": [
+                    {"name": "Set up job", "conclusion": "success"},
+                    {"name": step_name, "conclusion": "failure"},
+                ],
+            }
+        ]
+    }
 
 
 def test_codex_entry_job_owns_environment_secret_boundary() -> None:
@@ -92,3 +107,28 @@ def test_product_gate_configures_bot_identity_and_centralizes_merge_failure() ->
     assert "Notify only when automatic merge is genuinely blocked" not in text
     assert "AUTO_MERGE_BOUNDARY=BLOCKED" in merge_section
     assert validate_file(workflow) == []
+
+
+def test_product_gate_merge_boundary_is_a_real_human_gate() -> None:
+    decision = classify(
+        source_workflow="Devflow Product Gate",
+        source_run_id=999,
+        conclusion="failure",
+        run_attempt=1,
+        jobs_payload=_failed_job("Fail closed when automatic merge boundary is blocked"),
+    )
+    assert decision.action == "HUMAN_REQUIRED"
+    assert decision.reason_code == "AUTO_MERGE_BLOCKED"
+    assert decision.notification_type == "HUMAN_REQUIRED"
+
+
+def test_product_gate_scope_failure_precedes_code_repair() -> None:
+    decision = classify(
+        source_workflow="Devflow Product Gate",
+        source_run_id=1000,
+        conclusion="failure",
+        run_attempt=1,
+        jobs_payload=_failed_job("Fail closed on changed-path scope violation"),
+    )
+    assert decision.action == "SECURITY_BLOCKED"
+    assert decision.reason_code == "SECURITY_CONTROL_FAILED"
