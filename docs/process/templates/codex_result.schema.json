@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "status": {"type": "string", "enum": ["SUCCESS", "BLOCKED"]},
+    "summary": {"type": "string", "maxLength": 1200},
+    "changed_files": {"type": "array", "items": {"type": "string"}, "maxItems": 20},
+    "commands_run": {"type": "array", "items": {"type": "string"}, "maxItems": 20},
+    "tests_passed": {"type": "boolean"},
+    "blocking_reason": {"type": ["string", "null"], "maxLength": 1200}
+  },
+  "required": ["status", "summary", "changed_files", "commands_run", "tests_passed", "blocking_reason"],
+  "additionalProperties": false
+}

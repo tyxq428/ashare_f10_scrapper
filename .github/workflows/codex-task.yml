@@ -1,0 +1,88 @@
+name: Codex Task
+
+on:
+  push:
+    branches:
+      - "task/codex-*"
+    paths:
+      - .agent/current_task.yaml
+  workflow_dispatch:
+    inputs:
+      task_branch:
+        description: Trusted control branch containing .agent/current_task.yaml
+        required: true
+        type: string
+
+# The caller grants the maximum required by the called workflow. The reusable
+# Codex job reduces itself to contents:read; only the separate publish job keeps write.
+permissions:
+  contents: write
+
+concurrency:
+  group: codex-task-${{ inputs.task_branch || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  read-task:
+    if: github.actor == 'tyxq428'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      task_id: ${{ steps.task.outputs.task_id }}
+      task_branch: ${{ steps.task.outputs.task_branch }}
+      task_file: ${{ steps.task.outputs.task_file }}
+      gate_profile: ${{ steps.task.outputs.gate_profile }}
+      publish_branch: ${{ steps.task.outputs.publish_branch }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ inputs.task_branch || github.ref_name }}
+          persist-credentials: false
+      - id: task
+        name: Validate trusted task descriptor
+        shell: bash
+        env:
+          CONTROL_BRANCH: ${{ inputs.task_branch || github.ref_name }}
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          value = json.loads(Path('.agent/current_task.yaml').read_text(encoding='utf-8'))
+          for key in ('task_id', 'publish_branch', 'allowed_files', 'gate_profile'):
+              if key not in value:
+                  raise SystemExit(f'missing task key: {key}')
+          if value.get('reasoning_effort') != 'low':
+              raise SystemExit('reasoning_effort must be low')
+          if value.get('session_limit') != 1 or value.get('automatic_second_session') != 0:
+              raise SystemExit('exactly one Codex session is allowed')
+          control_branch = os.environ['CONTROL_BRANCH']
+          publish_branch = str(value['publish_branch'])
+          if not control_branch.startswith('task/codex-'):
+              raise SystemExit('untrusted control branch')
+          if not re.fullmatch(r'codex/[A-Za-z0-9._/-]+', publish_branch):
+              raise SystemExit('invalid publish branch')
+          if not isinstance(value['allowed_files'], list) or not value['allowed_files']:
+              raise SystemExit('allowed_files must be non-empty')
+          with Path(os.environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as handle:
+              handle.write(f"task_id={value['task_id']}\n")
+              handle.write(f"task_branch={control_branch}\n")
+              handle.write('task_file=.agent/current_task.yaml\n')
+              handle.write(f"gate_profile={value['gate_profile']}\n")
+              handle.write(f"publish_branch={publish_branch}\n")
+          PY
+
+  worker:
+    needs: read-task
+    uses: ./.github/workflows/_reusable-codex-thin-worker.yml
+    with:
+      task_id: ${{ needs.read-task.outputs.task_id }}
+      task_branch: ${{ needs.read-task.outputs.task_branch }}
+      task_file: ${{ needs.read-task.outputs.task_file }}
+      gate_profile: ${{ needs.read-task.outputs.gate_profile }}
+      publish_branch: ${{ needs.read-task.outputs.publish_branch }}

@@ -1,0 +1,120 @@
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+import pytest
+
+DEVFLOW = Path(__file__).resolve().parents[1] / "scripts" / "devflow"
+sys.path.insert(0, str(DEVFLOW))
+
+from endpoint_utils import normalize_responses_endpoint  # noqa: E402
+from gate_profiles import get_gate_profile  # noqa: E402
+from secret_audit import secret_variants  # noqa: E402
+from state_model import StateError, TaskState, load_json_yaml  # noqa: E402
+from validate_workflows import validate_file  # noqa: E402
+from verify_changed_paths import verify  # noqa: E402
+
+
+def valid_state() -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "state_revision": 1,
+        "task_id": "sample",
+        "title": "Sample",
+        "status": "RUNNING",
+        "execution_status": "RUNNING",
+        "research_acceptance_status": "PENDING",
+        "working_branch": "feature/sample",
+        "pull_request": None,
+        "base_sha_at_start": "a" * 40,
+        "last_product_commit_sha": "a" * 40,
+        "last_state_commit_sha": None,
+        "current_stage": "W01",
+        "last_completed_stage": "W00",
+        "last_successful_step": "baseline",
+        "next_action": "continue",
+        "gate_results": {},
+        "retry_budget": {"infrastructure": 3, "codex_sessions": 1},
+        "human_gate": {"required": False, "reason": None, "minimum_action": None, "resume_from": None},
+        "post_merge": {"status": "PENDING", "merge_sha": None, "verified_run_ids": []},
+        "notification": {"generation": 0, "last_type": None, "acknowledged": True},
+        "updated_at_utc": "2026-07-23T00:00:00Z",
+    }
+
+
+def test_state_accepts_execution_and_research_status_separately() -> None:
+    data = valid_state()
+    data["execution_status"] = "COMPLETED"
+    data["research_acceptance_status"] = "REVIEW_REQUIRED"
+    state = TaskState.from_mapping(data)
+    assert state.execution_status == "COMPLETED"
+    assert state.research_acceptance_status == "REVIEW_REQUIRED"
+
+
+def test_done_requires_post_merge_pass() -> None:
+    data = valid_state()
+    data.update({"status": "DONE", "execution_status": "COMPLETED"})
+    with pytest.raises(StateError, match="post_merge PASS"):
+        TaskState.from_mapping(data)
+
+
+def test_human_gate_requires_minimum_action_and_resume() -> None:
+    data = valid_state()
+    data["status"] = "WAITING_HUMAN"
+    data["human_gate"] = {"required": True, "reason": "permission", "minimum_action": None, "resume_from": None}
+    with pytest.raises(StateError, match="minimum_action"):
+        TaskState.from_mapping(data)
+
+
+def test_json_is_valid_yaml_subset_state_format(tmp_path: Path) -> None:
+    path = tmp_path / "task_state.yaml"
+    path.write_text(json.dumps(valid_state()), encoding="utf-8")
+    assert load_json_yaml(path)["task_id"] == "sample"
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("https://relay.invalid", "https://relay.invalid/v1/responses"),
+        ("https://relay.invalid/v1", "https://relay.invalid/v1/responses"),
+        ("https://relay.invalid/v1/responses", "https://relay.invalid/v1/responses"),
+    ],
+)
+def test_endpoint_normalization(raw: str, expected: str) -> None:
+    assert normalize_responses_endpoint(raw) == expected
+
+
+def test_endpoint_requires_https() -> None:
+    with pytest.raises(ValueError, match="HTTPS"):
+        normalize_responses_endpoint("http://relay.invalid/v1")
+
+
+def test_scope_guard_fails_closed() -> None:
+    assert verify(["src/a.py", "tests/test_a.py"], ["src/a.py"]) == ["tests/test_a.py"]
+    assert verify(["src/a.py"], ["src/*.py"]) == []
+
+
+def test_unknown_gate_profile_is_rejected() -> None:
+    with pytest.raises(ValueError, match="unknown gate profile"):
+        get_gate_profile("arbitrary-shell-from-user")
+
+
+def test_secret_variants_include_host_and_encoded_values() -> None:
+    variants = secret_variants("https://relay.invalid/v1", "secret-key-value", "model-private")
+    decoded = {item.decode("utf-8") for item in variants}
+    assert "relay.invalid" in decoded
+    assert "secret-key-value" in decoded
+    assert any("aHR0c" in item for item in decoded)
+
+
+def test_workflow_policy_rejects_floating_action_and_pull_request_target(tmp_path: Path) -> None:
+    workflow = tmp_path / "bad.yml"
+    workflow.write_text(
+        "on: pull_request_target\njobs:\n  bad:\n    steps:\n      - uses: actions/checkout@v4\n",
+        encoding="utf-8",
+    )
+    errors = validate_file(workflow)
+    assert any("pull_request_target" in error for error in errors)
+    assert any("full SHA" in error for error in errors)

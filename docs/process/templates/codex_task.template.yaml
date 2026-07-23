@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "task_id": "replace-me",
+  "objective": "replace-me",
+  "base_branch": "main",
+  "publish_branch": "codex/replace-me",
+  "allowed_files": ["path/to/file.py", "tests/test_file.py"],
+  "forbidden_patterns": [".github/**", ".env", "secrets/**"],
+  "required_changes": ["replace-me"],
+  "gate_profile": "replace-me",
+  "reasoning_effort": "low",
+  "session_limit": 1,
+  "automatic_second_session": 0,
+  "stop_conditions": [
+    "any changed path outside allowed_files",
+    "secret audit match",
+    "targeted gate failure after the single session",
+    "business or architecture decision required"
+  ]
+}
