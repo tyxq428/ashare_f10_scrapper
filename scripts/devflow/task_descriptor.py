@@ -50,6 +50,7 @@ class TaskDescriptor:
     max_recovery_generations: int
     risk_class: str
     auto_merge: bool
+    notify_completion: bool
     expected_base_sha: str
     parent_task_id: str | None
     parent_run_id: int | None
@@ -114,8 +115,13 @@ class TaskDescriptor:
             raise TaskDescriptorError("recovery_generation exceeds max_recovery_generations")
 
         auto_merge = data.get("auto_merge")
+        notify_completion = data.get("notify_completion", False)
         if not isinstance(auto_merge, bool):
             raise TaskDescriptorError("auto_merge must be boolean")
+        if not isinstance(notify_completion, bool):
+            raise TaskDescriptorError("notify_completion must be boolean")
+        if notify_completion and not auto_merge:
+            raise TaskDescriptorError("notify_completion requires auto_merge")
         if auto_merge and values["risk_class"] != "low":
             raise TaskDescriptorError("auto_merge is only allowed for risk_class=low")
         if auto_merge and len(allowed_files) > 5:
@@ -150,6 +156,7 @@ class TaskDescriptor:
             max_recovery_generations=max_recovery_generations,
             risk_class=values["risk_class"],
             auto_merge=auto_merge,
+            notify_completion=notify_completion,
             expected_base_sha=values["expected_base_sha"],
             parent_task_id=parent_task_id,
             parent_run_id=parent_run_id,
