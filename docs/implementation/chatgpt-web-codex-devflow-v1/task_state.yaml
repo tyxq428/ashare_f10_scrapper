@@ -1,20 +1,20 @@
 {
   "schema_version": 1,
-  "state_revision": 10,
+  "state_revision": 11,
   "task_id": "chatgpt-web-codex-devflow-v1",
   "title": "ChatGPT Web Supervisor + GitHub Actions Executor + Codex Thin Worker",
-  "status": "RUNNING",
-  "execution_status": "RUNNING",
-  "research_acceptance_status": "PENDING",
+  "status": "DONE",
+  "execution_status": "COMPLETED",
+  "research_acceptance_status": "PASS",
   "working_branch": "main",
   "pull_request": 30,
   "base_sha_at_start": "75a5b93b047bd844fc5d0b7950507cba746fdd50",
-  "last_product_commit_sha": "62515cc92bc489f7e1327bfe9a7f67929b6d6f68",
+  "last_product_commit_sha": "9e00e040474613eb0ec9cf5738cb3523900ea416",
   "last_state_commit_sha": null,
-  "current_stage": "W05",
-  "last_completed_stage": "W04",
-  "last_successful_step": "real_codex_v3_scope_targeted_publish_and_full_gate_passed",
-  "next_action": "merge_product_gate_identity_and_xhigh_policy_hotfix_then_rerun_existing_v3_candidate",
+  "current_stage": "W08",
+  "last_completed_stage": "W08",
+  "last_successful_step": "exact_main_post_merge_pass:30001634301",
+  "next_action": "none",
   "gate_results": {
     "W00": "PASS",
     "W01": "PASS",
@@ -34,7 +34,15 @@
     "W05_PRODUCT_FULL_GATE": "PASS:29998952457",
     "W05_HF07_MERGE_IDENTITY": "RUNNING",
     "W05_HF08_XHIGH_POLICY": "RUNNING",
-    "post_merge": "RUNNING"
+    "post_merge": "PASS",
+    "W05": "PASS",
+    "W06": "PASS",
+    "W07": "PASS",
+    "W08": "PASS",
+    "AUTO_RECOVERY": "PASS",
+    "REAL_CODEX_THIN_SLICE": "PASS:resilient-command-terminal-status-auto-v3",
+    "POST_MERGE": "PASS:30001634301",
+    "PRODUCT_GATE": "PASS:30001538021"
   },
   "retry_budget": {
     "infrastructure": 3,
@@ -50,15 +58,17 @@
     "resume_from": null
   },
   "post_merge": {
-    "status": "RUNNING",
-    "merge_sha": "62515cc92bc489f7e1327bfe9a7f67929b6d6f68",
-    "verified_run_ids": []
+    "status": "PASS",
+    "merge_sha": "9e00e040474613eb0ec9cf5738cb3523900ea416",
+    "verified_run_ids": [
+      30001634301
+    ]
   },
   "notification": {
-    "generation": 2,
-    "last_type": "HUMAN_REQUIRED",
-    "acknowledged": true,
+    "generation": 3,
+    "last_type": "COMPLETED",
+    "acknowledged": false,
     "control_issue_number": 32
   },
-  "updated_at_utc": "2026-07-23T10:56:42Z"
+  "updated_at_utc": "2026-07-23T11:03:54Z"
 }
