@@ -19,18 +19,19 @@ REPOSITORY_FULL: list[list[str]] = [
     ["pytest", "--cov=ashare_f10", "--cov-report=term-missing"],
 ]
 
+DEVFLOW_TESTS = ["tests/test_devflow.py", "tests/test_devflow_codex_environment.py"]
 
 GATE_PROFILES: dict[str, list[list[str]]] = {
     "devflow-targeted": [
         ["python", "-m", "compileall", "-q", "scripts/devflow"],
         ["python", "scripts/devflow/validate_workflows.py"],
-        ["pytest", "-q", "tests/test_devflow.py"],
+        ["pytest", "-q", *DEVFLOW_TESTS],
     ],
     "devflow-auto-recovery-targeted": [
         ["python", "-m", "compileall", "-q", "scripts/devflow"],
         ["python", "scripts/devflow/validate_workflows.py"],
-        ["ruff", "check", "scripts/devflow", "tests/test_devflow.py"],
-        ["pytest", "-q", "tests/test_devflow.py"],
+        ["ruff", "check", "scripts/devflow", *DEVFLOW_TESTS],
+        ["pytest", "-q", *DEVFLOW_TESTS],
     ],
     "resilient-command-targeted": [
         ["ruff", "check", "scripts/run_resilient_command.py", "tests/test_resilient_fetch.py"],
