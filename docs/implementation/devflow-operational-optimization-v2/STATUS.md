@@ -3,12 +3,14 @@
 ```yaml
 status: RUNNING
 execution_status: RUNNING
-research_acceptance_status: PENDING
-current_stage: W00
-last_completed_stage: null
+acceptance_domain: generic
+acceptance_status: PENDING
+security_status: PENDING
+current_stage: W01
+last_completed_stage: W00
 branch: feature/devflow-operational-optimization-v2
 pull_request: pending
-next_action: execute_W00_baseline_then_W01_xhigh_context_budget
+next_action: open_pull_request_and_run_devflow_impact_upgrade_and_forced_full_gates
 post_merge: PENDING
 human_intervention_required: false
 ```
