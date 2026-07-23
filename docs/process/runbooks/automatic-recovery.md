@@ -80,3 +80,11 @@ Post-Merge 在 exact `main` 上运行指定 Profile。失败时仍按同一 Reco
 ## 人工通知
 
 只有自动恢复不再安全或不再有预算时才发送通知。通知中的 `/ack` 不会触发任何动作。用户完成外部配置、权限或业务决定后，使用 `/resume` 或回到 ChatGPT Web 提供新事实。
+
+
+## Codex 调用前熔断
+
+1. 若结构化结果是 `BLOCKED`，停止该 Generation；不重跑模型；
+2. 若 State Consistency 缺少不可变 Task Descriptor 或真实失败路径不在允许范围，交由 ChatGPT Web 直接修复；
+3. 不得从 `main` 合成固定五文件范围来猜测功能分支失败；
+4. 修复恢复策略本身时先打开全局熔断，确定性 Gate 全部通过后再恢复模型入口。

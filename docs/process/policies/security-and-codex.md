@@ -132,3 +132,11 @@ Caller Job必须：
 - 无限 Codex 循环。
 
 所有生产 Action 固定到完整 commit SHA；阶段之间使用显式 `workflow_dispatch` 或 `repository_dispatch`，Payload 仅含非 Secret 标识和经过验证的任务引用。
+
+
+## Codex 熔断与 `BLOCKED` 终态
+
+- `codex-result.json.status=BLOCKED` 表示当前 Generation 无法在批准范围内安全修复；不得重跑同一 Codex Job，也不得自动创建相同范围的下一代任务；
+- State Consistency、Workflow、安全策略和 Devflow Core 改动默认由 ChatGPT Web Supervisor 直接诊断和修改，不从缺失上下文的失败 Run 合成 Codex Descriptor；
+- 只有不可变 Task Descriptor、可复现失败证据、真实失败分支和覆盖失败路径的允许范围同时存在时，才允许自动 Codex Repair；
+- 紧急熔断必须在模型调用之前生效，并覆盖默认分支及仍可能被重跑的旧任务分支。

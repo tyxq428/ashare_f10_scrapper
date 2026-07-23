@@ -1,8 +1,5 @@
 name: Codex Thin Worker
-
-description: >-
-  Emergency circuit breaker: do not invoke the model until the recovery
-  classification and immutable failure-context handoff are repaired.
+description: Run one bounded Codex session through the localhost-only Responses forwarder.
 
 inputs:
   api-key:
@@ -17,23 +14,23 @@ inputs:
 
 outputs:
   final-message:
-    description: Structured blocked result while the circuit breaker is open.
-    value: ${{ steps.circuit-breaker.outputs.final-message }}
+    description: Structured final Codex message produced under the repository output schema.
+    value: ${{ steps.run-codex.outputs.final-message }}
 
 runs:
   using: composite
   steps:
-    - id: circuit-breaker
-      name: Stop before Codex model invocation
-      shell: bash
-      run: |
-        set -euo pipefail
-        delimiter="CODEX_RESULT_$(date +%s)_${RANDOM}"
-        {
-          echo "final-message<<${delimiter}"
-          cat <<'JSON'
-        {"status":"BLOCKED","changed_files":[],"commands_run":[],"tests_passed":false,"summary":"Codex execution is temporarily disabled by the repository circuit breaker.","blocking_reason":"CODEX_CIRCUIT_BREAKER_OPEN_PENDING_RECOVERY_ROOT_CAUSE_FIX"}
-        JSON
-          echo "${delimiter}"
-        } >> "$GITHUB_OUTPUT"
-        echo "CODEX_MODEL_INVOCATION=DISABLED" >> "$GITHUB_STEP_SUMMARY"
+    - id: run-codex
+      name: Run one bounded Codex Thin Worker session
+      uses: openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56
+      with:
+        openai-api-key: ${{ inputs.api-key }}
+        responses-api-endpoint: http://127.0.0.1:8787/v1/responses
+        model: ${{ inputs.model }}
+        effort: xhigh
+        prompt-file: ${{ inputs.prompt-file }}
+        output-schema-file: docs/process/templates/codex_result.schema.json
+        sandbox: workspace-write
+        safety-strategy: drop-sudo
+        allow-bots: "true"
+        allow-bot-users: github-actions[bot]
