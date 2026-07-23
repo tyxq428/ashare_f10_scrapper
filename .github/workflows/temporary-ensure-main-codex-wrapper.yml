@@ -1,0 +1,133 @@
+name: Temporary Ensure Main Codex Wrapper
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/temporary-ensure-main-codex-wrapper.yml
+  schedule:
+    - cron: "3,18,33,48 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+
+concurrency:
+  group: temporary-ensure-main-codex-wrapper
+  cancel-in-progress: false
+
+jobs:
+  wait-repair-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Wait for PR-A reusable workflow on exact main
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 240); do
+            git fetch origin main --quiet
+            if git cat-file -e origin/main:.github/workflows/_reusable-codex-thin-worker.yml 2>/dev/null && \
+               git cat-file -e origin/main:scripts/devflow/validate_workflows.py 2>/dev/null; then
+              git reset --hard origin/main
+              exit 0
+            fi
+            echo "[wrapper-heartbeat] waiting for PR-A; attempt=${attempt}/240"
+            sleep 20
+          done
+          exit 1
+      - name: Canonicalize and repair the production wrapper idempotently
+        run: |
+          set -euo pipefail
+          if [[ -s .github/workflows/codex-task-secure.yml ]]; then
+            cp .github/workflows/codex-task-secure.yml .github/workflows/codex-task.yml
+            rm -f .github/workflows/codex-task-secure.yml
+          fi
+          python - <<'PY'
+          from pathlib import Path
+          path=Path('.github/workflows/_reusable-codex-thin-worker.yml')
+          text=path.read_text(encoding='utf-8')
+          if 'path: /tmp/codex-handoff' not in text:
+              if '\n  publish:\n' not in text:
+                  raise SystemExit('publish marker missing')
+              prefix=text.split('\n  publish:\n',1)[0]
+              publish=r'''
+  publish:
+    name: secret-free-publish
+    needs: codex
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ inputs.task_branch }}
+          fetch-depth: 0
+      - name: Download audited handoff outside repository workspace
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: codex-handoff-${{ inputs.task_id }}-${{ github.run_id }}
+          path: /tmp/codex-handoff
+      - name: Verify manifest, apply patch and re-run scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd /tmp/codex-handoff && sha256sum --check manifest.sha256)
+          python - <<'PY2'
+          import json
+          from pathlib import Path
+          if json.loads(Path('/tmp/codex-handoff/secret-audit.json').read_text())['status'] != 'PASS':
+              raise SystemExit('secret audit did not pass')
+          PY2
+          git switch -c "${{ inputs.publish_branch }}"
+          git apply --index /tmp/codex-handoff/codex.patch
+          python scripts/devflow/verify_changed_paths.py --task-file "${{ inputs.task_file }}" --status --output /tmp/publish-scope-result.json
+      - name: Re-run trusted gate without relay secrets
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          python scripts/devflow/run_gate_profile.py "${{ inputs.gate_profile }}" --output /tmp/publish-gate-result.json
+      - name: Commit and push isolated product branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Apply Codex thin-worker task ${{ inputs.task_id }}"
+          git push origin "HEAD:refs/heads/${{ inputs.publish_branch }}"
+          echo "PUBLISHED_BRANCH=${{ inputs.publish_branch }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "PUBLISHED_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+'''
+              path.write_text(prefix+'\n'+publish.lstrip('\n'),encoding='utf-8')
+          PY
+          test ! -e .github/workflows/codex-task-secure.yml
+          grep -F 'permissions:' .github/workflows/codex-task.yml >/dev/null
+          grep -F 'contents: write' .github/workflows/codex-task.yml >/dev/null
+          grep -F 'path: /tmp/codex-handoff' .github/workflows/_reusable-codex-thin-worker.yml >/dev/null
+      - name: Run deterministic production-wrapper gates
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          python scripts/devflow/validate_workflows.py
+          ruff check scripts/devflow tests/test_devflow.py
+          pytest -q tests/test_devflow.py
+      - name: Write readiness marker and remove this one-time workflow
+        run: |
+          mkdir -p .devflow
+          printf '%s\n' '{"schema_version":1,"status":"PASS","wrapper":"codex-task.yml","publish_handoff":"/tmp/codex-handoff"}' > .devflow/codex-wrapper-ready.json
+          rm -f .github/workflows/temporary-ensure-main-codex-wrapper.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "Verify canonical production Codex wrapper"
+            git push origin HEAD:main
+          fi
