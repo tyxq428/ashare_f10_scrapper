@@ -1,0 +1,146 @@
+name: Temporary After Codex Merge PR-B
+
+on:
+  workflow_run:
+    workflows:
+      - Codex Task
+    types:
+      - completed
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+  issues: write
+
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+
+concurrency:
+  group: temporary-after-codex-merge-pr-b
+  cancel-in-progress: false
+
+jobs:
+  validate-and-merge:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 210
+    steps:
+      - name: Wait for published branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 30); do
+            if git ls-remote --exit-code --heads "https://github.com/${{ github.repository }}.git" \
+              codex/resilient-command-terminal-status-v1 >/dev/null 2>&1; then
+              exit 0
+            fi
+            echo "[branch-heartbeat] waiting for published branch; attempt=${attempt}/30"
+            sleep 10
+          done
+          exit 1
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: codex/resilient-command-terminal-status-v1
+          fetch-depth: 0
+      - name: Remove control descriptor and enforce product scope
+        run: |
+          set -euo pipefail
+          if [[ -f .agent/current_task.yaml ]]; then
+            rm -f .agent/current_task.yaml
+            rmdir .agent 2>/dev/null || true
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add -A
+            git commit -m "Remove Codex control descriptor from product branch"
+            git push origin HEAD:codex/resilient-command-terminal-status-v1
+          fi
+          git fetch origin main
+          mapfile -t FILES < <(git diff --name-only origin/main...HEAD)
+          test "${#FILES[@]}" -gt 0
+          for path in "${FILES[@]}"; do
+            case "$path" in
+              scripts/run_resilient_command.py|tests/test_resilient_fetch.py) ;;
+              *) echo "OUT_OF_SCOPE_PRODUCT_PATH=$path"; exit 1 ;;
+            esac
+          done
+      - name: Wait for the independent public-log audit of this Codex run
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_UPDATED: ${{ github.event.workflow_run.updated_at }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 60); do
+            RUNS="$(gh run list --repo "${{ github.repository }}" --workflow "Devflow Secret Audit" \
+              --limit 10 --json createdAt,status,conclusion,databaseId)"
+            MATCH="$(python -c 'import json,os,sys; rows=json.load(sys.stdin); cutoff=os.environ["SOURCE_UPDATED"]; m=[r for r in rows if r["createdAt"] >= cutoff]; print(json.dumps(m[0]) if m else "")' <<<"$RUNS")"
+            if [[ -n "$MATCH" ]]; then
+              STATUS="$(python -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$MATCH")"
+              CONCLUSION="$(python -c 'import json,sys; print(json.load(sys.stdin).get("conclusion") or "")' <<<"$MATCH")"
+              if [[ "$STATUS" == "completed" && "$CONCLUSION" == "success" ]]; then
+                echo "INDEPENDENT_SECRET_AUDIT=PASS"
+                exit 0
+              fi
+              if [[ "$STATUS" == "completed" && "$CONCLUSION" != "success" ]]; then
+                echo "INDEPENDENT_SECRET_AUDIT=FAIL"
+                exit 1
+              fi
+            fi
+            echo "[audit-heartbeat] waiting for independent secret audit; attempt=${attempt}/60"
+            sleep 10
+          done
+          exit 1
+      - name: Run targeted and complete branch gates
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          ruff check scripts/run_resilient_command.py tests/test_resilient_fetch.py
+          pytest -q tests/test_resilient_fetch.py
+          python -m compileall -q src scripts
+          node --check src/ashare_f10/web/research-grid.js
+          node --check src/ashare_f10/web/static-search-worker.js
+          node --check src/ashare_f10/web/app.js
+          node --check src/ashare_f10/web/job-center-v2.js
+          node --check src/ashare_f10/web/raw-pack.js
+          node --check src/ashare_f10/web/run.js
+          node --check src/ashare_f10/web/research-pack.js
+          node tests/static-search-worker-smoke.cjs
+          ruff check src tests scripts/run_resilient_fetch.py scripts/run_resilient_command.py
+          pytest --cov=ashare_f10 --cov-report=term-missing
+      - name: Wait for Web Supervisor PR and merge exact verified head
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          PR_NUMBER=""
+          for attempt in $(seq 1 90); do
+            PR_NUMBER="$(gh pr list --repo "${{ github.repository }}" --state open \
+              --head "tyxq428:codex/resilient-command-terminal-status-v1" --base main \
+              --json number --jq '.[0].number // empty')"
+            if [[ -n "$PR_NUMBER" ]]; then break; fi
+            echo "[pr-heartbeat] waiting for Web Supervisor PR; attempt=${attempt}/90"
+            sleep 10
+          done
+          test -n "$PR_NUMBER"
+          HEAD_SHA="$(git rev-parse HEAD)"
+          gh pr ready "$PR_NUMBER" --repo "${{ github.repository }}" || true
+          gh pr merge "$PR_NUMBER" --repo "${{ github.repository }}" --merge --match-head-commit "$HEAD_SHA"
+      - name: Notify only if the verified Codex branch cannot proceed
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TITLE="[TASK CONTROL] chatgpt-web-codex-devflow-v1"
+          NUMBER="$(gh issue list --repo "${{ github.repository }}" --state open --search "${TITLE} in:title" \
+            --json number,title --jq ".[] | select(.title == \"${TITLE}\") | .number" | head -n 1)"
+          if [[ -z "$NUMBER" ]]; then
+            URL="$(gh issue create --repo "${{ github.repository }}" --title "$TITLE" \
+              --body "Single valuable-notification channel for the devflow migration." --assignee tyxq428)"
+            NUMBER="${URL##*/}"
+          fi
+          gh issue comment "$NUMBER" --repo "${{ github.repository }}" --body "@tyxq428
+
+[TASK][HUMAN_REQUIRED]
+
+The published Codex branch failed independent audit, scope, gates or PR merge. Review ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}."
