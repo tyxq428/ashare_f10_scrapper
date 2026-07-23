@@ -1,80 +1,236 @@
 name: Devflow Post Merge
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - ".devflow/finalize/chatgpt-web-codex-devflow-v1.json"
+  repository_dispatch:
+    types:
+      - devflow_post_merge
 
 permissions:
-  contents: read
+  contents: write
+  actions: write
+
+concurrency:
+  group: devflow-post-merge-${{ github.event.client_payload.task_id }}
+  cancel-in-progress: false
 
 env:
   PYTHONDONTWRITEBYTECODE: "1"
+  PYTHONUNBUFFERED: "1"
 
 jobs:
-  final-exact-main-verification:
+  exact-main:
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           ref: main
           fetch-depth: 0
-          persist-credentials: false
-      - name: Validate finalization marker and product ancestry
+          persist-credentials: true
+
+      - name: Validate exact-main payload and immutable task descriptor
+        id: task
+        shell: bash
+        env:
+          TASK_ID: ${{ github.event.client_payload.task_id }}
+          TASK_BRANCH: ${{ github.event.client_payload.task_branch }}
+          PUBLISH_BRANCH: ${{ github.event.client_payload.publish_branch }}
+          MERGE_SHA: ${{ github.event.client_payload.merge_sha }}
+          PRODUCT_GATE_RUN_ID: ${{ github.event.client_payload.product_gate_run_id }}
         run: |
-          python - <<'PY'
+          set -euo pipefail
+          [[ "$TASK_BRANCH" == task/codex-* ]]
+          [[ "$PUBLISH_BRANCH" == codex/* ]]
+          [[ "$MERGE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git fetch --no-tags origin main "+refs/heads/${TASK_BRANCH}:refs/remotes/origin/${TASK_BRANCH}"
+          git switch -C main origin/main
+          git merge-base --is-ancestor "$MERGE_SHA" HEAD
+          git show "refs/remotes/origin/${TASK_BRANCH}:.agent/current_task.yaml" > /tmp/devflow-task.yaml
+          python - <<'PY' >> "$GITHUB_OUTPUT"
           import json
-          import subprocess
+          import os
+          import sys
           from pathlib import Path
-          path = Path('.devflow/finalize/chatgpt-web-codex-devflow-v1.json')
-          value = json.loads(path.read_text(encoding='utf-8'))
-          if value.get('task_id') != 'chatgpt-web-codex-devflow-v1':
-              raise SystemExit('unexpected finalization task id')
-          product_sha = value.get('product_sha')
-          if not isinstance(product_sha, str) or len(product_sha) != 40:
-              raise SystemExit('invalid product_sha')
-          result = subprocess.run(['git', 'merge-base', '--is-ancestor', product_sha, 'HEAD'])
-          if result.returncode != 0:
-              raise SystemExit('final product SHA is not an ancestor of exact main')
-          print('FINALIZATION_MARKER=PASS')
+          sys.path.insert(0, 'scripts/devflow')
+          from task_descriptor import TaskDescriptor
+
+          task = TaskDescriptor.from_mapping(json.loads(Path('/tmp/devflow-task.yaml').read_text()))
+          if task.task_id != os.environ['TASK_ID']:
+              raise SystemExit('task_id payload mismatch')
+          if task.publish_branch != os.environ['PUBLISH_BRANCH']:
+              raise SystemExit('publish_branch payload mismatch')
+          values = {
+              'task_id': task.task_id,
+              'post_merge_profile': task.post_merge_profile,
+              'recovery_generation': task.recovery_generation,
+              'max_recovery_generations': task.max_recovery_generations,
+              'notify_completion': str(task.notify_completion).lower(),
+              'merge_sha': os.environ['MERGE_SHA'],
+              'product_gate_run_id': os.environ.get('PRODUCT_GATE_RUN_ID') or '0',
+          }
+          for key, value in values.items():
+              print(f'{key}={value}')
           PY
-      - name: Install development dependencies
+
+      - name: Install deterministic development dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
-      - name: Run devflow and thin-slice targeted gates
+
+      - name: Run exact-main target and full regression profile
+        id: post_gate
+        continue-on-error: true
         run: |
+          python scripts/devflow/run_gate_profile.py \
+            "${{ steps.task.outputs.post_merge_profile }}" \
+            --output /tmp/post-merge-gate-result.json
+
+      - name: Dispatch one bounded post-merge Codex recovery generation
+        id: recovery
+        if: steps.post_gate.outcome != 'success'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: ${{ github.run_id }}
+          RECOVERY_GENERATION: ${{ steps.task.outputs.recovery_generation }}
+          MAX_RECOVERY_GENERATIONS: ${{ steps.task.outputs.max_recovery_generations }}
+        run: |
+          set -euo pipefail
+          if (( RECOVERY_GENERATION >= MAX_RECOVERY_GENERATIONS )); then
+            echo "dispatched=false" >> "$GITHUB_OUTPUT"
+            echo "exhausted=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          MAIN_SHA="$(git rev-parse origin/main)"
+          python scripts/devflow/recovery_task.py \
+            --original-task /tmp/devflow-task.yaml \
+            --source-run-id "$SOURCE_RUN" \
+            --reason-code POST_MERGE_GATE_FAILED \
+            --reason "Exact-main post-merge validation failed; repair only approved files and preserve semantics." \
+            --expected-base-sha "$MAIN_SHA" \
+            --output /tmp/devflow-recovery-task.yaml
+          RECOVERY_TASK_ID="$(python -c 'import json; print(json.load(open("/tmp/devflow-recovery-task.yaml"))["task_id"])')"
+          RECOVERY_BRANCH="task/codex-${RECOVERY_TASK_ID}"
+          git switch -C "$RECOVERY_BRANCH" origin/main
+          mkdir -p .agent
+          cp /tmp/devflow-recovery-task.yaml .agent/current_task.yaml
+          git add .agent/current_task.yaml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Create bounded post-merge recovery task ${RECOVERY_TASK_ID}"
+          git push origin "HEAD:refs/heads/${RECOVERY_BRANCH}"
+          gh api --method POST \
+            "repos/${{ github.repository }}/actions/workflows/codex-task.yml/dispatches" \
+            -f ref=main \
+            -f "inputs[task_branch]=${RECOVERY_BRANCH}"
+          echo "dispatched=true" >> "$GITHUB_OUTPUT"
+          echo "exhausted=false" >> "$GITHUB_OUTPUT"
+          echo "POST_MERGE_RECOVERY=${RECOVERY_TASK_ID}" >> "$GITHUB_STEP_SUMMARY"
+          echo "No task-control notification was emitted." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Notify only when post-merge recovery budget is exhausted
+        if: steps.post_gate.outcome != 'success' && steps.recovery.outputs.dispatched != 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          payload = {
+              'event_type': 'devflow_notify',
+              'client_payload': {
+                  'action': 'INTERRUPTED',
+                  'notification_type': 'INTERRUPTED',
+                  'reason_code': 'POST_MERGE_REPAIR_EXHAUSTED',
+                  'reason': 'Exact-main post-merge verification still fails after the bounded Codex recovery budget.',
+                  'minimum_action': 'Review the bounded post-merge gate result and decide whether to widen scope or roll back.',
+                  'fingerprint': 'post-merge-repair-exhausted-${{ steps.task.outputs.task_id }}',
+                  'source_workflow': 'Devflow Post Merge',
+                  'source_run_id': int('${{ github.run_id }}'),
+                  'failure_steps': ['Run exact-main target and full regression profile'],
+              },
+          }
+          Path('/tmp/devflow-notify.json').write_text(json.dumps(payload))
+          PY
+          gh api --method POST "repos/${{ github.repository }}/dispatches" \
+            --input /tmp/devflow-notify.json
+          exit 1
+
+      - name: Stop this generation after automatic recovery dispatch
+        if: steps.post_gate.outcome != 'success' && steps.recovery.outputs.dispatched == 'true'
+        run: |
+          echo "A bounded Codex recovery generation was dispatched; the user was not interrupted."
+
+      - name: Reconfirm latest main before finalization
+        if: steps.post_gate.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          TESTED_SHA="$(git rev-parse HEAD)"
+          git fetch --no-tags origin main
+          LATEST_SHA="$(git rev-parse origin/main)"
+          if [[ "$LATEST_SHA" != "$TESTED_SHA" ]]; then
+            git switch -C main origin/main
+            python scripts/devflow/run_gate_profile.py \
+              "${{ steps.task.outputs.post_merge_profile }}" \
+              --output /tmp/post-merge-gate-latest-main.json
+          fi
+
+      - name: Finalize canonical state and stage documents
+        if: steps.post_gate.outcome == 'success' && steps.task.outputs.notify_completion == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          PRODUCT_SHA="$(git rev-parse HEAD)"
+          python scripts/devflow/finalize_task.py \
+            --product-sha "$PRODUCT_SHA" \
+            --post-merge-run-id "${{ github.run_id }}" \
+            --thin-slice-task-id "${{ steps.task.outputs.task_id }}" \
+            --product-gate-run-id "${{ steps.task.outputs.product_gate_run_id }}"
           python scripts/devflow/validate_state.py \
             --task-dir docs/implementation/chatgpt-web-codex-devflow-v1 \
-            --no-git \
-            --output final-state-result.json
+            --output /tmp/final-state-result.json
           python scripts/devflow/validate_workflows.py
           pytest -q tests/test_devflow.py
-          ruff check scripts/run_resilient_command.py tests/test_resilient_fetch.py
-          pytest -q tests/test_resilient_fetch.py
-      - name: Run exact-main full repository regression
+          git add docs/implementation docs/ENGINEERING_ISSUES_AND_LESSONS.md
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Finalize ChatGPT Web and Codex devflow task"
+          git push origin HEAD:main
+
+      - name: Send the single final completion notification
+        if: steps.post_gate.outcome == 'success' && steps.task.outputs.notify_completion == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          python -m compileall -q src scripts
-          node --check src/ashare_f10/web/research-grid.js
-          node --check src/ashare_f10/web/static-search-worker.js
-          node --check src/ashare_f10/web/app.js
-          node --check src/ashare_f10/web/job-center-v2.js
-          node --check src/ashare_f10/web/raw-pack.js
-          node --check src/ashare_f10/web/run.js
-          node --check src/ashare_f10/web/research-pack.js
-          node tests/static-search-worker-smoke.cjs
-          ruff check src tests scripts/run_resilient_fetch.py scripts/run_resilient_command.py
-          pytest --cov=ashare_f10 --cov-report=term-missing
-      - name: Upload bounded diagnostics only on failure
-        if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: final-post-merge-failure-${{ github.run_id }}
-          path: |
-            final-state-result.json
-            devflow-workflow-validation.json
-          if-no-files-found: warn
-          retention-days: 7
+          set -euo pipefail
+          PRODUCT_SHA="$(git rev-parse HEAD^)"
+          python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+          task_id = '${{ steps.task.outputs.task_id }}'
+          product_sha = '${{ steps.task.outputs.merge_sha }}'
+          fingerprint = hashlib.sha256(f'{task_id}|{product_sha}|completed'.encode()).hexdigest()[:20]
+          payload = {
+              'event_type': 'devflow_notify',
+              'client_payload': {
+                  'action': 'COMPLETED',
+                  'notification_type': 'COMPLETED',
+                  'reason_code': 'EXACT_MAIN_POST_MERGE_PASS',
+                  'reason': 'The low-risk Codex task, full product gate, automatic merge, exact-main post-merge and canonical closeout all passed.',
+                  'minimum_action': 'No action is required. Review FINAL_REPORT.md when convenient.',
+                  'fingerprint': fingerprint,
+                  'source_workflow': 'Devflow Post Merge',
+                  'source_run_id': int('${{ github.run_id }}'),
+                  'failure_steps': [],
+              },
+          }
+          Path('/tmp/devflow-completed.json').write_text(json.dumps(payload))
+          PY
+          gh api --method POST "repos/${{ github.repository }}/dispatches" \
+            --input /tmp/devflow-completed.json
+          echo "TASK_COMPLETION_NOTIFICATION=DISPATCHED_ONCE" >> "$GITHUB_STEP_SUMMARY"
