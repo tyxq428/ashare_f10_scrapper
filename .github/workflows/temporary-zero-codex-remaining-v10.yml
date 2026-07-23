@@ -1,0 +1,54 @@
+name: Temporary Zero-Codex Remaining V10
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/temporary-zero-codex-remaining-v10.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    if: github.event.head_commit.message == 'Trigger temporary zero-Codex remaining migration v10'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: feature/devflow-operational-optimization-v2-clean
+          fetch-depth: 0
+      - name: Apply migration with guaranteed evidence
+        shell: bash
+        run: |
+          set +e
+          python scripts/devflow/temporary_apply_remaining_zero_model_files.py \
+            >/tmp/remaining-v10.log 2>&1
+          STATUS=$?
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [[ "$STATUS" -eq 0 ]]; then
+            git add -A
+            git commit -m "Complete remaining zero-Codex Devflow migration"
+            git push origin HEAD:feature/devflow-operational-optimization-v2-clean
+          else
+            git reset --hard origin/feature/devflow-operational-optimization-v2-clean
+            FILE="docs/implementation/devflow-operational-optimization-v2/REMAINING_DIAGNOSTIC_${GITHUB_RUN_ID}.md"
+            mkdir -p "$(dirname "$FILE")"
+            { echo '# Remaining Migration Diagnostic'; echo; echo '```text'; cat /tmp/remaining-v10.log; echo '```'; } > "$FILE"
+            git add "$FILE"
+            git commit -m "Record remaining migration diagnostic ${GITHUB_RUN_ID}"
+            git push origin HEAD:feature/devflow-operational-optimization-v2-clean
+          fi
+          exit "$STATUS"
+      - name: Remove temporary executor
+        if: always()
+        run: |
+          git fetch --no-tags origin main
+          git switch -C main origin/main
+          git rm .github/workflows/temporary-zero-codex-remaining-v10.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Remove temporary zero-Codex remaining migration v10"
+          git push origin HEAD:main
