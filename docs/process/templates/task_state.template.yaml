@@ -19,6 +19,11 @@
   "retry_budget": {"infrastructure": 3, "codex_sessions": 1, "replans": 2},
   "human_gate": {"required": false, "reason": null, "minimum_action": null, "resume_from": null},
   "post_merge": {"status": "PENDING", "merge_sha": null, "verified_run_ids": []},
-  "notification": {"generation": 0, "last_type": null, "acknowledged": true},
+  "notification": {
+    "generation": 0,
+    "last_type": null,
+    "acknowledged": true,
+    "control_issue_number": null
+  },
   "updated_at_utc": "YYYY-MM-DDTHH:MM:SSZ"
 }
