@@ -27,7 +27,7 @@ runs:
         openai-api-key: ${{ inputs.api-key }}
         responses-api-endpoint: http://127.0.0.1:8787/v1/responses
         model: ${{ inputs.model }}
-        effort: low
+        effort: xhigh
         prompt-file: ${{ inputs.prompt-file }}
         output-schema-file: docs/process/templates/codex_result.schema.json
         sandbox: workspace-write
