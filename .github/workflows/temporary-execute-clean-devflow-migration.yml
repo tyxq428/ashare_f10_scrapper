@@ -1,0 +1,59 @@
+name: Temporary Execute Clean Devflow Migration
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/temporary-execute-clean-devflow-migration.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: temporary-execute-clean-devflow-migration
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55
+        with:
+          python-version: "3.12"
+      - name: Apply deterministic migration to clean branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin \
+            feature/devflow-operational-optimization-v2-clean \
+            feature/devflow-operational-optimization-v2
+          git switch -C feature/devflow-operational-optimization-v2-clean \
+            origin/feature/devflow-operational-optimization-v2-clean
+          python scripts/devflow/temporary_migrate_operational_optimization.py
+          python -m pip install ruff
+          ruff format scripts/devflow tests/test_devflow*.py
+          python -m compileall -q scripts/devflow
+          git rm scripts/devflow/temporary_migrate_operational_optimization.py
+          git rm .github/workflows/temporary-migrate-operational-optimization.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add AGENTS.md .devflow .github docs scripts/devflow tests
+          git commit -m "Rebuild Devflow optimization on frozen main without Codex"
+          git push origin HEAD:feature/devflow-operational-optimization-v2-clean
+      - name: Remove this one-shot executor from main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          git switch -C main origin/main
+          git rm .github/workflows/temporary-execute-clean-devflow-migration.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Remove one-shot clean Devflow migration executor"
+          git push origin HEAD:main
