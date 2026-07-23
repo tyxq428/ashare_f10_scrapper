@@ -2,15 +2,15 @@
 
 ## 输入
 
-`Devflow Auto Recovery` 接收受管 Workflow 的终态，并读取：
+`Devflow Auto Recovery` 读取：
 
-- Workflow name、Run ID、Run attempt 和 conclusion；
+- Workflow name、Run ID、run attempt 和 conclusion；
 - Job/Step 名称与 conclusion；
-- 安全摘要 Artifact；
+- Context、Scope、Secret 和 Runtime 安全摘要；
 - 可用时的 immutable `.agent/current_task.yaml`；
 - canonical recovery budget。
 
-不读取或输出 Relay URL、Key、模型 ID、完整环境或原始 HTTP 日志。
+不读取或输出 Relay URL、Key、模型 ID、完整环境、Prompt、源代码全文或原始 HTTP 日志。
 
 ## 分类结果
 
@@ -18,65 +18,80 @@
 |---|---|---|
 | `NOOP` | 无动作 | 否 |
 | `RETRY` | 重跑失败 Job | 否 |
-| `RETRY_CODEX` | 同一 Task Generation 定向重跑一次失败 Codex Job | 否 |
-| `CODEX_REPAIR` | 创建一个受限 Recovery Generation | 否 |
+| `RETRY_CODEX` | 同一 Generation 定向重跑一次失败 Codex Job | 否 |
+| `CODEX_REPAIR` | 创建一个受限 schema-v2 XHigh Recovery Generation | 否 |
 | `HUMAN_REQUIRED` | 停止并给出唯一人工动作 | 是 |
 | `SECURITY_BLOCKED` | 阻止发布和自动恢复 | 是 |
 | `INTERRUPTED` | 预算耗尽或无法安全分类 | 是 |
 | `COMPLETED` | 自动收尾并通知 | 是，1次 |
 
+## Context Budget
+
+`context-budget.json` 在 Codex 分类前读取。超预算时：
+
+```text
+CONTEXT_BUDGET_EXCEEDED
+→ 不重试Codex
+→ 不降低推理强度
+→ 要求缩小允许文件或拆分任务
+```
+
+这是任务范围门槛，不是网络或模型故障。
+
 ## 基础设施恢复
+
+可重试范围：
 
 - `cancelled / timed_out / stale / startup_failure`；
 - checkout、setup、依赖安装；
 - Artifact 上传/下载；
-- Relay 的临时 transport/protocol 错误。
+- Relay 临时 transport/protocol 错误。
 
-在 run attempt 小于 3 时只调用 `rerun-failed-jobs`。成功后自动进入原 Workflow 后续逻辑；不创建 Issue 评论。
+在预算内只调用 `rerun-failed-jobs`，不创建 Issue 评论。
 
 ## Codex 恢复
 
-- 同一 Task Generation 仍坚持 `session_limit=1`；
-- 所有新的模型调用固定使用 `xhigh`；
-- 失败 Job 可以按策略重跑一次；
-- Targeted/Full/Post-Merge Gate 失败时最多创建一个新的 Recovery Generation；
-- 新 generation 继承 allowed files、forbidden patterns、Gate、risk class 和 auto-merge policy；
-- 新 generation 不允许自动扩大上下文或修改 Workflow/Secrets。
+- 每个 Generation 保持 `session_limit=1`；
+- 所有新模型调用固定 XHigh；
+- 同一失败 Job 最多定向重跑一次；
+- Full/Post-Merge 失败最多创建一个 Recovery Generation；
+- 新 generation 使用 schema v2，继承 allowed files、forbidden patterns、Context、Gate、risk class 和 auto-merge；
+- 不扩大上下文，不修改 Workflow/Secrets；
+- schema-v1 Low 只读兼容，不会降低 Recovery 运行强度。
 
 ## Product Gate
 
-Publish 成功后显式发送 `devflow_product_gate`：
+1. 读取 immutable Descriptor 并验证 `expected_base_sha` 祖先关系；
+2. 使用 Merge Base 校验候选新增路径；
+3. Scope 失败进入 `SECURITY_BLOCKED`；
+4. Scope PASS 后执行 Full Gate；
+5. Full Gate 失败且有预算时创建 XHigh Recovery Generation；
+6. 通过且批准低风险自动合并时固定 Git 身份；
+7. `main` 推进时 rebase，再跑 Scope/Full Gate；
+8. 使用受控 merge commit 合并；
+9. 显式发送 `devflow_post_merge`。
 
-1. 从控制分支读取 immutable descriptor，并确认 `expected_base_sha` 是候选分支祖先；
-2. 计算候选分支与当前 `main` 的 Merge Base，只校验 Merge Base 到候选 HEAD 的新增路径；
-3. 真实 Scope Violation时 Fail Closed、上传仅含路径的摘要，并进入 `SECURITY_BLOCKED`；
-4. Scope通过后运行 Full Gate；
-5. Full Gate失败且有预算时创建使用 `xhigh` 的 Recovery Generation；
-6. Full Gate通过且批准低风险自动合并时，先固定 Git 提交身份为 `github-actions[bot]`；
-7. 若 `main` 已推进则 rebase，并再次以最新 `origin/main` 校验 Scope、重跑 Full Gate；
-8. 使用受控 merge commit 合并并 Push；
-9. 合并后发送 `devflow_post_merge`。
+缺少 Git identity 是机械配置，不是人工门槛。只有 conflict、branch protection、权限或远端拒绝才是 `AUTO_MERGE_BLOCKED`。
 
-不得在候选生成后直接使用 `git diff origin/main HEAD` 作为初始 Scope，因为移动的 `main` 会把自身独有提交误算为候选变化。
+## Post-Merge 与分支生命周期
 
-### 合并边界分类
+Post-Merge 在 exact `main` 上执行。成功时：
 
-- 缺少 Git `user.name` / `user.email` 属于执行器机械配置错误，必须由 Workflow 固定配置，不应通知用户；
-- merge conflict、branch protection、权限拒绝或远端拒绝才属于真实 `AUTO_MERGE_BLOCKED`；
-- Product Gate 不直接发送 merge-failure Issue，而是 Fail Closed，交给统一 Auto Recovery 根据失败步骤分类；
-- 真实 merge boundary 只要求人工处理合并边界，不得再调用 Codex 修改产品代码。
-
-## Post-Merge
-
-Post-Merge 在 exact `main` 上运行指定 Profile。失败时仍按同一 Recovery Generation 预算处理；成功且 `notify_completion=true` 时：
-
-- 自动更新 canonical state；
+- 更新 canonical state；
 - 生成阶段结果和最终报告；
-- 验证完成态；
+- 验证全部活动/已索引任务状态；
+- 运行 Upgrade Compatibility；
 - 提交收尾文档；
 - 发送一次 `COMPLETED`；
-- 关闭 canonical task-control Issue。
+- 关闭 task-control Issue；
+- 派发 `devflow_branch_gc`，第一阶段固定 `execute=false` dry-run。
+
+分支删除不属于恢复动作；它必须由独立 fail-closed 规划器处理。
+
+## 影响感知 Gate
+
+普通文档和 Devflow 基础设施变更不需要重复真实产品 E2E。`change_impact.py` 选择 docs/devflow/product Gate；未知路径始终升级为 product。依赖缓存只加速安装，不缓存任何安全或验收结论。
 
 ## 人工通知
 
-只有自动恢复不再安全或不再有预算时才发送通知。通知中的 `/ack` 不会触发任何动作。用户完成外部配置、权限或业务决定后，使用 `/resume` 或回到 ChatGPT Web 提供新事实。
+只有自动恢复不再安全或预算耗尽时才通知。`/ack` 不触发动作。用户完成外部配置、权限或业务决定后，使用 `/resume` 或向 ChatGPT Web 提供新事实。
