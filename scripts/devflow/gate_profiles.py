@@ -19,7 +19,11 @@ REPOSITORY_FULL: list[list[str]] = [
     ["pytest", "--cov=ashare_f10", "--cov-report=term-missing"],
 ]
 
-DEVFLOW_TESTS = ["tests/test_devflow.py", "tests/test_devflow_codex_environment.py"]
+DEVFLOW_TESTS = [
+    "tests/test_devflow.py",
+    "tests/test_devflow_codex_environment.py",
+    "tests/test_devflow_context_budget.py",
+]
 
 GATE_PROFILES: dict[str, list[list[str]]] = {
     "devflow-targeted": [
