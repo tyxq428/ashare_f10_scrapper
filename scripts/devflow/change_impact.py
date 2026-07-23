@@ -12,6 +12,7 @@ IMPACT_ORDER = {"docs_only": 0, "devflow_only": 1, "product": 2}
 DOCS_ONLY_PATTERNS = (
     "README.md",
     "LICENSE",
+    "docs/*.md",
     "docs/**/*.md",
 )
 
@@ -44,11 +45,20 @@ class ImpactResult:
 
 
 def _matches(path: str, patterns: tuple[str, ...]) -> bool:
-    return any(path == pattern or fnmatch.fnmatch(path, pattern) for pattern in patterns)
+    return any(
+        path == pattern or fnmatch.fnmatch(path, pattern)
+        for pattern in patterns
+    )
 
 
 def classify_paths(paths: list[str]) -> ImpactResult:
-    normalized = sorted({path.strip().lstrip("./") for path in paths if path.strip()})
+    normalized = sorted(
+        {
+            path.strip().lstrip("./")
+            for path in paths
+            if path.strip()
+        }
+    )
     impact = "docs_only"
     reasons: list[str] = []
 
@@ -80,10 +90,21 @@ def classify_paths(paths: list[str]) -> ImpactResult:
 
 def changed_files(base: str, head: str) -> list[str]:
     output = subprocess.check_output(
-        ["git", "diff", "--name-only", "--diff-filter=ACMR", base, head],
+        [
+            "git",
+            "diff",
+            "--name-only",
+            "--diff-filter=ACMR",
+            base,
+            head,
+        ],
         text=True,
     )
-    return [line for line in output.splitlines() if line.strip()]
+    return [
+        line
+        for line in output.splitlines()
+        if line.strip()
+    ]
 
 
 def main() -> int:
@@ -96,7 +117,9 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.paths_file:
-        paths = args.paths_file.read_text(encoding="utf-8").splitlines()
+        paths = args.paths_file.read_text(
+            encoding="utf-8"
+        ).splitlines()
     elif args.base:
         paths = changed_files(args.base, args.head)
     else:
@@ -109,11 +132,22 @@ def main() -> int:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(text + "\n", encoding="utf-8")
     if args.github_output:
-        with args.github_output.open("a", encoding="utf-8") as handle:
+        with args.github_output.open(
+            "a",
+            encoding="utf-8",
+        ) as handle:
             handle.write(f"impact={result.impact}\n")
-            handle.write(f"run_devflow_gate={str(result.run_devflow_gate).lower()}\n")
-            handle.write(f"run_full_test={str(result.run_full_test).lower()}\n")
-            handle.write(f"run_e2e={str(result.run_e2e).lower()}\n")
+            handle.write(
+                "run_devflow_gate="
+                f"{str(result.run_devflow_gate).lower()}\n"
+            )
+            handle.write(
+                "run_full_test="
+                f"{str(result.run_full_test).lower()}\n"
+            )
+            handle.write(
+                f"run_e2e={str(result.run_e2e).lower()}\n"
+            )
     print(text)
     return 0
 
