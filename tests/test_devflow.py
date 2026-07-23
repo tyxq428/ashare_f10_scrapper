@@ -10,11 +10,15 @@ DEVFLOW = Path(__file__).resolve().parents[1] / "scripts" / "devflow"
 sys.path.insert(0, str(DEVFLOW))
 
 from endpoint_utils import normalize_responses_endpoint  # noqa: E402
+from finalize_task import finalize  # noqa: E402
 from gate_profiles import get_gate_profile  # noqa: E402
 from private_responses_forwarder import run_server  # noqa: E402
+from recovery_policy import classify  # noqa: E402
+from recovery_task import build_recovery_descriptor  # noqa: E402
 from runtime_preflight import inspect_runtime  # noqa: E402
 from secret_audit import secret_variants  # noqa: E402
 from state_model import StateError, TaskState, load_json_yaml  # noqa: E402
+from task_descriptor import TaskDescriptor, TaskDescriptorError  # noqa: E402
 from validate_state import branch_matches_state  # noqa: E402
 from validate_workflows import validate_file  # noqa: E402
 from verify_changed_paths import verify  # noqa: E402
@@ -40,7 +44,12 @@ def valid_state() -> dict[str, object]:
         "next_action": "continue",
         "gate_results": {},
         "retry_budget": {"infrastructure": 3, "codex_sessions": 1},
-        "human_gate": {"required": False, "reason": None, "minimum_action": None, "resume_from": None},
+        "human_gate": {
+            "required": False,
+            "reason": None,
+            "minimum_action": None,
+            "resume_from": None,
+        },
         "post_merge": {"status": "PENDING", "merge_sha": None, "verified_run_ids": []},
         "notification": {
             "generation": 0,
@@ -49,6 +58,53 @@ def valid_state() -> dict[str, object]:
             "control_issue_number": None,
         },
         "updated_at_utc": "2026-07-23T00:00:00Z",
+    }
+
+
+def valid_task() -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "task_id": "sample-fix",
+        "objective": "Fix one deterministic bug.",
+        "base_branch": "main",
+        "publish_branch": "codex/sample-fix",
+        "allowed_files": ["scripts/example.py", "tests/test_example.py"],
+        "forbidden_patterns": [".github/**", ".env", "secrets/**", "docs/**"],
+        "required_changes": ["Fix the bug", "Add regression coverage"],
+        "acceptance_notes": ["Keep the patch minimal"],
+        "gate_profile": "resilient-command-targeted",
+        "full_gate_profile": "repository-full",
+        "post_merge_profile": "repository-full",
+        "reasoning_effort": "low",
+        "session_limit": 1,
+        "automatic_second_session": 0,
+        "recovery_generation": 0,
+        "max_recovery_generations": 1,
+        "parent_task_id": None,
+        "parent_run_id": None,
+        "risk_class": "low",
+        "auto_merge": True,
+        "notify_completion": True,
+        "expected_base_sha": "b" * 40,
+        "stop_conditions": [
+            "any changed path outside allowed_files",
+            "secret audit match",
+            "business decision required",
+        ],
+    }
+
+
+def failed_jobs(step_name: str, conclusion: str = "failure") -> dict[str, object]:
+    return {
+        "jobs": [
+            {
+                "name": "job",
+                "steps": [
+                    {"name": "Set up job", "conclusion": "success"},
+                    {"name": step_name, "conclusion": conclusion},
+                ],
+            }
+        ]
     }
 
 
@@ -92,15 +148,60 @@ def test_control_issue_number_must_be_a_positive_integer_or_null(value: object) 
 
 def test_done_requires_post_merge_pass() -> None:
     data = valid_state()
-    data.update({"status": "DONE", "execution_status": "COMPLETED"})
+    data.update(
+        {
+            "status": "DONE",
+            "execution_status": "COMPLETED",
+            "research_acceptance_status": "PASS",
+            "last_completed_stage": "W01",
+        }
+    )
     with pytest.raises(StateError, match="post_merge PASS"):
         TaskState.from_mapping(data)
+
+
+def test_done_requires_current_stage_to_be_completed() -> None:
+    data = valid_state()
+    data.update(
+        {
+            "status": "DONE",
+            "execution_status": "COMPLETED",
+            "research_acceptance_status": "PASS",
+            "last_completed_stage": "W00",
+        }
+    )
+    post_merge = data["post_merge"]
+    assert isinstance(post_merge, dict)
+    post_merge["status"] = "PASS"
+    with pytest.raises(StateError, match="equal current_stage"):
+        TaskState.from_mapping(data)
+
+
+def test_done_accepts_current_stage_as_last_completed() -> None:
+    data = valid_state()
+    data.update(
+        {
+            "status": "DONE",
+            "execution_status": "COMPLETED",
+            "research_acceptance_status": "PASS",
+            "last_completed_stage": "W01",
+        }
+    )
+    post_merge = data["post_merge"]
+    assert isinstance(post_merge, dict)
+    post_merge["status"] = "PASS"
+    assert TaskState.from_mapping(data).status == "DONE"
 
 
 def test_human_gate_requires_minimum_action_and_resume() -> None:
     data = valid_state()
     data["status"] = "WAITING_HUMAN"
-    data["human_gate"] = {"required": True, "reason": "permission", "minimum_action": None, "resume_from": None}
+    data["human_gate"] = {
+        "required": True,
+        "reason": "permission",
+        "minimum_action": None,
+        "resume_from": None,
+    }
     with pytest.raises(StateError, match="minimum_action"):
         TaskState.from_mapping(data)
 
@@ -170,6 +271,223 @@ def test_forwarder_invalid_configuration_writes_safe_failure(
     assert run_server(0, status_file) == 2
     status = json.loads(status_file.read_text(encoding="utf-8"))
     assert status == {"failure_class": "INVALID_OR_MISSING_ENDPOINT", "status": "FAILED"}
+
+
+def test_task_descriptor_accepts_explicit_low_risk_auto_merge() -> None:
+    task = TaskDescriptor.from_mapping(valid_task())
+    assert task.auto_merge is True
+    assert task.notify_completion is True
+    assert task.full_gate_profile == "repository-full"
+
+
+def test_task_descriptor_rejects_high_risk_auto_merge() -> None:
+    data = valid_task()
+    data["risk_class"] = "high"
+    with pytest.raises(TaskDescriptorError, match="risk_class=low"):
+        TaskDescriptor.from_mapping(data)
+
+
+def test_task_descriptor_rejects_workflow_or_docs_auto_merge_scope() -> None:
+    for path in (".github/workflows/x.yml", "docs/x.md", "src/module.py"):
+        data = valid_task()
+        data["allowed_files"] = [path]
+        with pytest.raises(TaskDescriptorError, match="cannot modify"):
+            TaskDescriptor.from_mapping(data)
+
+
+def test_notify_completion_requires_auto_merge() -> None:
+    data = valid_task()
+    data["auto_merge"] = False
+    with pytest.raises(TaskDescriptorError, match="requires auto_merge"):
+        TaskDescriptor.from_mapping(data)
+
+
+def test_infrastructure_failure_retries_silently() -> None:
+    decision = classify(
+        source_workflow="Codex Task",
+        source_run_id=101,
+        conclusion="failure",
+        run_attempt=1,
+        jobs_payload=failed_jobs("Run actions/checkout@sha"),
+    )
+    assert decision.action == "RETRY"
+    assert decision.notification_type is None
+
+
+def test_codex_failure_gets_one_silent_failed_job_rerun() -> None:
+    first = classify(
+        source_workflow="Codex Task",
+        source_run_id=102,
+        conclusion="failure",
+        run_attempt=1,
+        jobs_payload=failed_jobs("Run one Codex Thin Worker session"),
+    )
+    second = classify(
+        source_workflow="Codex Task",
+        source_run_id=102,
+        conclusion="failure",
+        run_attempt=2,
+        jobs_payload=failed_jobs("Run one Codex Thin Worker session"),
+    )
+    assert first.action == "RETRY_CODEX"
+    assert first.notification_type is None
+    assert second.action == "INTERRUPTED"
+
+
+def test_missing_agent_runtime_secrets_are_a_real_human_gate(tmp_path: Path) -> None:
+    (tmp_path / "runtime-preflight.json").write_text(
+        json.dumps(
+            {
+                "status": "FAIL",
+                "failure_codes": ["MISSING_ENDPOINT", "MISSING_API_KEY", "MISSING_MODEL"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    decision = classify(
+        source_workflow="Codex Task",
+        source_run_id=103,
+        conclusion="failure",
+        run_attempt=1,
+        jobs_payload=failed_jobs("Validate runtime configuration without exposing values"),
+        artifact_root=tmp_path,
+    )
+    assert decision.action == "HUMAN_REQUIRED"
+    assert decision.reason_code == "AGENT_RUNTIME_SECRETS_MISSING"
+
+
+def test_secret_or_scope_failure_is_security_blocked(tmp_path: Path) -> None:
+    (tmp_path / "secret-audit.json").write_text('{"status":"FAIL"}', encoding="utf-8")
+    decision = classify(
+        source_workflow="Devflow Secret Audit",
+        source_run_id=104,
+        conclusion="failure",
+        run_attempt=1,
+        jobs_payload=failed_jobs("Secret audit"),
+        artifact_root=tmp_path,
+    )
+    assert decision.action == "SECURITY_BLOCKED"
+    assert decision.notification_type == "SECURITY_BLOCKED"
+
+
+def test_state_failure_is_eligible_for_one_bounded_codex_repair(tmp_path: Path) -> None:
+    task_path = tmp_path / "task.json"
+    task_path.write_text(json.dumps(valid_task()), encoding="utf-8")
+    first = classify(
+        source_workflow="Devflow State Consistency",
+        source_run_id=105,
+        conclusion="failure",
+        run_attempt=1,
+        jobs_payload=failed_jobs("Validate devflow workflows and tests"),
+        task_file=task_path,
+    )
+    assert first.action == "CODEX_REPAIR"
+    assert first.notification_type is None
+
+    exhausted_task = valid_task()
+    exhausted_task["recovery_generation"] = 1
+    task_path.write_text(json.dumps(exhausted_task), encoding="utf-8")
+    exhausted = classify(
+        source_workflow="Devflow State Consistency",
+        source_run_id=106,
+        conclusion="failure",
+        run_attempt=1,
+        jobs_payload=failed_jobs("Validate devflow workflows and tests"),
+        task_file=task_path,
+    )
+    assert exhausted.action == "INTERRUPTED"
+
+
+def test_recovery_descriptor_preserves_scope_and_increments_generation() -> None:
+    original = valid_task()
+    recovered = build_recovery_descriptor(
+        original,
+        source_run_id=200,
+        reason_code="PRODUCT_FULL_GATE_FAILED",
+        reason="A deterministic test failed.",
+        expected_base_sha="c" * 40,
+    )
+    assert recovered["recovery_generation"] == 1
+    assert recovered["allowed_files"] == original["allowed_files"]
+    assert recovered["auto_merge"] is True
+    assert recovered["notify_completion"] is True
+    assert recovered["parent_run_id"] == 200
+
+
+def test_failure_fingerprint_is_stable_for_same_root_cause() -> None:
+    one = classify(
+        source_workflow="Codex Task",
+        source_run_id=301,
+        conclusion="failure",
+        run_attempt=1,
+        jobs_payload=failed_jobs("Run actions/checkout@sha"),
+    )
+    two = classify(
+        source_workflow="Codex Task",
+        source_run_id=999,
+        conclusion="failure",
+        run_attempt=1,
+        jobs_payload=failed_jobs("Run actions/checkout@sha"),
+    )
+    assert one.fingerprint == two.fingerprint
+
+
+def test_finalizer_closes_state_and_generates_final_report(tmp_path: Path) -> None:
+    repo = tmp_path
+    task_dir = repo / "docs/implementation/chatgpt-web-codex-devflow-v1"
+    task_dir.mkdir(parents=True)
+    data = valid_state()
+    data.update(
+        {
+            "task_id": "chatgpt-web-codex-devflow-v1",
+            "title": "Devflow",
+            "working_branch": "main",
+            "pull_request": 30,
+            "current_stage": "W05",
+            "last_completed_stage": "W04",
+        }
+    )
+    notification = data["notification"]
+    assert isinstance(notification, dict)
+    notification["control_issue_number"] = 32
+    (task_dir / "task_state.yaml").write_text(json.dumps(data), encoding="utf-8")
+    for name in ("00_contract.md", "01_master_plan.md", "STATUS.md", "HANDOFF.md", "DECISIONS.md"):
+        (task_dir / name).write_text("placeholder\n", encoding="utf-8")
+    for number in range(9):
+        stage = f"W{number:02d}"
+        (task_dir / f"{stage}_plan.md").write_text("plan\n", encoding="utf-8")
+        if number <= 4:
+            (task_dir / f"{stage}_result.md").write_text("result\n", encoding="utf-8")
+    active_path = repo / "docs/implementation/ACTIVE_TASKS.yaml"
+    active_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "tasks": [
+                    {
+                        "task_id": "chatgpt-web-codex-devflow-v1",
+                        "status": "RUNNING",
+                        "branch": "main",
+                        "current_stage": "W05",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = finalize(
+        repo=repo,
+        task_dir=task_dir,
+        product_sha="d" * 40,
+        post_merge_run_id=400,
+        thin_slice_task_id="thin-slice",
+        source_product_gate_run_id=399,
+    )
+    assert result["status"] == "DONE"
+    assert result["last_completed_stage"] == "W08"
+    assert (task_dir / "FINAL_REPORT.md").is_file()
+    assert TaskState.from_mapping(load_json_yaml(task_dir / "task_state.yaml")).status == "DONE"
 
 
 def test_scope_guard_fails_closed() -> None:
