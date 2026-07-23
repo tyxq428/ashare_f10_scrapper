@@ -183,7 +183,31 @@ jobs:
           api-key: ${{ secrets.AGENT_API_KEY || secrets.CODEX_API_KEY || secrets.CODEX_TOKEN || secrets.OPENAI_API_KEY }}
           model: ${{ secrets.AGENT_MODEL || secrets.CODEX_MODEL }}
           prompt-file: ${{ needs.read-task.outputs.task_file }}
-          output-file: /tmp/codex-result.json
+
+      - name: Persist structured Codex final message outside the repository
+        id: result
+        if: steps.codex.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        env:
+          CODEX_FINAL_MESSAGE: ${{ steps.codex.outputs.final-message }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          raw = os.environ.get('CODEX_FINAL_MESSAGE', '')
+          if not raw.strip():
+              raise SystemExit('CODEX_FINAL_MESSAGE_MISSING')
+          value = json.loads(raw)
+          Path('/tmp/codex-result.json').write_text(
+              json.dumps(value, ensure_ascii=False, indent=2) + '\n',
+              encoding='utf-8',
+          )
+          print('CODEX_STRUCTURED_RESULT=READY')
+          PY
 
       - name: Stop private forwarder
         if: always()
@@ -195,7 +219,7 @@ jobs:
 
       - name: Verify Codex changed-path scope
         id: scope
-        if: steps.codex.outcome == 'success'
+        if: steps.codex.outcome == 'success' && steps.result.outcome == 'success'
         continue-on-error: true
         run: |
           mkdir -p /tmp/codex-artifact
@@ -206,7 +230,7 @@ jobs:
 
       - name: Run trusted targeted gate
         id: gate
-        if: steps.codex.outcome == 'success'
+        if: steps.codex.outcome == 'success' && steps.result.outcome == 'success'
         continue-on-error: true
         run: |
           mkdir -p /tmp/codex-artifact
@@ -272,6 +296,7 @@ jobs:
           test "${{ steps.runtime.outcome }}" = "success"
           test "${{ steps.forwarder.outcome }}" = "success"
           test "${{ steps.codex.outcome }}" = "success"
+          test "${{ steps.result.outcome }}" = "success"
           test "${{ steps.scope.outcome }}" = "success"
           test "${{ steps.gate.outcome }}" = "success"
           python - <<'PY'

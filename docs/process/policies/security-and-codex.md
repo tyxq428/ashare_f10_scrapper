@@ -41,6 +41,22 @@ jobs:
 - composite action 只接收显式 inputs，不直接读取 `secrets.*`；
 - `Codex Task` 只接受显式 `workflow_dispatch`，不使用任务分支 Push 触发旧分支中的 Workflow 版本。
 
+## 可信 Bot 授权
+
+自动接力由仓库自身 `github-actions[bot]` 发起 `workflow_dispatch`。官方 `openai/codex-action` 默认拒绝 Bot actor，因此必须显式配置：
+
+```yaml
+allow-bots: "true"
+allow-bot-users: github-actions[bot]
+```
+
+同时必须保留入口 Workflow 的双重约束：
+
+- `github.actor` 只能是仓库所有者或 `github-actions[bot]`；
+- 输入只能是 `task/codex-*` 可信控制分支，并由 Task Descriptor 校验器解析。
+
+禁止使用 `allow-users: "*"`、任意 Bot 通配符、Issue 评论直接触发 Secret Job或外部 Fork 内容。
+
 ## 私有转发
 
 Codex Action 只连接：
@@ -51,10 +67,21 @@ http://127.0.0.1:8787/v1/responses
 
 Runner 内无日志 Forwarder 从 Environment Secret 读取真实上游并标准化到 Responses endpoint。Forwarder 不记录 URL、Header、请求体、模型 ID 或原始上游错误。
 
+## 结构化输出交接
+
+官方 Action 使用 Output Schema约束最终消息，并通过 `final-message` output交给 Caller Job。不得把绝对 `/tmp` 路径作为官方 Action 的 `output-file` input。
+
+Caller Job必须：
+
+1. 通过环境变量读取 `steps.codex.outputs.final-message`，禁止把模型输出拼接到 Shell 命令；
+2. 使用 Python 解析 JSON；
+3. 将规范化结果写入工作区外的 `/tmp/codex-result.json`；
+4. 只有结果解析、Scope Guard、Targeted Gate 和 Secret Audit全部通过后才允许 Publish。
+
 ## 权限分离
 
 - Codex Job：`environment: agent-runtime`、`contents: read`、`persist-credentials: false`。
-- Composite Codex Action：只接收当前 Job 的 Key、Model、Prompt 和输出路径 inputs；不拥有 GitHub 写权限。
+- Composite Codex Action：只接收当前 Job 的 Key、Model 和 Prompt inputs；不拥有 GitHub 写权限。
 - Publish Job：`contents: write`，不声明 Environment，不接收任何 Relay Secret。
 - Product Gate、Auto Recovery 和 Post-Merge：不得声明 `agent-runtime` 或引用 Relay Secret。
 - Job 间只传经过扫描的 Patch、Manifest、结构化结果和 Gate 摘要。

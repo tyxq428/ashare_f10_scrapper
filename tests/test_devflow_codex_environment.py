@@ -22,15 +22,31 @@ def test_codex_entry_job_owns_environment_secret_boundary() -> None:
     assert validate_file(workflow) == []
 
 
-def test_reusable_unit_is_composite_action_with_pinned_codex_action() -> None:
+def test_reusable_unit_allows_only_trusted_repository_bot() -> None:
     action = REPO / ".github/actions/codex-thin-worker/action.yml"
     text = action.read_text(encoding="utf-8")
     assert "using: composite" in text
     assert "openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56" in text
     assert "http://127.0.0.1:8787/v1/responses" in text
+    assert 'allow-bots: "true"' in text
+    assert "allow-bot-users: github-actions[bot]" in text
+    assert "allow-users:" not in text
     assert "${{ inputs.api-key }}" in text
     assert "secrets." not in text
     assert validate_file(action) == []
+
+
+def test_structured_result_uses_action_output_not_absolute_output_file() -> None:
+    action = REPO / ".github/actions/codex-thin-worker/action.yml"
+    action_text = action.read_text(encoding="utf-8")
+    assert "value: ${{ steps.run-codex.outputs.final-message }}" in action_text
+    assert "output-file:" not in action_text
+
+    workflow = REPO / ".github/workflows/codex-task.yml"
+    workflow_text = workflow.read_text(encoding="utf-8")
+    assert "CODEX_FINAL_MESSAGE: ${{ steps.codex.outputs.final-message }}" in workflow_text
+    assert "Path('/tmp/codex-result.json').write_text" in workflow_text
+    assert 'test "${{ steps.result.outcome }}" = "success"' in workflow_text
 
 
 def test_nonfunctional_reusable_workflow_is_removed() -> None:

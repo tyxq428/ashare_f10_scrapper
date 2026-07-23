@@ -11,14 +11,17 @@ inputs:
   prompt-file:
     description: Repository-relative trusted task descriptor.
     required: true
-  output-file:
-    description: Absolute path for the structured Codex result.
-    required: true
+
+outputs:
+  final-message:
+    description: Structured final Codex message produced under the repository output schema.
+    value: ${{ steps.run-codex.outputs.final-message }}
 
 runs:
   using: composite
   steps:
-    - name: Run one bounded Codex Thin Worker session
+    - id: run-codex
+      name: Run one bounded Codex Thin Worker session
       uses: openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56
       with:
         openai-api-key: ${{ inputs.api-key }}
@@ -26,7 +29,8 @@ runs:
         model: ${{ inputs.model }}
         effort: low
         prompt-file: ${{ inputs.prompt-file }}
-        output-file: ${{ inputs.output-file }}
         output-schema-file: docs/process/templates/codex_result.schema.json
         sandbox: workspace-write
         safety-strategy: drop-sudo
+        allow-bots: "true"
+        allow-bot-users: github-actions[bot]
