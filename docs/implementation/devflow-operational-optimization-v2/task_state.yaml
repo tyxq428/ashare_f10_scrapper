@@ -1,33 +1,36 @@
 {
   "schema_version": 2,
-  "state_revision": 1,
+  "state_revision": 2,
   "task_id": "devflow-operational-optimization-v2",
   "title": "Devflow operational optimization and minimal Codex eligibility",
-  "status": "VERIFYING",
-  "execution_status": "RUNNING",
+  "status": "DONE",
+  "execution_status": "COMPLETED",
   "acceptance": {
     "domain": "generic",
-    "status": "PENDING",
+    "status": "PASS",
     "reason_code": null,
-    "details_path": null
+    "details_path": "docs/implementation/devflow-operational-optimization-v2/FINAL_REPORT.md"
   },
-  "security_status": "PENDING",
-  "working_branch": "feature/devflow-operational-optimization-v2-clean",
+  "security_status": "PASS",
+  "working_branch": "main",
   "pull_request": 50,
   "base_sha_at_start": "fb895fd372007f41f611b40b4cb0eb57476a6b32",
-  "last_product_commit_sha": "fb895fd372007f41f611b40b4cb0eb57476a6b32",
+  "last_product_commit_sha": "6784a64cfcf0e5a57778c57ad4b95113000ddb02",
   "last_state_commit_sha": null,
-  "current_stage": "W06",
-  "last_completed_stage": "W05",
-  "last_successful_step": "zero_model_implementation_ready_for_ci",
-  "next_action": "run_pr50_zero_model_gates_and_forced_full_validation",
+  "current_stage": "W07",
+  "last_completed_stage": "W07",
+  "last_successful_step": "exact_main_zero_codex_closeout_pass",
+  "next_action": "none",
   "gate_results": {
     "W00_CODEX_FREEZE": "PASS:PR46",
     "W01_CLEAN_REBUILD": "PASS",
     "W02_DETERMINISTIC_REPAIRS": "PASS",
-    "W03_CONTEXT_AND_IMPACT": "PENDING_CI",
-    "W04_STATE_AND_BRANCH_GC": "PENDING_CI",
-    "W05_CODEX_ELIGIBILITY": "PENDING_CI"
+    "W03_CONTEXT_AND_IMPACT": "PASS",
+    "W04_STATE_AND_BRANCH_GC": "PASS",
+    "W05_CODEX_ELIGIBILITY": "PASS",
+    "W06_PRE_MERGE": "PASS:30038187375,30038187361,30038187352,30038187346",
+    "W07_EXACT_MAIN": "PASS:30052979960",
+    "CODEX_CALLS_DURING_OPTIMIZATION": "0"
   },
   "retry_budget": {
     "infrastructure": 3,
@@ -42,15 +45,17 @@
     "resume_from": null
   },
   "post_merge": {
-    "status": "PENDING",
-    "merge_sha": null,
-    "verified_run_ids": []
+    "status": "PASS",
+    "merge_sha": "59992d2f115fa71c969417dff8ee06b4e42060f4",
+    "verified_run_ids": [
+      30052979960
+    ]
   },
   "notification": {
-    "generation": 0,
-    "last_type": null,
+    "generation": 1,
+    "last_type": "COMPLETED",
     "acknowledged": true,
     "control_issue_number": null
   },
-  "updated_at_utc": "2026-07-23T19:15:00Z"
+  "updated_at_utc": "2026-07-23T23:24:10Z"
 }
