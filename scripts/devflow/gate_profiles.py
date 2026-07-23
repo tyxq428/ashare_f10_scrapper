@@ -27,6 +27,8 @@ DEVFLOW_TESTS = [
     "tests/test_devflow_branch_gc.py",
     "tests/test_devflow_state_v2.py",
     "tests/test_devflow_validate_docs.py",
+    "tests/test_devflow_recovery_context.py",
+    "tests/test_devflow_upgrade_compatibility.py",
 ]
 
 GATE_PROFILES: dict[str, list[list[str]]] = {
@@ -34,22 +36,34 @@ GATE_PROFILES: dict[str, list[list[str]]] = {
         ["python", "-m", "compileall", "-q", "scripts/devflow"],
         ["python", "scripts/devflow/validate_workflows.py"],
         ["python", "scripts/devflow/validate_docs.py"],
+        ["python", "scripts/devflow/upgrade_compatibility.py"],
         ["pytest", "-q", *DEVFLOW_TESTS],
     ],
     "devflow-auto-recovery-targeted": [
         ["python", "-m", "compileall", "-q", "scripts/devflow"],
         ["python", "scripts/devflow/validate_workflows.py"],
         ["python", "scripts/devflow/validate_docs.py"],
+        ["python", "scripts/devflow/upgrade_compatibility.py"],
         ["ruff", "check", "scripts/devflow", *DEVFLOW_TESTS],
         ["pytest", "-q", *DEVFLOW_TESTS],
     ],
     "resilient-command-targeted": [
-        ["ruff", "check", "scripts/run_resilient_command.py", "tests/test_resilient_fetch.py"],
+        [
+            "ruff",
+            "check",
+            "scripts/run_resilient_command.py",
+            "tests/test_resilient_fetch.py",
+        ],
         ["pytest", "-q", "tests/test_resilient_fetch.py"],
     ],
     "repository-full": REPOSITORY_FULL,
     "resilient-command-post-merge": [
-        ["ruff", "check", "scripts/run_resilient_command.py", "tests/test_resilient_fetch.py"],
+        [
+            "ruff",
+            "check",
+            "scripts/run_resilient_command.py",
+            "tests/test_resilient_fetch.py",
+        ],
         ["pytest", "-q", "tests/test_resilient_fetch.py"],
         *REPOSITORY_FULL,
     ],
