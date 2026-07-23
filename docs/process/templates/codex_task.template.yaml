@@ -20,6 +20,7 @@
   "parent_run_id": null,
   "risk_class": "low",
   "auto_merge": false,
+  "notify_completion": false,
   "expected_base_sha": "0000000000000000000000000000000000000000",
   "stop_conditions": [
     "any changed path outside allowed_files",
