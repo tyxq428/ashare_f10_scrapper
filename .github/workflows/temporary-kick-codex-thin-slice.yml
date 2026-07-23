@@ -57,7 +57,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          TASK_BRANCH: task/codex-resilient-command-terminal-status-auto-v1
+          TASK_BRANCH: task/codex-resilient-command-terminal-status-auto-v2
         run: |
           set -euo pipefail
           ACTIVE="$(gh api --paginate \
