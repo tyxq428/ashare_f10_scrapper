@@ -19,8 +19,14 @@ def _failed_job(step_name: str) -> dict[str, object]:
             {
                 "name": "gate-and-continue",
                 "steps": [
-                    {"name": "Set up job", "conclusion": "success"},
-                    {"name": step_name, "conclusion": "failure"},
+                    {
+                        "name": "Set up job",
+                        "conclusion": "success",
+                    },
+                    {
+                        "name": step_name,
+                        "conclusion": "failure",
+                    },
                 ],
             }
         ]
@@ -34,16 +40,23 @@ def test_codex_entry_job_owns_environment_secret_boundary() -> None:
     assert "name: agent-runtime" in text
     assert "deployment: false" in text
     assert "./.github/actions/codex-thin-worker" in text
-    assert "uses: ./.github/workflows/_reusable-codex-thin-worker.yml" not in text
+    assert (
+        "uses: ./.github/workflows/_reusable-codex-thin-worker.yml"
+        not in text
+    )
     assert "\n  push:\n" not in text
     assert validate_file(workflow) == []
 
 
-def test_reusable_unit_allows_only_trusted_repository_bot_and_uses_xhigh() -> None:
+def test_reusable_unit_allows_only_trusted_bot_and_uses_xhigh() -> None:
     action = REPO / ".github/actions/codex-thin-worker/action.yml"
     text = action.read_text(encoding="utf-8")
     assert "using: composite" in text
-    assert "openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56" in text
+    assert (
+        "openai/codex-action@"
+        "52fe01ec70a42f454c9d2ebd47598f9fd6893d56"
+        in text
+    )
     assert "http://127.0.0.1:8787/v1/responses" in text
     assert "effort: xhigh" in text
     assert "effort: low" not in text
@@ -55,35 +68,69 @@ def test_reusable_unit_allows_only_trusted_repository_bot_and_uses_xhigh() -> No
     assert validate_file(action) == []
 
 
-def test_new_task_template_defaults_xhigh_and_legacy_low_remains_readable() -> None:
+def test_new_template_is_schema_v2_xhigh_and_legacy_low_is_readable() -> None:
     template = json.loads(
-        (REPO / "docs/process/templates/codex_task.template.yaml").read_text(encoding="utf-8")
+        (
+            REPO
+            / "docs/process/templates/codex_task.template.yaml"
+        ).read_text(encoding="utf-8")
     )
     current = TaskDescriptor.from_mapping(template)
+    assert current.schema_version == 2
     assert current.reasoning_effort == "xhigh"
+    assert current.effective_reasoning_effort == "xhigh"
+    assert current.context_budget.include_chat_history is False
 
     legacy = dict(template)
+    legacy["schema_version"] = 1
     legacy["reasoning_effort"] = "low"
-    assert TaskDescriptor.from_mapping(legacy).reasoning_effort == "low"
+    historical = TaskDescriptor.from_mapping(legacy)
+    assert historical.reasoning_effort == "low"
+    assert historical.effective_reasoning_effort == "xhigh"
 
 
-def test_auto_recovery_generates_xhigh_tasks() -> None:
+def test_auto_recovery_generates_schema_v2_xhigh_tasks() -> None:
     workflow = REPO / ".github/workflows/devflow-auto-recovery.yml"
     text = workflow.read_text(encoding="utf-8")
+    assert '"schema_version": 2' in text
     assert '"reasoning_effort": "xhigh"' in text
+    assert '"context_budget": {' in text
     assert '"reasoning_effort": "low"' not in text
     assert validate_file(workflow) == []
 
 
-def test_structured_result_uses_action_output_not_absolute_output_file() -> None:
+def test_context_budget_precedes_private_runtime_and_is_audited() -> None:
+    workflow = REPO / ".github/workflows/codex-task.yml"
+    text = workflow.read_text(encoding="utf-8")
+    context_index = text.index(
+        "Validate bounded XHigh context before private runtime"
+    )
+    mask_index = text.index("Register private value masks")
+    runtime_index = text.index(
+        "Validate runtime configuration without exposing values"
+    )
+    codex_index = text.index("Run one Codex Thin Worker session")
+    assert context_index < mask_index < runtime_index < codex_index
+    assert "context-budget.json" in text
+    assert 'test "${{ steps.context.outcome }}" = "success"' in text
+    assert "context-budget.json secret-audit.json" in text
+
+
+def test_structured_result_uses_action_output_not_absolute_file() -> None:
     action = REPO / ".github/actions/codex-thin-worker/action.yml"
     action_text = action.read_text(encoding="utf-8")
-    assert "value: ${{ steps.run-codex.outputs.final-message }}" in action_text
+    assert (
+        "value: ${{ steps.run-codex.outputs.final-message }}"
+        in action_text
+    )
     assert "output-file:" not in action_text
 
     workflow = REPO / ".github/workflows/codex-task.yml"
     workflow_text = workflow.read_text(encoding="utf-8")
-    assert "CODEX_FINAL_MESSAGE: ${{ steps.codex.outputs.final-message }}" in workflow_text
+    assert (
+        "CODEX_FINAL_MESSAGE: ${{ steps.codex.outputs.final-message }}"
+        in workflow_text
+    )
     assert "Path('/tmp/codex-result.json').write_text" in workflow_text
     assert 'test "${{ steps.result.outcome }}" = "success"' in workflow_text
 
@@ -101,12 +148,21 @@ def test_publish_and_continuation_do_not_receive_agent_runtime() -> None:
     assert "secrets.AGENT_" not in publish
 
 
-def test_product_gate_scopes_candidate_from_merge_base_and_fails_closed() -> None:
+def test_product_gate_uses_merge_base_and_fails_closed() -> None:
     workflow = REPO / ".github/workflows/devflow-product-gate.yml"
     text = workflow.read_text(encoding="utf-8")
-    initial_scope = text.split("\n      - name: Run full product gate", 1)[0]
-    assert 'git merge-base --is-ancestor "$EXPECTED_BASE_SHA" HEAD' in initial_scope
-    assert 'MERGE_BASE="$(git merge-base origin/main HEAD)"' in initial_scope
+    initial_scope = text.split(
+        "\n      - name: Run full product gate",
+        1,
+    )[0]
+    assert (
+        'git merge-base --is-ancestor "$EXPECTED_BASE_SHA" HEAD'
+        in initial_scope
+    )
+    assert (
+        'MERGE_BASE="$(git merge-base origin/main HEAD)"'
+        in initial_scope
+    )
     assert '--base "$MERGE_BASE"' in initial_scope
     assert "--base origin/main" not in initial_scope
     assert "product-scope-result.json" in initial_scope
@@ -115,19 +171,24 @@ def test_product_gate_scopes_candidate_from_merge_base_and_fails_closed() -> Non
     assert validate_file(workflow) == []
 
 
-def test_product_gate_configures_bot_identity_and_centralizes_merge_failure() -> None:
+def test_product_gate_configures_bot_identity_and_centralizes_failure() -> None:
     workflow = REPO / ".github/workflows/devflow-product-gate.yml"
     text = workflow.read_text(encoding="utf-8")
     merge_section = text.split(
-        "\n      - name: Reconcile latest main, re-run gate if needed, and merge low-risk candidate\n",
+        "\n      - name: Reconcile latest main, re-run gate if needed, "
+        "and merge low-risk candidate\n",
         1,
     )[1]
     assert 'git config user.name "github-actions[bot]"' in merge_section
     assert (
-        'git config user.email "41898282+github-actions[bot]@users.noreply.github.com"'
+        'git config user.email "41898282+github-actions[bot]'
+        '@users.noreply.github.com"'
         in merge_section
     )
-    assert "Fail closed when automatic merge boundary is blocked" in merge_section
+    assert (
+        "Fail closed when automatic merge boundary is blocked"
+        in merge_section
+    )
     assert "Notify only when automatic merge is genuinely blocked" not in text
     assert "AUTO_MERGE_BOUNDARY=BLOCKED" in merge_section
     assert validate_file(workflow) == []
@@ -139,7 +200,9 @@ def test_product_gate_merge_boundary_is_a_real_human_gate() -> None:
         source_run_id=999,
         conclusion="failure",
         run_attempt=1,
-        jobs_payload=_failed_job("Fail closed when automatic merge boundary is blocked"),
+        jobs_payload=_failed_job(
+            "Fail closed when automatic merge boundary is blocked"
+        ),
     )
     assert decision.action == "HUMAN_REQUIRED"
     assert decision.reason_code == "AUTO_MERGE_BLOCKED"
@@ -152,7 +215,9 @@ def test_product_gate_scope_failure_precedes_code_repair() -> None:
         source_run_id=1000,
         conclusion="failure",
         run_attempt=1,
-        jobs_payload=_failed_job("Fail closed on changed-path scope violation"),
+        jobs_payload=_failed_job(
+            "Fail closed on changed-path scope violation"
+        ),
     )
     assert decision.action == "SECURITY_BLOCKED"
     assert decision.reason_code == "SECURITY_CONTROL_FAILED"
