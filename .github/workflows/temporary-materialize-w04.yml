@@ -45,7 +45,7 @@ jobs:
           import hashlib
           import tarfile
 
-          expected = "2e942962776bdf557fc08218f33f0d108e8b6a713756e1e55ddde7a9c1c0058a"
+          expected = "bae35af115bb1152c3d2bde5f9d8542678548c8a54be83eb539badda4bc1b8cf"
           payload = Path('/tmp/w04.tar.gz').read_bytes()
           if hashlib.sha256(payload).hexdigest() != expected:
               raise SystemExit('trusted bundle digest mismatch')
