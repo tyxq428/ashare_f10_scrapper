@@ -1,4 +1,5 @@
-# Trigger commit: the executor now already exists on the default branch.
+# Direct trigger after the workflow was already present on the default branch.
+# This executor performs deterministic Git/Python/Ruff work only; Codex remains disabled.
 name: Temporary Execute Clean Devflow Migration
 
 on:
