@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -16,6 +17,29 @@ def git_is_ancestor(repo: Path, ancestor: str, head: str = "HEAD") -> bool:
         stderr=subprocess.DEVNULL,
     )
     return result.returncode == 0
+
+
+def stage_number(stage: str) -> int | None:
+    match = re.fullmatch(r"W(\d{2})", stage)
+    return int(match.group(1)) if match else None
+
+
+def branch_matches_state(current_branch: str, state: TaskState) -> bool:
+    """Return whether the checkout branch is valid for the canonical task state.
+
+    The working branch is authoritative before merge. Once a task reaches W05 or
+    later and has an associated pull request, the same canonical state is also
+    expected to be validated on the default branch during merge/post-merge gates.
+    Detached checkouts are accepted because GitHub pull-request merge refs do not
+    expose a local branch name.
+    """
+
+    if not current_branch or state.status == "DONE":
+        return True
+    if current_branch == state.working_branch:
+        return True
+    number = stage_number(state.current_stage)
+    return current_branch == "main" and state.pull_request is not None and number is not None and number >= 5
 
 
 def validate_active_index(repo: Path, state: TaskState, state_path: Path) -> list[str]:
@@ -75,7 +99,7 @@ def validate(repo: Path, task_dir: Path, *, check_git: bool = True) -> dict[str,
             capture_output=True,
             text=True,
         ).stdout.strip()
-        if current_branch and current_branch != state.working_branch and state.status != "DONE":
+        if not branch_matches_state(current_branch, state):
             errors.append(
                 f"working_branch mismatch: state={state.working_branch}, checkout={current_branch}"
             )
