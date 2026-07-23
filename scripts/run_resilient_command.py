@@ -110,10 +110,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "completed_at_utc": utc_now(),
             }
         )
+        will_retry = return_code != 0 and retryable and attempt < args.max_attempts
         args.report.write_text(
             json.dumps(
                 {
-                    "status": "PASS" if return_code == 0 else "RETRYING" if retryable else "FAILED",
+                    "status": "PASS" if return_code == 0 else "RETRYING" if will_retry else "FAILED",
                     "command": command,
                     "attempts": attempts,
                     "updated_at_utc": utc_now(),
@@ -125,7 +126,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         if return_code == 0:
             return 0
-        if not retryable or attempt >= args.max_attempts:
+        if not will_retry:
             return return_code or 1
         delay = max(0, args.backoff_seconds) * (2 ** (attempt - 1))
         print(f"[resilient-command] retry in {delay}s", flush=True)
