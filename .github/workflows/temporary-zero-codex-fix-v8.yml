@@ -1,3 +1,4 @@
+# Deterministic trigger; no Codex or relay access.
 name: Temporary Zero-Codex Fix V8
 
 on:
