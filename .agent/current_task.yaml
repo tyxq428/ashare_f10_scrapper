@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "task_id": "resilient-command-terminal-status-auto-v2",
+  "objective": "Fix the real terminal-state defect in the finite retry command wrapper: after the last retryable failure the process exits, but the persisted report currently remains RETRYING instead of FAILED.",
+  "base_branch": "main",
+  "publish_branch": "codex/resilient-command-terminal-status-auto-v2",
+  "allowed_files": [
+    "scripts/run_resilient_command.py",
+    "tests/test_resilient_fetch.py"
+  ],
+  "forbidden_patterns": [
+    ".github/**",
+    ".env",
+    "secrets/**",
+    "src/**",
+    "docs/**"
+  ],
+  "required_changes": [
+    "Persist PASS only when the command returns zero.",
+    "Persist RETRYING only when the failure is retryable and another attempt will actually run.",
+    "Persist FAILED when the failure is non-retryable or the retry budget has been exhausted.",
+    "Preserve attempt-level retryable=true on a final exhausted retryable failure while making the overall report status FAILED.",
+    "Add deterministic regression coverage for success, non-retryable failure, an intermediate retryable failure, and an exhausted retryable failure.",
+    "Keep the patch minimal and do not redesign the retry engine or change existing backoff and heartbeat behavior."
+  ],
+  "acceptance_notes": [
+    "Use the existing test module and existing main/run_streamed entry points where practical.",
+    "Do not weaken existing network retry classifications.",
+    "Do not write a long report; return only the required structured result."
+  ],
+  "gate_profile": "resilient-command-targeted",
+  "full_gate_profile": "repository-full",
+  "post_merge_profile": "resilient-command-post-merge",
+  "reasoning_effort": "low",
+  "session_limit": 1,
+  "automatic_second_session": 0,
+  "recovery_generation": 0,
+  "max_recovery_generations": 1,
+  "parent_task_id": null,
+  "parent_run_id": null,
+  "risk_class": "low",
+  "auto_merge": true,
+  "notify_completion": true,
+  "expected_base_sha": "1e7b8d954097c2c7287b610071a2c7a0437af142",
+  "stop_conditions": [
+    "any changed path outside allowed_files",
+    "secret audit match",
+    "targeted gate failure after the bounded recovery budget",
+    "business or architecture decision required",
+    "main branch changed and cannot be replayed without conflict"
+  ]
+}
