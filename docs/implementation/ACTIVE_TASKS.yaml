@@ -9,6 +9,15 @@
       "pull_request": 30,
       "current_stage": "W08",
       "state_path": "docs/implementation/chatgpt-web-codex-devflow-v1/task_state.yaml"
+    },
+    {
+      "task_id": "devflow-operational-optimization-v2",
+      "title": "Devflow operational optimization and minimal Codex eligibility",
+      "status": "VERIFYING",
+      "branch": "feature/devflow-operational-optimization-v2-clean",
+      "pull_request": 50,
+      "current_stage": "W06",
+      "state_path": "docs/implementation/devflow-operational-optimization-v2/task_state.yaml"
     }
   ]
 }
