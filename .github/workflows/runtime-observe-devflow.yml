@@ -1,4 +1,4 @@
-name: Runtime Dispatch And Observe Product Gate
+name: Runtime Diagnose Product Gate Merge
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
   contents: write
 
 jobs:
-  observe:
+  diagnose:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -20,78 +20,47 @@ jobs:
         with:
           ref: runtime/devflow-observer
           fetch-depth: 0
-      - name: Dispatch Product Gate once when no run is active
+      - name: Extract only bounded non-secret merge error lines
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          RUN_ID: "29998952457"
+          JOB_ID: "89179272998"
         run: |
           set -euo pipefail
-          ACTIVE="$(gh api \
-            "repos/${{ github.repository }}/actions/workflows/devflow-product-gate.yml/runs?per_page=20" \
-            --jq '[.workflow_runs[] | select(.status == "queued" or .status == "in_progress")] | length')"
-          if [[ "$ACTIVE" == "0" ]]; then
-            cat > /tmp/product-gate-dispatch.json <<'JSON'
-          {
-            "event_type": "devflow_product_gate",
-            "client_payload": {
-              "task_id": "resilient-command-terminal-status-auto-v3",
-              "task_branch": "task/codex-resilient-command-terminal-status-auto-v3",
-              "publish_branch": "codex/resilient-command-terminal-status-auto-v3"
-            }
-          }
-          JSON
-            gh api --method POST "repos/${{ github.repository }}/dispatches" \
-              --input /tmp/product-gate-dispatch.json
-            echo "PRODUCT_GATE_DISPATCHED=v3" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "PRODUCT_GATE_ALREADY_ACTIVE=${ACTIVE}" >> "$GITHUB_STEP_SUMMARY"
-          fi
-          sleep 8
-      - name: Collect public-safe workflow metadata
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
+          gh api --method GET \
+            -H 'Accept: application/vnd.github+json' \
+            "repos/${{ github.repository }}/actions/jobs/${JOB_ID}/logs" \
+            > /tmp/product-gate.log
           python - <<'PY'
           import json
-          import os
-          import subprocess
+          import re
           from datetime import UTC, datetime
           from pathlib import Path
 
-          repo = os.environ['GITHUB_REPOSITORY']
-          workflows = {
-              'codex_task': 'codex-task.yml',
-              'product_gate': 'devflow-product-gate.yml',
-              'post_merge': 'devflow-post-merge.yml',
-              'auto_recovery': 'devflow-auto-recovery.yml',
-              'incident': 'devflow-incident.yml',
+          patterns = re.compile(
+              r'(##\[error\]|fatal:|error:|conflict|rebase|merge|identity|permission|protected|non-fast-forward|failed)',
+              re.IGNORECASE,
+          )
+          safe = []
+          for raw in Path('/tmp/product-gate.log').read_text(encoding='utf-8', errors='replace').splitlines():
+              if not patterns.search(raw):
+                  continue
+              line = re.sub(r'^[0-9TZ:.-]+\s+', '', raw)
+              line = re.sub(r'https?://\S+', '[URL]', line)
+              line = re.sub(r'(?i)(authorization|token|secret|key)\s*[:=]\s*\S+', r'\1=[MASKED]', line)
+              safe.append(line[:500])
+          result = {
+              'observed_at_utc': datetime.now(UTC).isoformat(),
+              'run_id': 29998952457,
+              'job_id': 89179272998,
+              'matched_lines': safe[-80:],
           }
-          result = {'observed_at_utc': datetime.now(UTC).isoformat(), 'workflows': {}}
-          for key, workflow in workflows.items():
-              process = subprocess.run(
-                  ['gh', 'api', f'repos/{repo}/actions/workflows/{workflow}/runs?per_page=20'],
-                  check=True,
-                  capture_output=True,
-                  text=True,
-              )
-              payload = json.loads(process.stdout)
-              result['workflows'][key] = [
-                  {
-                      field: run.get(field)
-                      for field in (
-                          'id', 'name', 'display_title', 'status', 'conclusion', 'event',
-                          'head_branch', 'head_sha', 'run_attempt', 'created_at', 'updated_at', 'html_url'
-                      )
-                  }
-                  for run in payload.get('workflow_runs', [])[:20]
-              ]
-          Path('/tmp/devflow-runtime-status.json').write_text(
+          Path('/tmp/product-gate-diagnostic.json').write_text(
               json.dumps(result, indent=2, sort_keys=True) + '\n', encoding='utf-8'
           )
           PY
-      - name: Publish status to isolated orphan branch
+      - name: Publish diagnostic to isolated orphan branch
         shell: bash
         run: |
           set -euo pipefail
@@ -100,7 +69,7 @@ jobs:
           git switch --orphan runtime-devflow-status
           git rm -rf . >/dev/null 2>&1 || true
           mkdir -p runtime
-          cp /tmp/devflow-runtime-status.json runtime/devflow-runtime-status.json
-          git add runtime/devflow-runtime-status.json
-          git commit -m "Publish safe devflow runtime status"
+          cp /tmp/product-gate-diagnostic.json runtime/product-gate-diagnostic.json
+          git add runtime/product-gate-diagnostic.json
+          git commit -m "Publish bounded Product Gate diagnostic"
           git push --force origin HEAD:refs/heads/runtime/devflow-status
