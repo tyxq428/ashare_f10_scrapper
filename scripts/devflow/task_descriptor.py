@@ -16,11 +16,28 @@ SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 RISK_CLASSES = {"low", "medium", "high"}
 REASONING_EFFORTS = {"low", "xhigh"}
 
+DEFAULT_CONTEXT_BUDGET = {
+    "max_allowed_files": 5,
+    "max_task_bytes": 32_768,
+    "max_total_allowed_file_bytes": 262_144,
+    "max_single_file_bytes": 131_072,
+    "max_log_excerpt_lines": 300,
+    "include_chat_history": False,
+    "include_full_sop": False,
+}
+
 
 def _positive_int_or_zero(value: object, field: str) -> int:
     if not isinstance(value, int) or isinstance(value, bool) or value < 0:
         raise TaskDescriptorError(f"{field} must be a non-negative integer")
     return value
+
+
+def _positive_int(value: object, field: str) -> int:
+    result = _positive_int_or_zero(value, field)
+    if result == 0:
+        raise TaskDescriptorError(f"{field} must be positive")
+    return result
 
 
 def _string_list(data: dict[str, Any], field: str, *, non_empty: bool = True) -> tuple[str, ...]:
@@ -30,6 +47,56 @@ def _string_list(data: dict[str, Any], field: str, *, non_empty: bool = True) ->
     if non_empty and not value:
         raise TaskDescriptorError(f"{field} must not be empty")
     return tuple(item.strip() for item in value)
+
+
+@dataclass(frozen=True)
+class ContextBudget:
+    max_allowed_files: int
+    max_task_bytes: int
+    max_total_allowed_file_bytes: int
+    max_single_file_bytes: int
+    max_log_excerpt_lines: int
+    include_chat_history: bool
+    include_full_sop: bool
+
+    @classmethod
+    def from_mapping(cls, value: object) -> ContextBudget:
+        if value is None:
+            raw: dict[str, object] = dict(DEFAULT_CONTEXT_BUDGET)
+        elif isinstance(value, dict):
+            raw = {**DEFAULT_CONTEXT_BUDGET, **value}
+        else:
+            raise TaskDescriptorError("context_budget must be an object")
+
+        include_chat_history = raw.get("include_chat_history")
+        include_full_sop = raw.get("include_full_sop")
+        if not isinstance(include_chat_history, bool):
+            raise TaskDescriptorError("context_budget.include_chat_history must be boolean")
+        if not isinstance(include_full_sop, bool):
+            raise TaskDescriptorError("context_budget.include_full_sop must be boolean")
+        if include_chat_history:
+            raise TaskDescriptorError("context_budget.include_chat_history must be false")
+        if include_full_sop:
+            raise TaskDescriptorError("context_budget.include_full_sop must be false")
+
+        return cls(
+            max_allowed_files=_positive_int(raw.get("max_allowed_files"), "context_budget.max_allowed_files"),
+            max_task_bytes=_positive_int(raw.get("max_task_bytes"), "context_budget.max_task_bytes"),
+            max_total_allowed_file_bytes=_positive_int(
+                raw.get("max_total_allowed_file_bytes"),
+                "context_budget.max_total_allowed_file_bytes",
+            ),
+            max_single_file_bytes=_positive_int(
+                raw.get("max_single_file_bytes"),
+                "context_budget.max_single_file_bytes",
+            ),
+            max_log_excerpt_lines=_positive_int(
+                raw.get("max_log_excerpt_lines"),
+                "context_budget.max_log_excerpt_lines",
+            ),
+            include_chat_history=include_chat_history,
+            include_full_sop=include_full_sop,
+        )
 
 
 @dataclass(frozen=True)
@@ -45,6 +112,7 @@ class TaskDescriptor:
     full_gate_profile: str
     post_merge_profile: str
     reasoning_effort: str
+    context_budget: ContextBudget
     session_limit: int
     automatic_second_session: int
     recovery_generation: int
@@ -97,6 +165,9 @@ class TaskDescriptor:
         forbidden_patterns = _string_list(data, "forbidden_patterns")
         required_changes = _string_list(data, "required_changes")
         _string_list(data, "stop_conditions")
+        context_budget = ContextBudget.from_mapping(data.get("context_budget"))
+        if len(allowed_files) > context_budget.max_allowed_files:
+            raise TaskDescriptorError("allowed_files exceeds context_budget.max_allowed_files")
 
         session_limit = _positive_int_or_zero(data.get("session_limit"), "session_limit")
         automatic_second_session = _positive_int_or_zero(
@@ -151,6 +222,7 @@ class TaskDescriptor:
             full_gate_profile=values["full_gate_profile"],
             post_merge_profile=values["post_merge_profile"],
             reasoning_effort=values["reasoning_effort"],
+            context_budget=context_budget,
             session_limit=session_limit,
             automatic_second_session=automatic_second_session,
             recovery_generation=recovery_generation,
