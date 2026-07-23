@@ -1,4 +1,4 @@
-name: Temporary Patch Codex Result Handoff
+name: Temporary Kick Codex Thin Slice
 
 on:
   push:
@@ -8,89 +8,52 @@ on:
       - .github/workflows/temporary-kick-codex-thin-slice.yml
 
 permissions:
+  actions: write
   contents: write
 
 jobs:
-  patch:
+  dispatch:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          ref: fix/codex-bot-authorization-and-output
+          ref: main
           fetch-depth: 0
-      - name: Replace absolute output-file with structured action-output handoff
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path('.github/workflows/codex-task.yml')
-          text = path.read_text(encoding='utf-8')
-          old = '''          prompt-file: ${{ needs.read-task.outputs.task_file }}
-          output-file: /tmp/codex-result.json
-
-      - name: Stop private forwarder
-'''
-          new = '''          prompt-file: ${{ needs.read-task.outputs.task_file }}
-
-      - name: Persist structured Codex final message outside the repository
-        id: result
-        if: steps.codex.outcome == 'success'
-        continue-on-error: true
+      - name: Dispatch the trusted task generation once
         shell: bash
         env:
-          CODEX_FINAL_MESSAGE: ${{ steps.codex.outputs.final-message }}
+          GH_TOKEN: ${{ github.token }}
+          TASK_BRANCH: task/codex-resilient-command-terminal-status-auto-v3
         run: |
           set -euo pipefail
-          python - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          raw = os.environ.get('CODEX_FINAL_MESSAGE', '')
-          if not raw.strip():
-              raise SystemExit('CODEX_FINAL_MESSAGE_MISSING')
-          value = json.loads(raw)
-          Path('/tmp/codex-result.json').write_text(
-              json.dumps(value, ensure_ascii=False, indent=2) + '\\n',
-              encoding='utf-8',
-          )
-          print('CODEX_STRUCTURED_RESULT=READY')
-          PY
-
-      - name: Stop private forwarder
-'''
-          if old not in text:
-              raise SystemExit('target Codex output block not found')
-          text = text.replace(old, new, 1)
-          text = text.replace(
-              "if: steps.codex.outcome == 'success'\n        continue-on-error: true\n        run: |\n          mkdir -p /tmp/codex-artifact\n          python scripts/devflow/verify_changed_paths.py",
-              "if: steps.codex.outcome == 'success' && steps.result.outcome == 'success'\n        continue-on-error: true\n        run: |\n          mkdir -p /tmp/codex-artifact\n          python scripts/devflow/verify_changed_paths.py",
-              1,
-          )
-          text = text.replace(
-              "if: steps.codex.outcome == 'success'\n        continue-on-error: true\n        run: |\n          mkdir -p /tmp/codex-artifact\n          python scripts/devflow/run_gate_profile.py",
-              "if: steps.codex.outcome == 'success' && steps.result.outcome == 'success'\n        continue-on-error: true\n        run: |\n          mkdir -p /tmp/codex-artifact\n          python scripts/devflow/run_gate_profile.py",
-              1,
-          )
-          enforce = '          test "${{ steps.codex.outcome }}" = "success"\n'
-          if enforce not in text:
-              raise SystemExit('Codex enforcement marker not found')
-          text = text.replace(
-              enforce,
-              enforce + '          test "${{ steps.result.outcome }}" = "success"\n',
-              1,
-          )
-          path.write_text(text, encoding='utf-8')
-          PY
-      - name: Commit deterministic patch
+          ACTIVE="$(gh api --paginate \
+            "repos/${{ github.repository }}/actions/workflows/codex-task.yml/runs?per_page=100" \
+            --jq '[.workflow_runs[] | select((.status == "queued" or .status == "in_progress") and .display_title == "Codex Task")] | length')"
+          if [[ "$ACTIVE" != "0" ]]; then
+            echo "CODEX_TASK_ALREADY_ACTIVE=${ACTIVE}" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          gh api --method POST \
+            "repos/${{ github.repository }}/actions/workflows/codex-task.yml/dispatches" \
+            -f ref=main \
+            -f "inputs[task_branch]=${TASK_BRANCH}"
+          echo "CODEX_TASK_DISPATCHED=${TASK_BRANCH}" >> "$GITHUB_STEP_SUMMARY"
+          sleep 8
+          gh api \
+            "repos/${{ github.repository }}/actions/workflows/codex-task.yml/runs?per_page=20" \
+            --jq '{task_branch: "'"${TASK_BRANCH}"'", observed_at_utc: now | todate, workflow_runs: [.workflow_runs[] | {id, status, conclusion, run_attempt, head_branch, head_sha, event, display_title, created_at, updated_at, html_url}]}' \
+            > /tmp/codex-run-status.json
+      - name: Publish only non-secret runtime metadata
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .github/workflows/codex-task.yml
-          git commit -m "Capture structured Codex output outside the workspace"
-          git push origin HEAD:fix/codex-bot-authorization-and-output
+          git switch --orphan runtime-devflow-status
+          git rm -rf . >/dev/null 2>&1 || true
+          mkdir -p runtime
+          cp /tmp/codex-run-status.json runtime/codex-run-status.json
+          git add runtime/codex-run-status.json
+          git commit -m "Publish safe Codex runtime status"
+          git push --force origin HEAD:refs/heads/runtime/devflow-status
