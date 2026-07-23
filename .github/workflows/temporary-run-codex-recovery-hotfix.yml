@@ -30,76 +30,25 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
-      - name: Apply deterministic patch
-        id: patch
-        continue-on-error: true
+      - name: Apply and validate deterministic patch
         run: |
-          set -o pipefail
-          {
-            python scripts/devflow/temporary_apply_codex_recovery_hotfix.py
-            python scripts/devflow/temporary_finish_codex_recovery_hotfix.py
-            ruff check --fix --exit-zero scripts/devflow/recovery_policy.py scripts/devflow/recovery_task.py scripts/devflow/validate_workflows.py tests/test_devflow.py tests/test_devflow_codex_environment.py
-            ruff format scripts/devflow/recovery_policy.py scripts/devflow/recovery_task.py scripts/devflow/validate_workflows.py tests/test_devflow.py tests/test_devflow_codex_environment.py
-          } 2>&1 | tee /tmp/codex-recovery-hotfix-apply.log
-      - name: Upload bounded patch diagnostics
-        if: steps.patch.outcome != 'success'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: codex-recovery-hotfix-apply-${{ github.run_id }}
-          path: /tmp/codex-recovery-hotfix-apply.log
-          if-no-files-found: error
-          retention-days: 3
-      - name: Fail after patch diagnostic upload
-        if: steps.patch.outcome != 'success'
-        run: exit 1
-      - name: Validate without Codex
-        id: validate
-        if: steps.patch.outcome == 'success'
-        continue-on-error: true
+          set -euo pipefail
+          python scripts/devflow/temporary_apply_codex_recovery_hotfix.py
+          python scripts/devflow/temporary_finish_codex_recovery_hotfix.py
+          ruff check --fix --exit-zero scripts/devflow/recovery_policy.py scripts/devflow/recovery_task.py scripts/devflow/validate_workflows.py tests/test_devflow.py tests/test_devflow_codex_environment.py
+          ruff format scripts/devflow/recovery_policy.py scripts/devflow/recovery_task.py scripts/devflow/validate_workflows.py tests/test_devflow.py tests/test_devflow_codex_environment.py
+          python -m compileall -q scripts/devflow
+          python scripts/devflow/validate_workflows.py
+          ruff check scripts/devflow tests/test_devflow.py tests/test_devflow_codex_environment.py
+          pytest -q tests/test_devflow.py tests/test_devflow_codex_environment.py
+      - name: Commit verified non-workflow changes
         run: |
-          set -o pipefail
-          {
-            python -m compileall -q scripts/devflow
-            python scripts/devflow/validate_workflows.py
-            ruff check scripts/devflow tests/test_devflow.py tests/test_devflow_codex_environment.py
-            pytest -q tests/test_devflow.py tests/test_devflow_codex_environment.py
-          } 2>&1 | tee /tmp/codex-recovery-hotfix-validation.log
-      - name: Upload bounded validation diagnostics
-        if: steps.validate.outcome != 'success'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: codex-recovery-hotfix-validation-${{ github.run_id }}
-          path: /tmp/codex-recovery-hotfix-validation.log
-          if-no-files-found: error
-          retention-days: 3
-      - name: Fail after validation diagnostic upload
-        if: steps.patch.outcome == 'success' && steps.validate.outcome != 'success'
-        run: exit 1
-      - name: Commit patch and remove temporary runners
-        id: commit
-        if: steps.patch.outcome == 'success' && steps.validate.outcome == 'success'
-        continue-on-error: true
-        run: |
-          set -o pipefail
-          {
-            git rm .github/workflows/temporary-patch-codex-recovery-circuit-breaker.yml
-            git rm .github/workflows/temporary-run-codex-recovery-hotfix.yml
-            git rm scripts/devflow/temporary_apply_codex_recovery_hotfix.py
-            git rm scripts/devflow/temporary_finish_codex_recovery_hotfix.py
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add .github scripts/devflow tests docs
-            git commit -m "Stop blocked Codex recovery loops and require immutable failure context"
-            git push origin HEAD:fix/codex-recovery-circuit-breaker
-          } 2>&1 | tee /tmp/codex-recovery-hotfix-commit.log
-      - name: Upload bounded commit diagnostics
-        if: steps.commit.outcome != 'success'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: codex-recovery-hotfix-commit-${{ github.run_id }}
-          path: /tmp/codex-recovery-hotfix-commit.log
-          if-no-files-found: error
-          retention-days: 3
-      - name: Fail after commit diagnostic upload
-        if: steps.commit.outcome != 'success'
-        run: exit 1
+          set -euo pipefail
+          git checkout -- .github/workflows/devflow-auto-recovery.yml
+          git rm scripts/devflow/temporary_apply_codex_recovery_hotfix.py
+          git rm scripts/devflow/temporary_finish_codex_recovery_hotfix.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/actions scripts/devflow tests docs
+          git commit -m "Stop blocked Codex recovery loops and require immutable failure context"
+          git push origin HEAD:fix/codex-recovery-circuit-breaker
