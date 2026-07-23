@@ -1,0 +1,133 @@
+name: Temporary Patch Codex Context Budget
+
+on:
+  push:
+    branches:
+      - feature/devflow-operational-optimization-v2
+    paths:
+      - .github/workflows/temporary-patch-context-budget.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: feature/devflow-operational-optimization-v2
+          fetch-depth: 0
+      - name: Add model-call context budget enforcement
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/workflows/codex-task.yml')
+          text = path.read_text(encoding='utf-8')
+
+          install = '''      - name: Install deterministic development dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+'''
+          context = install + '''      - name: Validate bounded XHigh context before private runtime
+        id: context
+        continue-on-error: true
+        run: |
+          python scripts/devflow/context_budget.py \
+            --task-file "${{ needs.read-task.outputs.task_file }}" \
+            --output /tmp/devflow-context-budget.json
+
+'''
+          if install not in text:
+              raise SystemExit('install marker missing')
+          text = text.replace(install, context, 1)
+
+          mask = '''      - name: Register private value masks
+        shell: bash
+'''
+          mask_new = '''      - name: Register private value masks
+        if: steps.context.outcome == 'success'
+        shell: bash
+'''
+          if mask not in text:
+              raise SystemExit('mask marker missing')
+          text = text.replace(mask, mask_new, 1)
+
+          runtime = '''      - name: Validate runtime configuration without exposing values
+        id: runtime
+        continue-on-error: true
+'''
+          runtime_new = '''      - name: Validate runtime configuration without exposing values
+        id: runtime
+        if: steps.context.outcome == 'success'
+        continue-on-error: true
+'''
+          if runtime not in text:
+              raise SystemExit('runtime marker missing')
+          text = text.replace(runtime, runtime_new, 1)
+
+          preflight_copy = '''          test ! -s /tmp/devflow-runtime-preflight.json || \
+            cp /tmp/devflow-runtime-preflight.json "$ARTIFACT/runtime-preflight.json"
+'''
+          context_copy = '''          test ! -s /tmp/devflow-context-budget.json || \
+            cp /tmp/devflow-context-budget.json "$ARTIFACT/context-budget.json"
+          test -s "$ARTIFACT/context-budget.json" || \
+            printf '%s\n' '{"status":"FAIL","violations":["CONTEXT_BUDGET_DID_NOT_RUN"]}' > "$ARTIFACT/context-budget.json"
+''' + preflight_copy
+          if preflight_copy not in text:
+              raise SystemExit('artifact copy marker missing')
+          text = text.replace(preflight_copy, context_copy, 1)
+
+          audit_marker = '''            "$ARTIFACT/gate-result.json" \
+            "$ARTIFACT/runtime-preflight.json" \
+'''
+          audit_new = '''            "$ARTIFACT/gate-result.json" \
+            "$ARTIFACT/context-budget.json" \
+            "$ARTIFACT/runtime-preflight.json" \
+'''
+          if audit_marker not in text:
+              raise SystemExit('audit marker missing')
+          text = text.replace(audit_marker, audit_new, 1)
+
+          manifest = '''            sha256sum codex.patch codex-result.json scope-result.json gate-result.json \
+              secret-audit.json runtime-preflight.json forwarder-status.json \
+'''
+          manifest_new = '''            sha256sum codex.patch codex-result.json scope-result.json gate-result.json \
+              context-budget.json secret-audit.json runtime-preflight.json forwarder-status.json \
+'''
+          if manifest not in text:
+              raise SystemExit('manifest marker missing')
+          text = text.replace(manifest, manifest_new, 1)
+
+          enforce = '''          test "${{ steps.runtime.outcome }}" = "success"
+'''
+          enforce_new = '''          test "${{ steps.context.outcome }}" = "success"
+''' + enforce
+          if enforce not in text:
+              raise SystemExit('enforce marker missing')
+          text = text.replace(enforce, enforce_new, 1)
+
+          result_loop = '''          for name in ('scope-result.json', 'gate-result.json', 'secret-audit.json'):
+'''
+          result_loop_new = '''          for name in ('context-budget.json', 'scope-result.json', 'gate-result.json', 'secret-audit.json'):
+'''
+          if result_loop not in text:
+              raise SystemExit('result loop marker missing')
+          text = text.replace(result_loop, result_loop_new, 1)
+
+          path.write_text(text, encoding='utf-8')
+          PY
+      - name: Commit context budget wiring
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/codex-task.yml
+          git commit -m "Enforce XHigh context budget before Codex execution"
+          git push origin HEAD:feature/devflow-operational-optimization-v2
