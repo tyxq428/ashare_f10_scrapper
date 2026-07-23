@@ -1,30 +1,33 @@
 {
   "schema_version": 1,
-  "state_revision": 5,
+  "state_revision": 7,
   "task_id": "chatgpt-web-codex-devflow-v1",
   "title": "ChatGPT Web Supervisor + GitHub Actions Executor + Codex Thin Worker",
   "status": "RUNNING",
   "execution_status": "RUNNING",
   "research_acceptance_status": "PENDING",
-  "working_branch": "feature/chatgpt-web-codex-devflow-v1-clean",
+  "working_branch": "main",
   "pull_request": 30,
   "base_sha_at_start": "75a5b93b047bd844fc5d0b7950507cba746fdd50",
-  "last_product_commit_sha": "75a5b93b047bd844fc5d0b7950507cba746fdd50",
+  "last_product_commit_sha": "c0b066356738bdd721b854d326457f7fb19ca253",
   "last_state_commit_sha": null,
   "current_stage": "W05",
   "last_completed_stage": "W04",
-  "last_successful_step": "reusable_codex_and_secure_workflows_verified",
-  "next_action": "synchronize_main_and_complete_pr_a_premerge_gates",
+  "last_successful_step": "pr_a_merged_at_c0b066356738bdd721b854d326457f7fb19ca253",
+  "next_action": "verify_exact_main_then_continue_real_codex_thin_slice",
   "gate_results": {
     "W00": "PASS",
     "W01": "PASS",
     "W02": "PASS",
     "W03": "PASS",
     "W04": "PASS",
-    "post_merge": "PENDING"
+    "PR_A_PREMERGE_STATE": "PASS:29985661004",
+    "PR_A_PREMERGE_TEST": "PASS:29985661017",
+    "PR_A_PREMERGE_E2E": "PASS:29985660996",
+    "post_merge": "RUNNING"
   },
   "retry_budget": {
-    "infrastructure": 3,
+    "infrastructure": 2,
     "codex_sessions": 1,
     "replans": 2
   },
@@ -35,14 +38,15 @@
     "resume_from": null
   },
   "post_merge": {
-    "status": "PENDING",
-    "merge_sha": null,
+    "status": "RUNNING",
+    "merge_sha": "c0b066356738bdd721b854d326457f7fb19ca253",
     "verified_run_ids": []
   },
   "notification": {
-    "generation": 0,
-    "last_type": null,
-    "acknowledged": true
+    "generation": 1,
+    "last_type": "INTERRUPTED",
+    "acknowledged": true,
+    "control_issue_number": 32
   },
-  "updated_at_utc": "2026-07-23T05:51:43Z"
+  "updated_at_utc": "2026-07-23T07:01:31Z"
 }
