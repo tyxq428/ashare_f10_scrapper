@@ -1,14 +1,49 @@
 from __future__ import annotations
 
+
+REPOSITORY_FULL: list[list[str]] = [
+    ["python", "-m", "compileall", "-q", "src", "scripts"],
+    ["node", "--check", "src/ashare_f10/web/research-grid.js"],
+    ["node", "--check", "src/ashare_f10/web/static-search-worker.js"],
+    ["node", "--check", "src/ashare_f10/web/app.js"],
+    ["node", "--check", "src/ashare_f10/web/job-center-v2.js"],
+    ["node", "--check", "src/ashare_f10/web/raw-pack.js"],
+    ["node", "--check", "src/ashare_f10/web/run.js"],
+    ["node", "--check", "src/ashare_f10/web/research-pack.js"],
+    ["node", "tests/static-search-worker-smoke.cjs"],
+    [
+        "ruff",
+        "check",
+        "src",
+        "tests",
+        "scripts/run_resilient_fetch.py",
+        "scripts/run_resilient_command.py",
+    ],
+    ["pytest", "--cov=ashare_f10", "--cov-report=term-missing"],
+]
+
+
 GATE_PROFILES: dict[str, list[list[str]]] = {
     "devflow-targeted": [
         ["python", "-m", "compileall", "-q", "scripts/devflow"],
         ["python", "scripts/devflow/validate_workflows.py"],
         ["pytest", "-q", "tests/test_devflow.py"],
     ],
+    "devflow-auto-recovery-targeted": [
+        ["python", "-m", "compileall", "-q", "scripts/devflow"],
+        ["python", "scripts/devflow/validate_workflows.py"],
+        ["ruff", "check", "scripts/devflow", "tests/test_devflow.py"],
+        ["pytest", "-q", "tests/test_devflow.py"],
+    ],
     "resilient-command-targeted": [
         ["ruff", "check", "scripts/run_resilient_command.py", "tests/test_resilient_fetch.py"],
         ["pytest", "-q", "tests/test_resilient_fetch.py"],
+    ],
+    "repository-full": REPOSITORY_FULL,
+    "resilient-command-post-merge": [
+        ["ruff", "check", "scripts/run_resilient_command.py", "tests/test_resilient_fetch.py"],
+        ["pytest", "-q", "tests/test_resilient_fetch.py"],
+        *REPOSITORY_FULL,
     ],
 }
 
