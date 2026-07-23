@@ -15,6 +15,10 @@ permissions:
   issues: write
   contents: read
 
+concurrency:
+  group: devflow-incident-chatgpt-web-codex-devflow-v1
+  cancel-in-progress: false
+
 jobs:
   valuable-notification:
     if: >-
@@ -23,6 +27,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+
       - name: Create or update one task control issue
         shell: bash
         env:
@@ -35,6 +43,8 @@ jobs:
           set -euo pipefail
           TASK_ID="chatgpt-web-codex-devflow-v1"
           CONTROL_TITLE="[TASK CONTROL] ${TASK_ID}"
+          STATE_PATH="docs/implementation/${TASK_ID}/task_state.yaml"
+
           if [[ "$SOURCE_NAME" == "Devflow Post Merge" && "$CONCLUSION" == "success" ]]; then
             TYPE="COMPLETED"
             REASON="All required post-merge verification completed successfully."
@@ -53,9 +63,46 @@ jobs:
             ACTION="Review the failed job and bounded diagnostics, then resume from HANDOFF.md."
           fi
 
-          ISSUE_NUMBER="$(gh issue list --repo "${{ github.repository }}" --state open \
-            --search "${CONTROL_TITLE} in:title" --json number,title \
-            --jq ".[] | select(.title == \"${CONTROL_TITLE}\") | .number" | head -n 1)"
+          ISSUE_NUMBER="$(python - "$STATE_PATH" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          path = Path(sys.argv[1])
+          if not path.is_file():
+              raise SystemExit(0)
+          data = json.loads(path.read_text(encoding="utf-8"))
+          value = data.get("notification", {}).get("control_issue_number")
+          if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+              print(value)
+          PY
+          )"
+
+          if [[ -n "$ISSUE_NUMBER" ]]; then
+            ISSUE_DATA="$(gh issue view "$ISSUE_NUMBER" --repo "${{ github.repository }}" \
+              --json number,title,state 2>/dev/null || true)"
+            if [[ -z "$ISSUE_DATA" ]]; then
+              echo "Canonical control issue #${ISSUE_NUMBER} does not exist; using serialized fallback."
+              ISSUE_NUMBER=""
+            else
+              ISSUE_TITLE="$(jq -r '.title' <<<"$ISSUE_DATA")"
+              ISSUE_STATE="$(jq -r '.state' <<<"$ISSUE_DATA")"
+              if [[ "$ISSUE_TITLE" != "$CONTROL_TITLE" ]]; then
+                echo "Canonical control issue title does not match the task ID."
+                exit 1
+              fi
+              if [[ "$ISSUE_STATE" == "CLOSED" ]]; then
+                gh issue reopen "$ISSUE_NUMBER" --repo "${{ github.repository }}"
+              fi
+            fi
+          fi
+
+          if [[ -z "$ISSUE_NUMBER" ]]; then
+            ISSUE_NUMBER="$(gh issue list --repo "${{ github.repository }}" --state open \
+              --search "${CONTROL_TITLE} in:title" --json number,title \
+              --jq "map(select(.title == \"${CONTROL_TITLE}\")) | sort_by(.number) | reverse | .[0].number // empty")"
+          fi
+
           if [[ -z "$ISSUE_NUMBER" ]]; then
             BODY=$(cat <<EOF
           This issue is the single notification and acknowledgement channel for task \`${TASK_ID}\`.
@@ -66,6 +113,14 @@ jobs:
             ISSUE_URL="$(gh issue create --repo "${{ github.repository }}" \
               --title "$CONTROL_TITLE" --body "$BODY" --assignee tyxq428)"
             ISSUE_NUMBER="${ISSUE_URL##*/}"
+            echo "A fallback control issue was created; Web Supervisor must persist its number in canonical state."
+          fi
+
+          MARKER="<!-- devflow-event:${SOURCE_RUN}:${TYPE} -->"
+          if gh api --paginate "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
+            --jq '.[].body' | grep -Fq "$MARKER"; then
+            echo "Notification event already exists on canonical issue #${ISSUE_NUMBER}."
+            exit 0
           fi
 
           COMMENT=$(cat <<EOF
@@ -81,7 +136,11 @@ jobs:
           - Minimum action: ${ACTION}
           - Recovery: \`docs/implementation/${TASK_ID}/HANDOFF.md\`
 
-          Acknowledge with \`/ack\`. <!-- devflow-event:${SOURCE_RUN}:${TYPE} -->
+          Acknowledge with \`/ack\`. ${MARKER}
           EOF
           )
           gh issue comment "$ISSUE_NUMBER" --repo "${{ github.repository }}" --body "$COMMENT"
+
+          if [[ "$TYPE" == "COMPLETED" ]]; then
+            gh issue close "$ISSUE_NUMBER" --repo "${{ github.repository }}" --reason completed
+          fi
