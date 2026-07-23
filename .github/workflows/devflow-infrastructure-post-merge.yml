@@ -1,4 +1,3 @@
-# Retrigger after clean branch restoration; deterministic only, no Codex.
 name: Devflow Infrastructure Post Merge
 
 on:
@@ -66,62 +65,3 @@ jobs:
             devflow-workflow-validation.json
           if-no-files-found: warn
           retention-days: 7
-
-  one-shot-clean-migration:
-    if: github.event.head_commit.message == 'Inject one-shot clean Devflow migration job'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-        with:
-          ref: main
-          fetch-depth: 0
-      - uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55
-        with:
-          python-version: "3.12"
-      - name: Verify zero-Codex freeze before migration
-        run: |
-          python - <<'PY'
-          import json
-          from pathlib import Path
-          policy = json.loads(Path('.devflow/codex-policy.yaml').read_text())
-          assert policy['mode'] == 'disabled'
-          action = Path('.github/actions/codex-thin-worker/action.yml').read_text()
-          assert 'openai/codex-action@' not in action
-          assert 'CODEX_POLICY_DISABLED' in action
-          print('CODEX_FREEZE=PASS')
-          PY
-      - name: Rebuild clean branch deterministically
-        run: |
-          set -euo pipefail
-          git fetch --no-tags origin \
-            feature/devflow-operational-optimization-v2-clean \
-            feature/devflow-operational-optimization-v2
-          git switch -C feature/devflow-operational-optimization-v2-clean \
-            origin/feature/devflow-operational-optimization-v2-clean
-          python scripts/devflow/temporary_migrate_operational_optimization.py
-          python -m pip install ruff
-          ruff format scripts/devflow tests/test_devflow*.py
-          python -m compileall -q scripts/devflow
-          git rm scripts/devflow/temporary_migrate_operational_optimization.py
-          git rm .github/workflows/temporary-migrate-operational-optimization.yml
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add AGENTS.md .devflow .github docs scripts/devflow tests
-          git commit -m "Rebuild Devflow optimization on frozen main without Codex"
-          git push origin HEAD:feature/devflow-operational-optimization-v2-clean
-      - name: Restore main workflow and remove temporary executor
-        run: |
-          set -euo pipefail
-          git fetch --no-tags origin main
-          git switch -C main origin/main
-          git show HEAD^:.github/workflows/devflow-infrastructure-post-merge.yml \
-            > .github/workflows/devflow-infrastructure-post-merge.yml
-          git rm -f .github/workflows/temporary-execute-clean-devflow-migration.yml
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .github/workflows/devflow-infrastructure-post-merge.yml
-          git commit -m "Remove one-shot clean Devflow migration executors"
-          git push origin HEAD:main
