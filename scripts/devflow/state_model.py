@@ -17,7 +17,9 @@ TASK_STATUSES = {
 }
 EXECUTION_STATUSES = {"PENDING", "RUNNING", "COMPLETED", "FAILED", "BLOCKED"}
 ACCEPTANCE_STATUSES = {"PENDING", "PASS", "REVIEW_REQUIRED", "FAIL"}
+SECURITY_STATUSES = {"PENDING", "PASS", "BLOCKED", "FAIL"}
 POST_MERGE_STATUSES = {"PENDING", "RUNNING", "PASS", "FAIL"}
+SUPPORTED_SCHEMA_VERSIONS = {1, 2}
 
 
 class StateError(ValueError):
@@ -25,10 +27,7 @@ class StateError(ValueError):
 
 
 def load_json_yaml(path: Path) -> dict[str, Any]:
-    """Load a JSON document stored with a .yaml extension.
-
-    JSON is a strict YAML subset and avoids parser-version ambiguity in CI.
-    """
+    """Load a JSON document stored with a .yaml extension."""
 
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -61,12 +60,37 @@ def stage_number(stage: str) -> int:
     return int(stage[1:])
 
 
+def _acceptance(data: dict[str, Any], schema_version: int) -> tuple[str, str]:
+    if schema_version == 1:
+        return "research", _require(data, "research_acceptance_status", str)
+    value = _require(data, "acceptance", dict)
+    domain = _require(value, "domain", str).strip()
+    status = _require(value, "status", str)
+    if not domain:
+        raise StateError("acceptance.domain must not be empty")
+    return domain, status
+
+
+def _security_status(data: dict[str, Any], schema_version: int, task_status: str) -> str:
+    if schema_version == 1:
+        value = data.get("security_status")
+        if value is None:
+            return "PASS" if task_status == "DONE" else "PENDING"
+        if not isinstance(value, str):
+            raise StateError("security_status must be str")
+        return value
+    return _require(data, "security_status", str)
+
+
 @dataclass(frozen=True)
 class TaskState:
+    schema_version: int
     task_id: str
     status: str
     execution_status: str
-    research_acceptance_status: str
+    acceptance_domain: str
+    acceptance_status: str
+    security_status: str
     working_branch: str
     pull_request: int | None
     current_stage: str
@@ -75,16 +99,23 @@ class TaskState:
     human_required: bool
     control_issue_number: int | None
 
+    @property
+    def research_acceptance_status(self) -> str:
+        """Legacy alias retained for schema-v1 callers."""
+
+        return self.acceptance_status
+
     @classmethod
     def from_mapping(cls, data: dict[str, Any]) -> TaskState:
         schema_version = _require(data, "schema_version", int)
-        if schema_version != 1:
+        if schema_version not in SUPPORTED_SCHEMA_VERSIONS:
             raise StateError(f"unsupported schema_version: {schema_version}")
         _require(data, "state_revision", int)
         task_id = _require(data, "task_id", str)
         status = _require(data, "status", str)
         execution_status = _require(data, "execution_status", str)
-        acceptance_status = _require(data, "research_acceptance_status", str)
+        acceptance_domain, acceptance_status = _acceptance(data, schema_version)
+        security_status = _security_status(data, schema_version, status)
         working_branch = _require(data, "working_branch", str)
         pull_request = _optional_positive_int(data, "pull_request")
         current_stage = _require(data, "current_stage", str)
@@ -108,7 +139,9 @@ class TaskState:
         if execution_status not in EXECUTION_STATUSES:
             raise StateError(f"invalid execution_status: {execution_status}")
         if acceptance_status not in ACCEPTANCE_STATUSES:
-            raise StateError(f"invalid research_acceptance_status: {acceptance_status}")
+            raise StateError(f"invalid acceptance status: {acceptance_status}")
+        if security_status not in SECURITY_STATUSES:
+            raise StateError(f"invalid security_status: {security_status}")
 
         post_merge = _require(data, "post_merge", dict)
         post_merge_status = _require(post_merge, "status", str)
@@ -130,7 +163,9 @@ class TaskState:
             if execution_status != "COMPLETED":
                 raise StateError("DONE requires execution_status COMPLETED")
             if acceptance_status != "PASS":
-                raise StateError("DONE requires research_acceptance_status PASS")
+                raise StateError("DONE requires acceptance PASS")
+            if security_status != "PASS":
+                raise StateError("DONE requires security_status PASS")
             if post_merge_status != "PASS":
                 raise StateError("DONE requires post_merge PASS")
             if human_required:
@@ -149,10 +184,13 @@ class TaskState:
         _require(data, "retry_budget", dict)
 
         return cls(
+            schema_version=schema_version,
             task_id=task_id,
             status=status,
             execution_status=execution_status,
-            research_acceptance_status=acceptance_status,
+            acceptance_domain=acceptance_domain,
+            acceptance_status=acceptance_status,
+            security_status=security_status,
             working_branch=working_branch,
             pull_request=pull_request,
             current_stage=current_stage,
