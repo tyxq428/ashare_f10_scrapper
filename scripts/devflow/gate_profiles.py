@@ -28,6 +28,7 @@ DEVFLOW_TESTS = [
     "tests/test_devflow_state_v2.py",
     "tests/test_devflow_validate_docs.py",
     "tests/test_devflow_recovery_context.py",
+    "tests/test_devflow_recovery_circuit_breaker.py",
     "tests/test_devflow_upgrade_compatibility.py",
 ]
 
