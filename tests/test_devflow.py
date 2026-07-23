@@ -9,8 +9,11 @@ DEVFLOW = Path(__file__).resolve().parents[1] / "scripts" / "devflow"
 if str(DEVFLOW) not in sys.path:
     sys.path.insert(0, str(DEVFLOW))
 
+from build_failure_bundle import MAX_LOG_CHARS, bounded_log_tail, scrub  # noqa: E402
+from run_gate_profile import get_profile_commands  # noqa: E402
 from state_model import render_handoff, render_status, validate_state_shape  # noqa: E402
 from validate_state import validate_task  # noqa: E402
+from verify_changed_paths import is_allowed, normalize_path  # noqa: E402
 
 
 def base_state() -> dict:
@@ -102,3 +105,37 @@ def test_rendering_is_deterministic() -> None:
     state = base_state()
     assert render_status(state) == render_status(deepcopy(state))
     assert render_handoff(state) == render_handoff(deepcopy(state))
+
+
+def test_scope_rules_allow_exact_and_prefix() -> None:
+    assert normalize_path("./scripts\\devflow\\state_model.py") == "scripts/devflow/state_model.py"
+    assert is_allowed(
+        "scripts/devflow/state_model.py",
+        exact={"README.md"},
+        prefixes=("scripts/devflow",),
+    )
+    assert not is_allowed(
+        "src/ashare_f10/cli.py",
+        exact={"README.md"},
+        prefixes=("scripts/devflow",),
+    )
+
+
+def test_unknown_gate_profile_fails_closed() -> None:
+    try:
+        get_profile_commands("arbitrary-shell")
+    except ValueError as exc:
+        assert "unknown gate profile" in str(exc)
+    else:
+        raise AssertionError("unknown profile must fail closed")
+
+
+def test_failure_log_is_bounded_and_scrubbed(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("AGENT_API_KEY", "secret-value-123")
+    path = tmp_path / "failure.log"
+    path.write_text("x" * (MAX_LOG_CHARS + 500) + "secret-value-123", encoding="utf-8")
+    tail = bounded_log_tail(path)
+    assert len(tail) <= MAX_LOG_CHARS
+    assert "secret-value-123" not in tail
+    assert "***" in tail
+    assert scrub("secret-value-123") == "***"
