@@ -1,31 +1,48 @@
 {
   "schema_version": 1,
-  "state_revision": 4,
+  "state_revision": 5,
   "task_id": "chatgpt-web-codex-devflow-v1",
   "title": "ChatGPT Web Supervisor + GitHub Actions Executor + Codex Thin Worker",
   "status": "RUNNING",
   "execution_status": "RUNNING",
   "research_acceptance_status": "PENDING",
   "working_branch": "feature/chatgpt-web-codex-devflow-v1-clean",
-  "pull_request": null,
+  "pull_request": 30,
   "base_sha_at_start": "75a5b93b047bd844fc5d0b7950507cba746fdd50",
   "last_product_commit_sha": "75a5b93b047bd844fc5d0b7950507cba746fdd50",
   "last_state_commit_sha": null,
-  "current_stage": "W04",
-  "last_completed_stage": "W03",
-  "last_successful_step": "gate_profiles_and_failure_bundle_defined",
-  "next_action": "validate_reusable_codex_and_secure_workflows",
+  "current_stage": "W05",
+  "last_completed_stage": "W04",
+  "last_successful_step": "reusable_codex_and_secure_workflows_verified",
+  "next_action": "synchronize_main_and_complete_pr_a_premerge_gates",
   "gate_results": {
     "W00": "PASS",
     "W01": "PASS",
     "W02": "PASS",
     "W03": "PASS",
-    "W04": "PENDING",
+    "W04": "PASS",
     "post_merge": "PENDING"
   },
-  "retry_budget": {"infrastructure": 3, "codex_sessions": 1, "replans": 2},
-  "human_gate": {"required": false, "reason": null, "minimum_action": null, "resume_from": null},
-  "post_merge": {"status": "PENDING", "merge_sha": null, "verified_run_ids": []},
-  "notification": {"generation": 0, "last_type": null, "acknowledged": true},
-  "updated_at_utc": "2026-07-23T03:36:30Z"
+  "retry_budget": {
+    "infrastructure": 3,
+    "codex_sessions": 1,
+    "replans": 2
+  },
+  "human_gate": {
+    "required": false,
+    "reason": null,
+    "minimum_action": null,
+    "resume_from": null
+  },
+  "post_merge": {
+    "status": "PENDING",
+    "merge_sha": null,
+    "verified_run_ids": []
+  },
+  "notification": {
+    "generation": 0,
+    "last_type": null,
+    "acknowledged": true
+  },
+  "updated_at_utc": "2026-07-23T05:51:43Z"
 }
