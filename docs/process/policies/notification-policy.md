@@ -15,15 +15,29 @@
 
 `QUEUED`、`RUNNING`、`RETRYING`、阶段完成、普通测试 PASS、缓存命中、分支 Push、PR 更新、Secret Audit PASS 和中间 E2E PASS 全部静默，只写 Job Summary、Artifact 和 canonical state。
 
-## 去重与 ACK
+## 单一控制 Issue
 
-每个任务使用一个控制 Issue：`[TASK CONTROL] <task-id>`。事件键：
+每个任务只使用一个控制 Issue：`[TASK CONTROL] <task-id>`。该 Issue 必须在启用自动通知前由 ChatGPT Web Supervisor 创建，并把编号写入：
 
 ```text
-task_id + notification_type + notification_generation
+task_state.yaml → notification.control_issue_number
 ```
 
-同一事件不重复创建 Issue；在控制 Issue 追加一次 `@tyxq428` 评论并指派。状态流转：`OPEN → NOTIFIED → ACKNOWLEDGED → RESOLVED`。收到 `/ack` 或 canonical state 中的 ACK 后停止提醒。
+Incident Workflow 必须优先使用这个固定编号，并验证 Issue 标题与任务 ID 一致。不得在正常执行中反复按标题推断或创建新 Issue。缺少 canonical issue number 时，只允许使用共享 concurrency group 串行执行的兜底查询/创建流程，并应尽快由 Web Supervisor把编号回写 canonical state。
+
+所有 devflow 失败来源必须汇聚到同一个 Incident Workflow；不得为同一任务维护多个可独立创建控制 Issue 的通知 Workflow。
+
+## 去重与 ACK
+
+事件键：
+
+```text
+task_id + workflow_run_id + notification_type
+```
+
+同一事件不得重复评论。Incident Workflow 在固定控制 Issue 中追加一次 `@tyxq428` 评论并保持指派。状态流转：`OPEN → NOTIFIED → ACKNOWLEDGED → RESOLVED`。收到 `/ack` 或 canonical state 中的 ACK 后停止提醒。
+
+任务最终完成且完成通知已写入后，可以把控制 Issue 关闭为 completed。中断、人工介入和安全阻断状态下不得自动关闭。
 
 ## 内容
 
