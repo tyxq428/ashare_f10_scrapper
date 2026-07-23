@@ -1,18 +1,25 @@
 # HANDOFF
 
-## 已完成
+## Canonical state
 
-- W00 基线、合同、唯一状态和安全边界；
-- W01 根级/Scoped Agent 指令、Policies、Runbooks、Templates 和 SOP v2 来源映射。
+- Task：`chatgpt-web-codex-devflow-v1`
+- Status：`RUNNING` / `RUNNING` / `PENDING`
+- Current stage：`W03`
+- Last completed stage：`W02`
+- Branch：`feature/chatgpt-web-codex-devflow-v1`
+- PR：`尚未创建`
+- Last verified product commit：`75a5b93b047bd844fc5d0b7950507cba746fdd50`
 
-## 当前阶段
+## Exact next action
 
-`W02_canonical_state_and_consistency_engine`
+implement_gate_profiles_scope_guard_and_failure_bundle
 
-## 下一动作
+## Human gate
 
-先提交 `W02_plan.md`，然后实现 `scripts/devflow/state_model.py`、`validate_state.py`、`render_task_docs.py` 及对应确定性测试。
+- Required：no
+- Reason：无
+- Minimum action：无
 
-## 恢复入口
+## Recovery entry
 
-读取 `task_state.yaml`、当前 branch HEAD/Checks、W02 plan 和 `docs/process/README.md`。无人工门槛。
+Read this state file, the current branch head and Checks, then the current stage plan. Chat history is supplementary only.
