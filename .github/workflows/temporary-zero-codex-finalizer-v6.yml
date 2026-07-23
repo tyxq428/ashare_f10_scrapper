@@ -1,0 +1,91 @@
+name: Temporary Zero-Codex Finalizer V6
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/temporary-zero-codex-finalizer-v6.yml]
+
+permissions:
+  contents: write
+
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+
+jobs:
+  finalize:
+    if: github.event.head_commit.message == 'Trigger temporary zero-Codex finalizer v6'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: feature/devflow-operational-optimization-v2-clean
+          fetch-depth: 0
+      - uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Verify freeze and install
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          assert json.loads(Path('.devflow/codex-policy.yaml').read_text())['mode'] == 'disabled'
+          assert 'openai/codex-action@' not in Path('.github/actions/codex-thin-worker/action.yml').read_text()
+          PY
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Apply finalizer, zero-model fixes and validate
+        id: finalize
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          {
+            python scripts/devflow/temporary_patch_finalizer_v3.py
+            python scripts/devflow/temporary_finalize_operational_optimization.py
+            python scripts/devflow/temporary_patch_workflow_validator.py
+            python scripts/devflow/temporary_fix_zero_model_tests.py
+            ruff format scripts/devflow tests/test_devflow*.py
+            ruff check --fix scripts/devflow tests/test_devflow*.py
+            python -m compileall -q scripts/devflow
+            python scripts/devflow/validate_workflows.py
+            python scripts/devflow/validate_docs.py --output /tmp/docs-validation.json
+            python scripts/devflow/upgrade_compatibility.py --output /tmp/upgrade.json
+            ruff check scripts/devflow tests/test_devflow*.py
+            pytest -q tests/test_devflow*.py
+          } 2>&1 | tee /tmp/finalizer-v6.log
+      - name: Commit verified branch
+        if: steps.finalize.outcome == 'success'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Complete zero-Codex Devflow operational optimization"
+          git push origin HEAD:feature/devflow-operational-optimization-v2-clean
+      - name: Publish unique diagnostic
+        if: steps.finalize.outcome != 'success'
+        run: |
+          git reset --hard origin/feature/devflow-operational-optimization-v2-clean
+          FILE="docs/implementation/devflow-operational-optimization-v2/FINALIZER_DIAGNOSTIC_${{ github.run_id }}.md"
+          mkdir -p "$(dirname "$FILE")"
+          { echo '# Zero-Codex Finalizer Diagnostic'; echo; echo '```text'; tail -n 400 /tmp/finalizer-v6.log; echo '```'; } > "$FILE"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$FILE"
+          git commit -m "Record zero-Codex finalizer diagnostic ${{ github.run_id }}"
+          git push origin HEAD:feature/devflow-operational-optimization-v2-clean
+      - name: Remove temporary executor
+        if: always()
+        run: |
+          git fetch --no-tags origin main
+          git switch -C main origin/main
+          git rm .github/workflows/temporary-zero-codex-finalizer-v6.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Remove temporary zero-Codex finalizer v6"
+          git push origin HEAD:main
+      - name: Fail if finalizer failed
+        if: steps.finalize.outcome != 'success'
+        run: exit 1
