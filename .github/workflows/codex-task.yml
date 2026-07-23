@@ -13,17 +13,21 @@ on:
         required: true
         type: string
 
+# The caller grants the maximum required by the called workflow. The reusable
+# Codex job reduces itself to contents:read; only the separate publish job keeps write.
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
-  group: codex-task-${{ github.ref_name }}-${{ inputs.task_branch }}
+  group: codex-task-${{ inputs.task_branch || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
   read-task:
     if: github.actor == 'tyxq428'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       task_id: ${{ steps.task.outputs.task_id }}
       task_branch: ${{ steps.task.outputs.task_branch }}
@@ -49,27 +53,23 @@ jobs:
           import re
           from pathlib import Path
 
-          path = Path('.agent/current_task.yaml')
-          value = json.loads(path.read_text(encoding='utf-8'))
-          required = ('task_id', 'publish_branch', 'allowed_files', 'gate_profile')
-          for key in required:
+          value = json.loads(Path('.agent/current_task.yaml').read_text(encoding='utf-8'))
+          for key in ('task_id', 'publish_branch', 'allowed_files', 'gate_profile'):
               if key not in value:
                   raise SystemExit(f'missing task key: {key}')
           if value.get('reasoning_effort') != 'low':
               raise SystemExit('reasoning_effort must be low')
           if value.get('session_limit') != 1 or value.get('automatic_second_session') != 0:
-              raise SystemExit('task must allow exactly one Codex session and no automatic second session')
-          branch_pattern = re.compile(r'^(task/codex-|codex/)[A-Za-z0-9._/-]+$')
+              raise SystemExit('exactly one Codex session is allowed')
           control_branch = os.environ['CONTROL_BRANCH']
+          publish_branch = str(value['publish_branch'])
           if not control_branch.startswith('task/codex-'):
               raise SystemExit('untrusted control branch')
-          publish_branch = str(value['publish_branch'])
-          if not publish_branch.startswith('codex/') or not branch_pattern.fullmatch(publish_branch):
+          if not re.fullmatch(r'codex/[A-Za-z0-9._/-]+', publish_branch):
               raise SystemExit('invalid publish branch')
           if not isinstance(value['allowed_files'], list) or not value['allowed_files']:
               raise SystemExit('allowed_files must be non-empty')
-          output = Path(os.environ['GITHUB_OUTPUT'])
-          with output.open('a', encoding='utf-8') as handle:
+          with Path(os.environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as handle:
               handle.write(f"task_id={value['task_id']}\n")
               handle.write(f"task_branch={control_branch}\n")
               handle.write('task_file=.agent/current_task.yaml\n')
