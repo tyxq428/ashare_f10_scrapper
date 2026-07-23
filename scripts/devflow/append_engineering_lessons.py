@@ -36,6 +36,13 @@ LESSONS = """
 - **根因**：当前仓库运行环境下，Environment Secret在本地reusable workflow调用边界中的实际可见性与普通Job不同；继续重跑同一Workflow不会改变该边界。
 - **修复**：把`environment: agent-runtime`直接绑定到入口`codex-task.yml`的普通只读Job；将可复用单元改为本地composite action，只通过显式inputs接收Key和Model；删除旧reusable workflow，并只通过显式`workflow_dispatch`运行默认分支的入口Workflow。
 - **预防规则**：涉及Environment Secrets时必须先运行普通Job presence薄切片；Secret-bearing执行Job不得间接隐藏在未经真实验证的`workflow_call`边界中，复用优先使用composite action或已验证的直接Job模式。
+
+## GHA-017 仓库Bot触发Codex未显式授权且绝对输出路径不稳定
+
+- **现象**：Environment Preflight和localhost Forwarder已通过，官方Codex Action仍返回失败，未生成结构化结果，Scope Guard与Targeted Gate被跳过。
+- **根因**：无人值守链由`github-actions[bot]`显式派发，而官方Action默认不允许Bot绕过写权限校验；同时流程把绝对`/tmp`路径作为`output-file` input，偏离官方相对路径与`final-message`输出模式。
+- **修复**：仅授权`github-actions[bot]`，不开放任意用户或Bot；通过Output Schema约束`final-message`，Caller Job用环境变量和Python解析后写入工作区外的`/tmp/codex-result.json`。
+- **预防规则**：Agent Action的触发者校验必须纳入薄切片；自动派发时显式列出可信Bot。模型输出先作为结构化Action output处理，不把绝对临时路径直接交给第三方Action。
 """.strip()
 
 
