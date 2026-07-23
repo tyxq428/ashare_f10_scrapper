@@ -1,0 +1,110 @@
+name: Temporary Merge Devflow PR-A
+
+on:
+  push:
+    branches:
+      - feature/chatgpt-web-codex-devflow-v1-clean
+    paths:
+      - docs/implementation/chatgpt-web-codex-devflow-v1/W04_result.md
+      - .github/workflows/temporary-merge-devflow-pr-a.yml
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+
+concurrency:
+  group: temporary-merge-devflow-pr-a
+  cancel-in-progress: false
+
+jobs:
+  validate-and-merge:
+    if: github.actor == 'tyxq428' || github.actor == 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: feature/chatgpt-web-codex-devflow-v1-clean
+          fetch-depth: 0
+      - id: readiness
+        name: Check W04 completion marker
+        run: |
+          if [[ -f docs/implementation/chatgpt-web-codex-devflow-v1/W04_result.md ]]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "W04 result not present yet; this guarded run is a no-op."
+          fi
+      - name: Synchronize latest main without overwriting feature work
+        if: steps.readiness.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git merge --no-edit origin/main
+      - name: Install dependencies
+        if: steps.readiness.outputs.ready == 'true'
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Run complete PR-A pre-merge gates
+        if: steps.readiness.outputs.ready == 'true'
+        run: |
+          python scripts/devflow/validate_state.py \
+            --task-dir docs/implementation/chatgpt-web-codex-devflow-v1 \
+            --output pr-a-state-result.json
+          python scripts/devflow/validate_workflows.py
+          python -m compileall -q src scripts
+          node --check src/ashare_f10/web/research-grid.js
+          node --check src/ashare_f10/web/static-search-worker.js
+          node --check src/ashare_f10/web/app.js
+          node --check src/ashare_f10/web/job-center-v2.js
+          node --check src/ashare_f10/web/raw-pack.js
+          node --check src/ashare_f10/web/run.js
+          node --check src/ashare_f10/web/research-pack.js
+          node tests/static-search-worker-smoke.cjs
+          ruff check src tests scripts/run_resilient_fetch.py scripts/run_resilient_command.py
+          pytest --cov=ashare_f10 --cov-report=term-missing
+      - name: Remove one-time merge workflow and publish exact reviewed head
+        if: steps.readiness.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/temporary-merge-devflow-pr-a.yml
+          rm -rf scripts/devflow/__pycache__ tests/__pycache__
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "Finalize PR-A after verified pre-merge gates"
+            git push origin HEAD:feature/chatgpt-web-codex-devflow-v1-clean
+          fi
+      - name: Mark ready and merge the exact PR-A head
+        if: steps.readiness.outputs.ready == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          HEAD_SHA="$(git rev-parse HEAD)"
+          gh pr ready 30 --repo "${{ github.repository }}" || true
+          gh pr merge 30 --repo "${{ github.repository }}" --merge --match-head-commit "$HEAD_SHA"
+      - name: Notify only if the guarded merge workflow fails
+        if: failure() && steps.readiness.outputs.ready == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TITLE="[TASK CONTROL] chatgpt-web-codex-devflow-v1"
+          NUMBER="$(gh issue list --repo "${{ github.repository }}" --state open --search "${TITLE} in:title" \
+            --json number,title --jq ".[] | select(.title == \"${TITLE}\") | .number" | head -n 1)"
+          if [[ -z "$NUMBER" ]]; then
+            URL="$(gh issue create --repo "${{ github.repository }}" --title "$TITLE" \
+              --body "Single valuable-notification channel for the devflow migration." --assignee tyxq428)"
+            NUMBER="${URL##*/}"
+          fi
+          gh issue comment "$NUMBER" --repo "${{ github.repository }}" --body "@tyxq428
+
+[TASK][HUMAN_REQUIRED]
+
+PR-A guarded pre-merge or merge failed. Review run ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} and resume from HANDOFF.md."
