@@ -1,0 +1,86 @@
+name: Temporary Devflow Watchdog
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/temporary-devflow-watchdog.yml
+  schedule:
+    - cron: "7,22,37,52 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+  issues: write
+
+concurrency:
+  group: temporary-devflow-watchdog
+  cancel-in-progress: false
+
+jobs:
+  inspect-and-recover-safe-states:
+    if: github.actor == 'tyxq428' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Inspect task and perform only safe merge recovery
+        id: inspect
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TASK_ID="chatgpt-web-codex-devflow-v1"
+          STATE_PATH="docs/implementation/${TASK_ID}/task_state.yaml"
+          STATUS="MISSING"
+          STAGE="UNKNOWN"
+          if [[ -f "$STATE_PATH" ]]; then
+            STATUS="$(python -c 'import json; print(json.load(open("'"$STATE_PATH"'"))["status"])')"
+            STAGE="$(python -c 'import json; print(json.load(open("'"$STATE_PATH"'"))["current_stage"])')"
+          fi
+          echo "TASK_STATUS=$STATUS" >> "$GITHUB_STEP_SUMMARY"
+          echo "TASK_STAGE=$STAGE" >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ "$STATUS" == "DONE" ]]; then
+            echo "done=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "done=false" >> "$GITHUB_OUTPUT"
+
+          for PR in 30 31 32; do
+            if gh pr view "$PR" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+              PR_STATE="$(gh pr view "$PR" --repo "${{ github.repository }}" --json state --jq .state)"
+              HEAD_SHA="$(gh pr view "$PR" --repo "${{ github.repository }}" --json headRefOid --jq .headRefOid)"
+              echo "PR_${PR}_STATE=$PR_STATE" >> "$GITHUB_STEP_SUMMARY"
+              if [[ "$PR_STATE" == "OPEN" ]]; then
+                CHECKS="$(gh pr checks "$PR" --repo "${{ github.repository }}" --json state 2>/dev/null || echo '[]')"
+                ALL_PASS="$(python -c 'import json,sys; x=json.load(sys.stdin); print("yes" if x and all(i.get("state") in {"SUCCESS","SKIPPED","NEUTRAL"} for i in x) else "no")' <<<"$CHECKS")"
+                if [[ "$ALL_PASS" == "yes" ]]; then
+                  gh pr ready "$PR" --repo "${{ github.repository }}" || true
+                  gh pr merge "$PR" --repo "${{ github.repository }}" --merge --match-head-commit "$HEAD_SHA" || true
+                fi
+              fi
+            fi
+          done
+
+          if git ls-remote --exit-code --heads origin codex/resilient-command-terminal-status-v1 >/dev/null 2>&1; then
+            echo "PRODUCT_BRANCH=PRESENT" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "PRODUCT_BRANCH=ABSENT" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Remove watchdog after canonical DONE
+        if: steps.inspect.outputs.done == 'true'
+        run: |
+          rm -f .github/workflows/temporary-devflow-watchdog.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Remove completed devflow watchdog"
+          git push origin HEAD:main
