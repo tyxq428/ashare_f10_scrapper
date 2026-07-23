@@ -188,6 +188,7 @@ def classify(
     secret_audit = _find_summary(artifact_root, "secret-audit.json")
     scope_result = _find_summary(artifact_root, "scope-result.json")
     runtime_preflight = _find_summary(artifact_root, "runtime-preflight.json")
+    codex_result = _find_summary(artifact_root, "codex-result.json")
 
     if source_workflow == "Devflow Secret Audit" or (
         secret_audit is not None and secret_audit.get("status") == "FAIL"
@@ -232,6 +233,34 @@ def classify(
             reason="The private agent runtime configuration failed safe shape validation.",
             minimum_action="Correct the agent-runtime Environment configuration without posting values in chat or GitHub.",
             notification_type="HUMAN_REQUIRED",
+            **common,
+        )
+
+    if codex_result is not None and codex_result.get("status") == "BLOCKED":
+        return _decision(
+            action="INTERRUPTED",
+            reason_code="CODEX_BLOCKED_NO_RETRY",
+            reason="The bounded Codex worker explicitly reported BLOCKED and made no publishable repair.",
+            minimum_action=(
+                "Use ChatGPT Web Supervisor to inspect the immutable failure context and either repair "
+                "directly or create a new correctly scoped task. Do not rerun this Codex generation."
+            ),
+            notification_type="INTERRUPTED",
+            **common,
+        )
+
+    if source_workflow == "Devflow State Consistency":
+        return _decision(
+            action="INTERRUPTED",
+            reason_code="STATE_CONSISTENCY_WEB_REPAIR_REQUIRED",
+            reason=(
+                "State Consistency failures are execution-framework changes and are not eligible for "
+                "automatically synthesized Codex repair scopes."
+            ),
+            minimum_action=(
+                "Diagnose and repair the actual failing branch in ChatGPT Web, then rerun deterministic gates."
+            ),
+            notification_type="INTERRUPTED",
             **common,
         )
 
@@ -317,7 +346,7 @@ def classify(
             **common,
         )
 
-    if source_workflow in {"Devflow Product Gate", "Devflow Post Merge", "Devflow State Consistency"}:
+    if source_workflow in {"Devflow Product Gate", "Devflow Post Merge"}:
         if recovery_generation < max_recovery_generations:
             return _decision(
                 action="CODEX_REPAIR",

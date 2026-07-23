@@ -52,6 +52,7 @@ def build_recovery_descriptor(
     notes.append(f"Parent workflow run: {source_run_id}")
     notes.append("This is the only automatic Codex recovery generation.")
     value["acceptance_notes"] = notes
+    value["reasoning_effort"] = "xhigh"
     value["automatic_second_session"] = 0
     value["session_limit"] = 1
 

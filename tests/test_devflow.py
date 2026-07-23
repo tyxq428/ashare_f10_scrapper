@@ -370,10 +370,12 @@ def test_secret_or_scope_failure_is_security_blocked(tmp_path: Path) -> None:
     assert decision.notification_type == "SECURITY_BLOCKED"
 
 
-def test_state_failure_is_eligible_for_one_bounded_codex_repair(tmp_path: Path) -> None:
+def test_state_consistency_failure_never_creates_automatic_codex_repair(
+    tmp_path: Path,
+) -> None:
     task_path = tmp_path / "task.json"
     task_path.write_text(json.dumps(valid_task()), encoding="utf-8")
-    first = classify(
+    decision = classify(
         source_workflow="Devflow State Consistency",
         source_run_id=105,
         conclusion="failure",
@@ -381,21 +383,9 @@ def test_state_failure_is_eligible_for_one_bounded_codex_repair(tmp_path: Path) 
         jobs_payload=failed_jobs("Validate devflow workflows and tests"),
         task_file=task_path,
     )
-    assert first.action == "CODEX_REPAIR"
-    assert first.notification_type is None
-
-    exhausted_task = valid_task()
-    exhausted_task["recovery_generation"] = 1
-    task_path.write_text(json.dumps(exhausted_task), encoding="utf-8")
-    exhausted = classify(
-        source_workflow="Devflow State Consistency",
-        source_run_id=106,
-        conclusion="failure",
-        run_attempt=1,
-        jobs_payload=failed_jobs("Validate devflow workflows and tests"),
-        task_file=task_path,
-    )
-    assert exhausted.action == "INTERRUPTED"
+    assert decision.action == "INTERRUPTED"
+    assert decision.reason_code == "STATE_CONSISTENCY_WEB_REPAIR_REQUIRED"
+    assert decision.notification_type == "INTERRUPTED"
 
 
 def test_recovery_descriptor_preserves_scope_and_increments_generation() -> None:
@@ -517,3 +507,41 @@ def test_workflow_policy_rejects_floating_action_and_pull_request_target(tmp_pat
     errors = validate_file(workflow)
     assert any("pull_request_target" in error for error in errors)
     assert any("full SHA" in error for error in errors)
+
+
+def test_codex_blocked_result_never_retries(tmp_path: Path) -> None:
+    (tmp_path / "codex-result.json").write_text(
+        json.dumps(
+            {
+                "status": "BLOCKED",
+                "changed_files": [],
+                "tests_passed": False,
+                "blocking_reason": "scope unavailable",
+            }
+        ),
+        encoding="utf-8",
+    )
+    decision = classify(
+        source_workflow="Codex Task",
+        source_run_id=1001,
+        conclusion="failure",
+        run_attempt=1,
+        jobs_payload=failed_jobs("Enforce runtime, Codex, scope, gate and secret outcomes"),
+        artifact_root=tmp_path,
+    )
+    assert decision.action == "INTERRUPTED"
+    assert decision.reason_code == "CODEX_BLOCKED_NO_RETRY"
+    assert decision.notification_type == "INTERRUPTED"
+
+
+def test_state_consistency_failure_requires_web_supervisor_not_codex() -> None:
+    decision = classify(
+        source_workflow="Devflow State Consistency",
+        source_run_id=1002,
+        conclusion="failure",
+        run_attempt=1,
+        jobs_payload=failed_jobs("Validate devflow workflows and tests"),
+    )
+    assert decision.action == "INTERRUPTED"
+    assert decision.reason_code == "STATE_CONSISTENCY_WEB_REPAIR_REQUIRED"
+    assert decision.notification_type == "INTERRUPTED"

@@ -93,7 +93,9 @@ def validate_file(path: Path) -> list[str]:
         if "secrets." in text:
             errors.append(f"{path}: composite action must receive explicit inputs, not read secrets directly")
         if "output-file:" in text:
-            errors.append(f"{path}: official action output must be handed off through final-message, not an absolute output-file")
+            errors.append(
+                f"{path}: official action output must be handed off through final-message, not an absolute output-file"
+            )
         if "allow-users:" in text:
             errors.append(f"{path}: arbitrary user allowlists are forbidden")
         if "effort: low" in text:
@@ -107,7 +109,6 @@ def validate_file(path: Path) -> list[str]:
                 "rerun-failed-jobs",
                 "recovery_policy.py",
                 "recovery_task.py",
-                '"reasoning_effort": "xhigh"',
                 "devflow_notify",
                 "No task-control notification was emitted",
             ),
@@ -115,6 +116,10 @@ def validate_file(path: Path) -> list[str]:
         )
         if "issues: write" in text:
             errors.append(f"{path}: auto recovery must not write Issues directly")
+        if "Repair the deterministic devflow state or validation failure" in text:
+            errors.append(f"{path}: State Consistency must not synthesize a Codex task descriptor")
+        if 'SOURCE_NAME" == "Devflow State Consistency"' in text:
+            errors.append(f"{path}: State Consistency without immutable context must not dispatch Codex")
 
     if path.name == "devflow-product-gate.yml":
         _require_fragments(

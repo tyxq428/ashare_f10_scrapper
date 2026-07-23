@@ -67,11 +67,12 @@ def test_new_task_template_defaults_xhigh_and_legacy_low_remains_readable() -> N
     assert TaskDescriptor.from_mapping(legacy).reasoning_effort == "low"
 
 
-def test_auto_recovery_generates_xhigh_tasks() -> None:
+def test_recovery_generator_forces_xhigh_tasks() -> None:
+    script = REPO / "scripts/devflow/recovery_task.py"
+    text = script.read_text(encoding="utf-8")
+    assert 'value["reasoning_effort"] = "xhigh"' in text
+
     workflow = REPO / ".github/workflows/devflow-auto-recovery.yml"
-    text = workflow.read_text(encoding="utf-8")
-    assert '"reasoning_effort": "xhigh"' in text
-    assert '"reasoning_effort": "low"' not in text
     assert validate_file(workflow) == []
 
 
@@ -123,10 +124,7 @@ def test_product_gate_configures_bot_identity_and_centralizes_merge_failure() ->
         1,
     )[1]
     assert 'git config user.name "github-actions[bot]"' in merge_section
-    assert (
-        'git config user.email "41898282+github-actions[bot]@users.noreply.github.com"'
-        in merge_section
-    )
+    assert 'git config user.email "41898282+github-actions[bot]@users.noreply.github.com"' in merge_section
     assert "Fail closed when automatic merge boundary is blocked" in merge_section
     assert "Notify only when automatic merge is genuinely blocked" not in text
     assert "AUTO_MERGE_BOUNDARY=BLOCKED" in merge_section
@@ -156,3 +154,11 @@ def test_product_gate_scope_failure_precedes_code_repair() -> None:
     )
     assert decision.action == "SECURITY_BLOCKED"
     assert decision.reason_code == "SECURITY_CONTROL_FAILED"
+
+
+def test_auto_recovery_does_not_synthesize_state_consistency_codex_scope() -> None:
+    workflow = REPO / ".github/workflows/devflow-auto-recovery.yml"
+    text = workflow.read_text(encoding="utf-8")
+    assert "Repair the deterministic devflow state or validation failure" not in text
+    assert 'SOURCE_NAME" == "Devflow State Consistency"' not in text
+    assert validate_file(workflow) == []

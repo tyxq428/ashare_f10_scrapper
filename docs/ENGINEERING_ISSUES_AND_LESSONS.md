@@ -235,3 +235,11 @@
 - **根因**：运行时策略、任务模板和历史元数据没有分层。
 - **修复**：正式Action固定`effort: xhigh`，新模板和Recovery Generation写入`reasoning_effort: xhigh`；Schema v1只读兼容历史`low`，但历史值不能降低实际运行强度。
 - **预防规则**：模型运行强度由版本化执行器强制；元数据迁移必须避免无意义重跑已经通过G1的历史候选。
+
+
+## GHA-021 State Consistency 合成错误范围导致 XHigh Codex 循环
+
+- **现象**：多个 State Consistency 失败被自动转换为 XHigh Codex Recovery；模型反复返回 `BLOCKED`、零变更，但仍被重跑或再次派发。
+- **根因**：Auto Recovery 在没有不可变失败 Task Descriptor 时从 `main` 合成固定五文件范围；真实失败位于活动功能分支的新文件和测试中，范围无法覆盖。恢复策略也没有把结构化 `BLOCKED` 视为终态。
+- **修复**：删除合成 State Consistency Descriptor；State Consistency 默认交给 ChatGPT Web；读取 `codex-result.json`，`BLOCKED` 立即熔断且禁止重试；根因修复期间关闭生产模型入口。
+- **预防规则**：Codex Repair 必须同时具备不可变任务上下文、可复现失败、正确基线和覆盖真实失败路径的允许范围；`BLOCKED` 永远不能自动重试同一 Generation。
