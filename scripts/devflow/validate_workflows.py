@@ -80,9 +80,9 @@ def validate_file(path: Path) -> list[str]:
                 "using: composite",
                 "openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56",
                 "http://127.0.0.1:8787/v1/responses",
-                "effort: low",
+                "effort: xhigh",
                 "safety-strategy: drop-sudo",
-                "allow-bots: \"true\"",
+                'allow-bots: "true"',
                 "allow-bot-users: github-actions[bot]",
                 "value: ${{ steps.run-codex.outputs.final-message }}",
                 "${{ inputs.api-key }}",
@@ -96,6 +96,8 @@ def validate_file(path: Path) -> list[str]:
             errors.append(f"{path}: official action output must be handed off through final-message, not an absolute output-file")
         if "allow-users:" in text:
             errors.append(f"{path}: arbitrary user allowlists are forbidden")
+        if "effort: low" in text:
+            errors.append(f"{path}: production Codex sessions must use xhigh reasoning")
 
     if path.name == "devflow-auto-recovery.yml":
         _require_fragments(
@@ -105,6 +107,7 @@ def validate_file(path: Path) -> list[str]:
                 "rerun-failed-jobs",
                 "recovery_policy.py",
                 "recovery_task.py",
+                '"reasoning_effort": "xhigh"',
                 "devflow_notify",
                 "No task-control notification was emitted",
             ),
@@ -125,6 +128,9 @@ def validate_file(path: Path) -> list[str]:
                 "git merge-base origin/main HEAD",
                 "product-scope-result.json",
                 "Fail closed on changed-path scope violation",
+                'git config user.name "github-actions[bot]"',
+                'git config user.email "41898282+github-actions[bot]@users.noreply.github.com"',
+                "Fail closed when automatic merge boundary is blocked",
                 "auto_merge",
                 "devflow_post_merge",
             ),
@@ -134,6 +140,8 @@ def validate_file(path: Path) -> list[str]:
             errors.append(f"{path}: product gate must not access relay Environment Secrets")
         if "--base origin/main" in text.split("Reconcile latest main", 1)[0]:
             errors.append(f"{path}: initial scope must use the merge base, not a moving main tip")
+        if "Notify only when automatic merge is genuinely blocked" in text:
+            errors.append(f"{path}: merge failures must flow through Auto Recovery, not notify directly")
 
     if path.name == "devflow-incident.yml":
         _require_fragments(

@@ -33,6 +33,10 @@ CODEX_STEP_MARKERS = (
     "run trusted targeted gate",
     "enforce runtime, codex, scope, gate and secret outcomes",
 )
+MERGE_BOUNDARY_STEP_MARKERS = (
+    "reconcile latest main, re-run gate if needed, and merge low-risk candidate",
+    "fail closed when automatic merge boundary is blocked",
+)
 
 
 @dataclass(frozen=True)
@@ -288,6 +292,31 @@ def classify(
             **common,
         )
 
+    if _contains_marker(failure_steps, SECURITY_STEP_MARKERS):
+        return _decision(
+            action="SECURITY_BLOCKED",
+            reason_code="SECURITY_CONTROL_FAILED",
+            reason="A security or scope enforcement step failed.",
+            minimum_action="Review the safe summary before any retry or publication.",
+            notification_type="SECURITY_BLOCKED",
+            **common,
+        )
+
+    if source_workflow == "Devflow Product Gate" and _contains_marker(
+        failure_steps, MERGE_BOUNDARY_STEP_MARKERS
+    ):
+        return _decision(
+            action="HUMAN_REQUIRED",
+            reason_code="AUTO_MERGE_BLOCKED",
+            reason=(
+                "The low-risk candidate passed its approved gates but the repository merge boundary "
+                "is blocked by a conflict, branch protection or permission policy."
+            ),
+            minimum_action="Review only the merge boundary; no additional Codex repair is requested.",
+            notification_type="HUMAN_REQUIRED",
+            **common,
+        )
+
     if source_workflow in {"Devflow Product Gate", "Devflow Post Merge", "Devflow State Consistency"}:
         if recovery_generation < max_recovery_generations:
             return _decision(
@@ -304,16 +333,6 @@ def classify(
             reason="The bounded code-repair generation was already used and the gate still fails.",
             minimum_action="Review the failure bundle and decide whether to widen scope or change the implementation plan.",
             notification_type="INTERRUPTED",
-            **common,
-        )
-
-    if _contains_marker(failure_steps, SECURITY_STEP_MARKERS):
-        return _decision(
-            action="SECURITY_BLOCKED",
-            reason_code="SECURITY_CONTROL_FAILED",
-            reason="A security or scope enforcement step failed.",
-            minimum_action="Review the safe summary before any retry or publication.",
-            notification_type="SECURITY_BLOCKED",
             **common,
         )
 

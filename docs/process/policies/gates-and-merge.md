@@ -59,8 +59,12 @@ expected_base_sha: 40位main SHA
 - 不涉及业务口径、来源优先级、Schema、权限和不可逆操作；
 - Scope Guard、Secret Audit、G1 和 G2 全部 PASS；
 - 当前 `main` 变化时，必须安全 rebase、重新执行 Scope Guard 和 G2；
+- rebase/merge前必须设置仓库级身份：`github-actions[bot]` 与官方 noreply 邮箱，避免 Runner 临时环境缺少 committer identity；
 - rebase 冲突、分支保护或权限阻断属于 `HUMAN_REQUIRED`，不能强推；
+- merge步骤不得直接发送用户通知。它必须返回真实失败，由 `Devflow Auto Recovery`统一分类、去重和升级；
 - 合并使用受控 merge commit，并记录产品 Merge SHA。
+
+Git身份是确定性机械配置，不是人工门槛；冲突、分支保护与权限才是实际合并边界。
 
 ## 显式接力
 
@@ -82,6 +86,7 @@ Codex Publish
 - Recovery Generation 继承原允许路径、禁止路径、Gate、风险等级和自动合并授权，不能扩大范围。
 - 预算内恢复静默执行。
 - Recovery Generation 仍失败或 Scope/Security 门禁失败后，才进入 `INTERRUPTED` 或 `SECURITY_BLOCKED`。
+- 低风险候选已通过全部Gate但无法安全合并时，Auto Recovery输出 `HUMAN_REQUIRED/AUTO_MERGE_BLOCKED`，不再调用Codex修代码。
 
 ## 完成条件
 

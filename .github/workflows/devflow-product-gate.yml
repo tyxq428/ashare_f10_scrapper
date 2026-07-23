@@ -245,6 +245,8 @@ jobs:
           FULL_GATE_PROFILE: ${{ steps.task.outputs.full_gate_profile }}
         run: |
           set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch --no-tags origin main
           CURRENT_MAIN="$(git rev-parse origin/main)"
           git switch -C devflow-product-candidate "refs/remotes/origin/${PUBLISH_BRANCH}"
@@ -265,37 +267,14 @@ jobs:
           echo "merge_sha=${MERGE_SHA}" >> "$GITHUB_OUTPUT"
           echo "AUTO_MERGED_SHA=${MERGE_SHA}" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Notify only when automatic merge is genuinely blocked
+      - name: Fail closed when automatic merge boundary is blocked
         if: >-
           steps.full_gate.outcome == 'success' &&
           steps.task.outputs.auto_merge == 'true' &&
           steps.merge.outcome != 'success'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
-          set -euo pipefail
-          python - <<'PY'
-          import json
-          from pathlib import Path
-          payload = {
-              'event_type': 'devflow_notify',
-              'client_payload': {
-                  'action': 'HUMAN_REQUIRED',
-                  'notification_type': 'HUMAN_REQUIRED',
-                  'reason_code': 'AUTO_MERGE_BLOCKED',
-                  'reason': 'The low-risk candidate passed all gates but could not be safely merged because of a conflict, permission or branch-protection boundary.',
-                  'minimum_action': 'Review the merge boundary; no additional code repair is requested.',
-                  'fingerprint': 'auto-merge-blocked-${{ steps.task.outputs.task_id }}',
-                  'source_workflow': 'Devflow Product Gate',
-                  'source_run_id': int('${{ github.run_id }}'),
-                  'failure_steps': ['Reconcile latest main, re-run gate if needed, and merge low-risk candidate'],
-              },
-          }
-          Path('/tmp/devflow-notify.json').write_text(json.dumps(payload))
-          PY
-          gh api --method POST "repos/${{ github.repository }}/dispatches" \
-            --input /tmp/devflow-notify.json
+          echo "AUTO_MERGE_BOUNDARY=BLOCKED"
+          exit 1
 
       - name: Explicitly dispatch independent exact-main post-merge verification
         if: steps.merge.outcome == 'success' && steps.merge.outputs.merge_sha != ''

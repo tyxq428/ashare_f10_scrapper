@@ -14,6 +14,7 @@ forbidden_patterns: 包含 .github/**、docs/**、secrets/**、.env
 gate_profile: Targeted Gate
 full_gate_profile: Full Gate
 post_merge_profile: exact-main Gate
+reasoning_effort: xhigh
 risk_class: low | medium | high
 auto_merge: true | false
 notify_completion: true | false
@@ -31,7 +32,7 @@ max_recovery_generations: 1
 3. 通过 `workflow_dispatch` 显式启动默认分支上的 `Codex Task`，输入只包含可信控制分支名；不依赖任务分支 Push。
 4. `Codex Task` 验证 Task Descriptor，并在普通 Job 上直接声明 `environment: agent-runtime`。
 5. 入口只允许仓库所有者或 `github-actions[bot]`；Composite action显式配置 `allow-bots: true` 和 `allow-bot-users: github-actions[bot]`，不开放任意用户或 Bot。
-6. Secret-bearing Codex Job 以 `contents: read` checkout 控制分支，运行安全预检和 localhost Forwarder，再调用 `.github/actions/codex-thin-worker/action.yml` 完成一次 Codex Session。
+6. Secret-bearing Codex Job 以 `contents: read` checkout 控制分支，运行安全预检和 localhost Forwarder，再调用 `.github/actions/codex-thin-worker/action.yml` 完成一次 `xhigh` Codex Session。
 7. 官方 Action 在 Output Schema约束下返回 `final-message`；Caller Job通过环境变量交给 Python解析，规范化写入工作区外的 `/tmp/codex-result.json`，不得把模型输出拼接为 Shell。
 8. 同一 Secret-bearing Job继续执行 Scope Guard、Targeted Gate、Secret Audit 和 Patch Manifest；Composite action只接收显式 Key/Model inputs，不直接读取 `secrets.*`。
 9. Secret-free Publish Job验证 Manifest、应用 Patch、重跑 Targeted Gate，移除任务描述后 Push 隔离产品分支。
@@ -40,6 +41,14 @@ max_recovery_generations: 1
 12. 若 `risk_class=low` 且 `auto_merge=true`，同步最新 `main`、必要时 rebase并重跑 Gate，然后自动合并。
 13. 合并后显式发送 `devflow_post_merge`，在 exact main执行 Post-Merge Profile。
 14. Post-Merge通过后自动更新 canonical state、阶段结果和最终报告；`notify_completion=true` 时发送一次完成通知。
+
+## XHigh 迁移规则
+
+- 正式 Composite Action 固定 `effort: xhigh`；
+- 新模板和自动恢复生成器固定 `reasoning_effort: xhigh`；
+- Schema v1 暂时只读兼容历史 `low` Descriptor，保证已发布候选能够继续 Gate/Post-Merge；
+- 历史字段不会降低实际运行强度，任何新模型调用仍使用 `xhigh`；
+- 已完成并通过 G1 的低强度历史候选不因政策迁移而无意义重跑模型。
 
 ## 为什么不用 Secret-bearing reusable workflow
 
@@ -60,14 +69,16 @@ max_recovery_generations: 1
 ## 默认预算
 
 ```yaml
-reasoning_effort: low
+reasoning_effort: xhigh
 codex_sessions_per_generation: 1
 automatic_second_session: 0
 max_recovery_generations: 1
 infrastructure_retries: 3
-output_tokens_observation_limit: 2000
-total_input_tokens_observation_limit: 100000
+output_tokens_observation_limit: 4000
+total_input_tokens_observation_limit: 200000
 ```
+
+XHigh 会增加时延和 Token 使用，因此仍严格保持每个 Generation 一次 Session、零自动第二 Session；只有新的、受限 Recovery Generation 才能再次调用模型。
 
 ## 人工边界
 

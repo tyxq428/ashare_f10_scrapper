@@ -95,7 +95,7 @@ jobs:
               "gate_profile": "devflow-targeted",
               "full_gate_profile": "repository-full",
               "post_merge_profile": "repository-full",
-              "reasoning_effort": "low",
+              "reasoning_effort": "xhigh",
               "session_limit": 1,
               "automatic_second_session": 0,
               "recovery_generation": 0,
