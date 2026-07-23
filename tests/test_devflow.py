@@ -13,6 +13,7 @@ from endpoint_utils import normalize_responses_endpoint  # noqa: E402
 from gate_profiles import get_gate_profile  # noqa: E402
 from secret_audit import secret_variants  # noqa: E402
 from state_model import StateError, TaskState, load_json_yaml  # noqa: E402
+from validate_state import branch_matches_state  # noqa: E402
 from validate_workflows import validate_file  # noqa: E402
 from verify_changed_paths import verify  # noqa: E402
 
@@ -72,6 +73,21 @@ def test_json_is_valid_yaml_subset_state_format(tmp_path: Path) -> None:
     path = tmp_path / "task_state.yaml"
     path.write_text(json.dumps(valid_state()), encoding="utf-8")
     assert load_json_yaml(path)["task_id"] == "sample"
+
+
+def test_working_branch_is_required_before_merge() -> None:
+    state = TaskState.from_mapping(valid_state())
+    assert branch_matches_state("feature/sample", state) is True
+    assert branch_matches_state("feature/other", state) is False
+    assert branch_matches_state("main", state) is False
+
+
+def test_main_is_valid_for_merge_and_post_merge_gates() -> None:
+    data = valid_state()
+    data["pull_request"] = 30
+    data["current_stage"] = "W05"
+    state = TaskState.from_mapping(data)
+    assert branch_matches_state("main", state) is True
 
 
 @pytest.mark.parametrize(
