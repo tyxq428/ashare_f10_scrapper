@@ -12,6 +12,15 @@
   "full_gate_profile": "repository-full",
   "post_merge_profile": "repository-full",
   "reasoning_effort": "xhigh",
+  "context_budget": {
+    "max_allowed_files": 5,
+    "max_task_bytes": 32768,
+    "max_total_allowed_file_bytes": 262144,
+    "max_single_file_bytes": 131072,
+    "max_log_excerpt_lines": 300,
+    "include_chat_history": false,
+    "include_full_sop": false
+  },
   "session_limit": 1,
   "automatic_second_session": 0,
   "recovery_generation": 0,
@@ -25,6 +34,7 @@
   "stop_conditions": [
     "any changed path outside allowed_files",
     "secret audit match",
+    "context budget violation before the model call",
     "targeted gate failure after the bounded recovery budget",
     "business or architecture decision required",
     "main branch changed and cannot be replayed without conflict"
