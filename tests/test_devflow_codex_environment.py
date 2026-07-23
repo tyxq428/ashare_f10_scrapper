@@ -63,6 +63,7 @@ def test_new_task_template_defaults_xhigh_and_legacy_low_remains_readable() -> N
     assert current.reasoning_effort == "xhigh"
 
     legacy = dict(template)
+    legacy["schema_version"] = 1
     legacy["reasoning_effort"] = "low"
     assert TaskDescriptor.from_mapping(legacy).reasoning_effort == "low"
 
