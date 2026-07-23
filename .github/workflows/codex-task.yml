@@ -86,12 +86,30 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Validate bounded XHigh context before private runtime
+        id: context
+        continue-on-error: true
+        run: |
+          python scripts/devflow/context_budget.py \
+            --task-file "${{ needs.read-task.outputs.task_file }}" \
+            --output /tmp/devflow-context-budget.json
+
+      - name: Set up deterministic Python with dependency cache
+        if: steps.context.outcome == 'success'
+        uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
       - name: Install deterministic development dependencies
+        if: steps.context.outcome == 'success'
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
       - name: Register private value masks
+        if: steps.context.outcome == 'success'
         shell: bash
         env:
           ENDPOINT: ${{ secrets.AGENT_RESPONSES_ENDPOINT || secrets.CODEX_RESPONSES_ENDPOINT || secrets.CODEX_ENDPOINT }}
@@ -129,6 +147,7 @@ jobs:
 
       - name: Validate runtime configuration without exposing values
         id: runtime
+        if: steps.context.outcome == 'success'
         continue-on-error: true
         env:
           AGENT_RESPONSES_ENDPOINT: ${{ secrets.AGENT_RESPONSES_ENDPOINT || secrets.CODEX_RESPONSES_ENDPOINT || secrets.CODEX_ENDPOINT }}
@@ -248,6 +267,10 @@ jobs:
           set -euo pipefail
           ARTIFACT=/tmp/codex-artifact
           mkdir -p "$ARTIFACT"
+          test ! -s /tmp/devflow-context-budget.json || \
+            cp /tmp/devflow-context-budget.json "$ARTIFACT/context-budget.json"
+          test -s "$ARTIFACT/context-budget.json" || \
+            printf '%s\n' '{"status":"FAIL","violations":["CONTEXT_BUDGET_DID_NOT_RUN"]}' > "$ARTIFACT/context-budget.json"
           test ! -s /tmp/devflow-runtime-preflight.json || \
             cp /tmp/devflow-runtime-preflight.json "$ARTIFACT/runtime-preflight.json"
           test ! -s /tmp/private-responses-forwarder-status.json || \
@@ -267,6 +290,7 @@ jobs:
             "$ARTIFACT/codex-result.json" \
             "$ARTIFACT/scope-result.json" \
             "$ARTIFACT/gate-result.json" \
+            "$ARTIFACT/context-budget.json" \
             "$ARTIFACT/runtime-preflight.json" \
             "$ARTIFACT/forwarder-status.json" \
             --allow-missing \
@@ -274,7 +298,7 @@ jobs:
           (
             cd "$ARTIFACT"
             sha256sum codex.patch codex-result.json scope-result.json gate-result.json \
-              secret-audit.json runtime-preflight.json forwarder-status.json \
+              context-budget.json secret-audit.json runtime-preflight.json forwarder-status.json \
               2>/dev/null > manifest.sha256 || true
           )
           test -s "$ARTIFACT/manifest.sha256"
@@ -288,11 +312,12 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: Enforce runtime, Codex, scope, gate and secret outcomes
+      - name: Enforce context, runtime, Codex, scope, gate and secret outcomes
         if: always()
         shell: bash
         run: |
           set -euo pipefail
+          test "${{ steps.context.outcome }}" = "success"
           test "${{ steps.runtime.outcome }}" = "success"
           test "${{ steps.forwarder.outcome }}" = "success"
           test "${{ steps.codex.outcome }}" = "success"
@@ -304,7 +329,12 @@ jobs:
           from pathlib import Path
 
           root = Path('/tmp/codex-artifact')
-          for name in ('scope-result.json', 'gate-result.json', 'secret-audit.json'):
+          for name in (
+              'context-budget.json',
+              'scope-result.json',
+              'gate-result.json',
+              'secret-audit.json',
+          ):
               value = json.loads((root / name).read_text(encoding='utf-8'))
               if value.get('status') != 'PASS':
                   raise SystemExit(f'{name} did not pass')
@@ -328,6 +358,12 @@ jobs:
           ref: ${{ needs.read-task.outputs.task_branch }}
           fetch-depth: 0
 
+      - uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
       - name: Preserve trusted task descriptor outside the product tree
         run: |
           cp "${{ needs.read-task.outputs.task_file }}" /tmp/devflow-publish-task.yaml
@@ -338,7 +374,7 @@ jobs:
           name: codex-handoff-${{ needs.read-task.outputs.task_id }}-${{ github.run_id }}
           path: /tmp/codex-handoff
 
-      - name: Verify manifest, apply patch and re-run scope
+      - name: Verify manifest, context, apply patch and re-run scope
         shell: bash
         run: |
           set -euo pipefail
@@ -347,8 +383,10 @@ jobs:
           import json
           from pathlib import Path
 
-          if json.loads(Path('/tmp/codex-handoff/secret-audit.json').read_text())['status'] != 'PASS':
-              raise SystemExit('secret audit did not pass')
+          root = Path('/tmp/codex-handoff')
+          for name in ('context-budget.json', 'secret-audit.json'):
+              if json.loads((root / name).read_text())['status'] != 'PASS':
+                  raise SystemExit(f'{name} did not pass')
           PY
           git switch -c "${{ needs.read-task.outputs.publish_branch }}"
           git apply --index /tmp/codex-handoff/codex.patch
