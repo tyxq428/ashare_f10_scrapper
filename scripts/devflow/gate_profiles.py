@@ -25,6 +25,7 @@ DEVFLOW_TESTS = [
     "tests/test_devflow_context_budget.py",
     "tests/test_devflow_change_impact.py",
     "tests/test_devflow_branch_gc.py",
+    "tests/test_devflow_state_v2.py",
 ]
 
 GATE_PROFILES: dict[str, list[list[str]]] = {
