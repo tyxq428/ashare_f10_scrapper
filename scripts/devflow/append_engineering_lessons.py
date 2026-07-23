@@ -29,6 +29,13 @@ LESSONS = """
 - **根因**：没有区分“同一Agent会话无限循环”和“基于新失败证据创建一个新的受限修复代次”。
 - **修复**：每个Task Generation保持一次Codex Session和零自动第二Session；Full/Post-Merge失败时最多创建一个继承原范围、Gate和风险政策的Recovery Generation。
 - **预防规则**：预算必须同时限制Session、Generation、Root Cause和基础设施重试；任何自动恢复都不得扩大允许路径。
+
+## GHA-016 Reusable Workflow边界未取得Environment Secrets
+
+- **现象**：正式仓库`agent-runtime`中三个Secret名称和值均已配置；普通Job的安全presence探针全部为true，但本地`workflow_call`中的Secret-bearing Job连续报告Endpoint、Key和Model全部缺失，Forwarder和Codex均被跳过。
+- **根因**：当前仓库运行环境下，Environment Secret在本地reusable workflow调用边界中的实际可见性与普通Job不同；继续重跑同一Workflow不会改变该边界。
+- **修复**：把`environment: agent-runtime`直接绑定到入口`codex-task.yml`的普通只读Job；将可复用单元改为本地composite action，只通过显式inputs接收Key和Model；删除旧reusable workflow，并只通过显式`workflow_dispatch`运行默认分支的入口Workflow。
+- **预防规则**：涉及Environment Secrets时必须先运行普通Job presence薄切片；Secret-bearing执行Job不得间接隐藏在未经真实验证的`workflow_call`边界中，复用优先使用composite action或已验证的直接Job模式。
 """.strip()
 
 
