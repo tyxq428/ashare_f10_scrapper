@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "task_id": "devflow-state-consistency-30019264822-recovery-g1",
+  "objective": "Recover the approved low-risk task after BOUNDED_CODE_REPAIR_ELIGIBLE. Preserve the original scope and repair only the failing deterministic gate.",
+  "base_branch": "main",
+  "publish_branch": "codex/devflow-state-consistency-30019264822-recovery-g1",
+  "allowed_files": [
+    "scripts/devflow/state_model.py",
+    "scripts/devflow/validate_state.py",
+    "scripts/devflow/render_task_docs.py",
+    "scripts/devflow/validate_workflows.py",
+    "tests/test_devflow.py"
+  ],
+  "forbidden_patterns": [
+    ".github/**",
+    ".env",
+    "secrets/**",
+    "src/**",
+    "docs/**"
+  ],
+  "required_changes": [
+    "Run the deterministic devflow tests and repair only the failing validator or state model.",
+    "Do not alter business semantics, workflows, secrets or task scope.",
+    "Repair failure BOUNDED_CODE_REPAIR_ELIGIBLE: A deterministic code or policy gate failed within an approved bounded recovery scope.",
+    "Do not widen the allowed file set or change business semantics."
+  ],
+  "acceptance_notes": [
+    "The failure is reproducible by the trusted devflow gate.",
+    "Parent workflow run: 30019264822",
+    "This is the only automatic Codex recovery generation."
+  ],
+  "gate_profile": "devflow-targeted",
+  "full_gate_profile": "repository-full",
+  "post_merge_profile": "repository-full",
+  "reasoning_effort": "xhigh",
+  "session_limit": 1,
+  "automatic_second_session": 0,
+  "recovery_generation": 1,
+  "max_recovery_generations": 1,
+  "parent_task_id": "devflow-state-consistency-30019264822",
+  "parent_run_id": 30019264822,
+  "risk_class": "low",
+  "auto_merge": true,
+  "expected_base_sha": "4f9fbdc0c46d334c2789e74d65a1b7921d02d23f",
+  "stop_conditions": [
+    "any changed path outside allowed_files",
+    "secret audit match",
+    "business or architecture decision required"
+  ]
+}
