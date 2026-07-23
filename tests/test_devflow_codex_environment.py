@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -8,6 +9,7 @@ DEVFLOW = REPO / "scripts" / "devflow"
 sys.path.insert(0, str(DEVFLOW))
 
 from recovery_policy import classify  # noqa: E402
+from task_descriptor import TaskDescriptor  # noqa: E402
 from validate_workflows import validate_file  # noqa: E402
 
 
@@ -37,18 +39,40 @@ def test_codex_entry_job_owns_environment_secret_boundary() -> None:
     assert validate_file(workflow) == []
 
 
-def test_reusable_unit_allows_only_trusted_repository_bot() -> None:
+def test_reusable_unit_allows_only_trusted_repository_bot_and_uses_xhigh() -> None:
     action = REPO / ".github/actions/codex-thin-worker/action.yml"
     text = action.read_text(encoding="utf-8")
     assert "using: composite" in text
     assert "openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56" in text
     assert "http://127.0.0.1:8787/v1/responses" in text
+    assert "effort: xhigh" in text
+    assert "effort: low" not in text
     assert 'allow-bots: "true"' in text
     assert "allow-bot-users: github-actions[bot]" in text
     assert "allow-users:" not in text
     assert "${{ inputs.api-key }}" in text
     assert "secrets." not in text
     assert validate_file(action) == []
+
+
+def test_new_task_template_defaults_xhigh_and_legacy_low_remains_readable() -> None:
+    template = json.loads(
+        (REPO / "docs/process/templates/codex_task.template.yaml").read_text(encoding="utf-8")
+    )
+    current = TaskDescriptor.from_mapping(template)
+    assert current.reasoning_effort == "xhigh"
+
+    legacy = dict(template)
+    legacy["reasoning_effort"] = "low"
+    assert TaskDescriptor.from_mapping(legacy).reasoning_effort == "low"
+
+
+def test_auto_recovery_generates_xhigh_tasks() -> None:
+    workflow = REPO / ".github/workflows/devflow-auto-recovery.yml"
+    text = workflow.read_text(encoding="utf-8")
+    assert '"reasoning_effort": "xhigh"' in text
+    assert '"reasoning_effort": "low"' not in text
+    assert validate_file(workflow) == []
 
 
 def test_structured_result_uses_action_output_not_absolute_output_file() -> None:
