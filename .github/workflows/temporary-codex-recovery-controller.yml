@@ -1,0 +1,166 @@
+name: Temporary Codex Recovery Controller
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/temporary-codex-recovery-controller.yml
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: write
+  issues: write
+
+concurrency:
+  group: temporary-codex-recovery-controller
+  cancel-in-progress: false
+
+jobs:
+  recover-or-dispatch-once:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Cancel waiting dispatcher loops best-effort
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for workflow in "Temporary Dispatch Codex Control" "Temporary Dispatch Codex Control Secure"; do
+            gh run list --repo "${{ github.repository }}" --workflow "$workflow" --limit 20 \
+              --json databaseId,status \
+              --jq '.[] | select(.status == "queued" or .status == "in_progress" or .status == "waiting" or .status == "requested" or .status == "pending") | .databaseId' \
+              2>/dev/null > /tmp/cancel.txt || true
+            while read -r run_id; do
+              [[ -z "$run_id" ]] && continue
+              gh run cancel "$run_id" --repo "${{ github.repository }}" || true
+            done < /tmp/cancel.txt
+          done
+      - name: Wait for trusted control branch
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 120); do
+            if git ls-remote --exit-code --heads origin task/codex-resilient-command-terminal-status-v1 >/dev/null 2>&1; then
+              exit 0
+            fi
+            echo "[recovery-heartbeat] waiting for control branch; attempt=${attempt}/120"
+            sleep 20
+          done
+          exit 1
+      - name: Reuse an already verified Codex handoff or dispatch secure worker once
+        id: recovery
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          PRODUCT_BRANCH="codex/resilient-command-terminal-status-v1"
+          CONTROL_BRANCH="task/codex-resilient-command-terminal-status-v1"
+          if git ls-remote --exit-code --heads origin "$PRODUCT_BRANCH" >/dev/null 2>&1; then
+            echo "mode=already_published" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Wait for any already-started Codex Task instead of launching another session.
+          for attempt in $(seq 1 60); do
+            RUNS="$(gh run list --repo "${{ github.repository }}" --workflow "Codex Task" --limit 10 \
+              --json databaseId,status,conclusion,createdAt 2>/dev/null || echo '[]')"
+            ACTIVE="$(python -c 'import json,sys; rows=json.load(sys.stdin); a=[r for r in rows if r["status"] in {"queued","in_progress","waiting","requested","pending"}]; print(a[0]["databaseId"] if a else "")' <<<"$RUNS")"
+            if [[ -z "$ACTIVE" ]]; then break; fi
+            echo "[recovery-heartbeat] waiting for existing Codex run ${ACTIVE}; attempt=${attempt}/60"
+            sleep 10
+          done
+
+          RUN_IDS="$(gh run list --repo "${{ github.repository }}" --workflow "Codex Task" --limit 10 \
+            --json databaseId,status,conclusion,createdAt \
+            --jq '.[] | select(.status == "completed") | .databaseId' 2>/dev/null || true)"
+          REUSED="false"
+          while read -r run_id; do
+            [[ -z "$run_id" ]] && continue
+            ARTIFACTS="$(gh api "repos/${{ github.repository }}/actions/runs/${run_id}/artifacts" 2>/dev/null || echo '{"artifacts":[]}')"
+            NAME="$(python -c 'import json,sys; x=json.load(sys.stdin); a=[i["name"] for i in x.get("artifacts",[]) if i["name"].startswith("codex-handoff-resilient-command-terminal-status-v1-") and not i.get("expired")]; print(a[0] if a else "")' <<<"$ARTIFACTS")"
+            [[ -z "$NAME" ]] && continue
+            rm -rf /tmp/handoff
+            mkdir -p /tmp/handoff
+            gh run download "$run_id" --repo "${{ github.repository }}" --name "$NAME" --dir /tmp/handoff
+            if ! (cd /tmp/handoff && sha256sum --check manifest.sha256 >/dev/null); then
+              continue
+            fi
+            if ! python - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path('/tmp/handoff')
+          required = ('scope-result.json', 'gate-result.json', 'secret-audit.json', 'codex-result.json')
+          for name in required:
+              if not (root / name).is_file():
+                  raise SystemExit(1)
+          for name in ('scope-result.json', 'gate-result.json', 'secret-audit.json'):
+              if json.loads((root / name).read_text(encoding='utf-8')).get('status') != 'PASS':
+                  raise SystemExit(1)
+          result = json.loads((root / 'codex-result.json').read_text(encoding='utf-8'))
+          if result.get('status') != 'SUCCESS' or not result.get('tests_passed'):
+              raise SystemExit(1)
+          PY
+            then
+              continue
+            fi
+
+            git fetch origin "$CONTROL_BRANCH"
+            git switch -C "$PRODUCT_BRANCH" "origin/$CONTROL_BRANCH"
+            git apply --index /tmp/handoff/codex.patch
+            python -m pip install --upgrade pip
+            pip install -e ".[dev]"
+            python scripts/devflow/verify_changed_paths.py --task-file .agent/current_task.yaml --status
+            python scripts/devflow/run_gate_profile.py resilient-command-targeted --output /tmp/recovery-gate.json
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "Apply recovered verified Codex thin-worker patch"
+            git push origin "HEAD:refs/heads/${PRODUCT_BRANCH}"
+            REUSED="true"
+            echo "mode=reused_handoff" >> "$GITHUB_OUTPUT"
+            break
+          done <<<"$RUN_IDS"
+
+          if [[ "$REUSED" == "false" ]]; then
+            if ! git cat-file -e origin/main:.github/workflows/codex-task-secure.yml 2>/dev/null; then
+              git fetch origin main
+            fi
+            gh workflow run codex-task-secure.yml --repo "${{ github.repository }}" --ref main \
+              -f task_branch="$CONTROL_BRANCH"
+            echo "mode=secure_session_dispatched" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Remove recovery controller and dispatcher loops
+        if: success()
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git reset --hard origin/main
+          rm -f .github/workflows/temporary-codex-recovery-controller.yml
+          rm -f .github/workflows/temporary-dispatch-codex-control.yml
+          rm -f .github/workflows/temporary-dispatch-codex-control-secure.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Remove completed Codex recovery control"
+          git push origin HEAD:main
+      - name: Notify only when neither reuse nor secure dispatch can proceed
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TITLE="[TASK CONTROL] chatgpt-web-codex-devflow-v1"
+          NUMBER="$(gh issue list --repo "${{ github.repository }}" --state open --search "${TITLE} in:title" --json number,title --jq ".[] | select(.title == \"${TITLE}\") | .number" | head -n 1)"
+          if [[ -z "$NUMBER" ]]; then
+            URL="$(gh issue create --repo "${{ github.repository }}" --title "$TITLE" --body "Single valuable-notification channel for the devflow migration." --assignee tyxq428)"
+            NUMBER="${URL##*/}"
+          fi
+          gh issue comment "$NUMBER" --repo "${{ github.repository }}" --body "@tyxq428
+
+[TASK][HUMAN_REQUIRED]
+
+No reusable verified Codex handoff was available and secure dispatch could not start. Review ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}."
