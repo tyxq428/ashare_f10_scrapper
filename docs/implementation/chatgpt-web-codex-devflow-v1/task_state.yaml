@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "state_revision": 9,
+  "state_revision": 10,
   "task_id": "chatgpt-web-codex-devflow-v1",
   "title": "ChatGPT Web Supervisor + GitHub Actions Executor + Codex Thin Worker",
   "status": "RUNNING",
@@ -13,8 +13,8 @@
   "last_state_commit_sha": null,
   "current_stage": "W05",
   "last_completed_stage": "W04",
-  "last_successful_step": "auto_recovery_merged_and_direct_agent_runtime_presence_probe_passed",
-  "next_action": "merge_direct_environment_boundary_hotfix_then_run_fresh_unattended_codex_thin_slice",
+  "last_successful_step": "real_codex_v3_scope_targeted_publish_and_full_gate_passed",
+  "next_action": "merge_product_gate_identity_and_xhigh_policy_hotfix_then_rerun_existing_v3_candidate",
   "gate_results": {
     "W00": "PASS",
     "W01": "PASS",
@@ -27,7 +27,13 @@
     "W05_HF01_RUNTIME": "PASS:PR34",
     "W05_HF02_SINGLETON_ISSUE": "PASS:PR35",
     "W05_HF03_AUTO_RECOVERY": "PASS:PR37",
-    "W05_HF04_DIRECT_ENVIRONMENT_BOUNDARY": "RUNNING",
+    "W05_HF04_DIRECT_ENVIRONMENT_BOUNDARY": "PASS:PR38",
+    "W05_HF05_TRUSTED_BOT_OUTPUT": "PASS:PR39",
+    "W05_HF06_MERGE_BASE_SCOPE": "PASS:PR40",
+    "W05_REAL_CODEX_V3": "PASS:29996706248",
+    "W05_PRODUCT_FULL_GATE": "PASS:29998952457",
+    "W05_HF07_MERGE_IDENTITY": "RUNNING",
+    "W05_HF08_XHIGH_POLICY": "RUNNING",
     "post_merge": "RUNNING"
   },
   "retry_budget": {
@@ -49,10 +55,10 @@
     "verified_run_ids": []
   },
   "notification": {
-    "generation": 1,
-    "last_type": "INTERRUPTED",
+    "generation": 2,
+    "last_type": "HUMAN_REQUIRED",
     "acknowledged": true,
     "control_issue_number": 32
   },
-  "updated_at_utc": "2026-07-23T09:24:56Z"
+  "updated_at_utc": "2026-07-23T10:56:42Z"
 }
