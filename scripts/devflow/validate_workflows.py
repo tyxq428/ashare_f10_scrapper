@@ -9,12 +9,21 @@ FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 TARGETS = (
     "_reusable-codex-thin-worker.yml",
     "codex-task.yml",
+    "devflow-auto-recovery.yml",
+    "devflow-product-gate.yml",
     "devflow-state-consistency.yml",
     "devflow-relay-health.yml",
     "devflow-secret-audit.yml",
     "devflow-incident.yml",
     "devflow-post-merge.yml",
 )
+
+
+def _require_fragments(path: Path, text: str, fragments: tuple[str, ...], errors: list[str]) -> None:
+    lowered = text.lower()
+    for fragment in fragments:
+        if fragment.lower() not in lowered:
+            errors.append(f"{path}: missing policy fragment: {fragment}")
 
 
 def validate_file(path: Path) -> list[str]:
@@ -24,6 +33,8 @@ def validate_file(path: Path) -> list[str]:
         errors.append(f"{path}: pull_request_target is forbidden")
     if "danger-full-access" in text or "safety-strategy: unsafe" in text:
         errors.append(f"{path}: unsafe Codex execution mode is forbidden")
+    if "eval " in text or "bash -c \"${{" in text:
+        errors.append(f"{path}: arbitrary evaluated workflow input is forbidden")
     for reference in ACTION_REF.findall(text):
         if reference.startswith("./"):
             continue
@@ -33,22 +44,89 @@ def validate_file(path: Path) -> list[str]:
         _name, revision = reference.rsplit("@", 1)
         if not FULL_SHA.fullmatch(revision):
             errors.append(f"{path}: action must be pinned to a full SHA: {reference}")
+
     if path.name == "_reusable-codex-thin-worker.yml":
-        required_fragments = (
-            "environment: agent-runtime",
-            "contents: read",
-            "http://127.0.0.1:8787/v1/responses",
-            "effort: low",
-            "safety-strategy: drop-sudo",
-            "automatic second session",
+        _require_fragments(
+            path,
+            text,
+            (
+                "environment: agent-runtime",
+                "contents: read",
+                "http://127.0.0.1:8787/v1/responses",
+                "effort: low",
+                "safety-strategy: drop-sudo",
+                "automatic recovery generation",
+                "devflow_product_gate",
+            ),
+            errors,
         )
-        lowered = text.lower()
-        for fragment in required_fragments:
-            if fragment.lower() not in lowered:
-                errors.append(f"{path}: missing security fragment: {fragment}")
         publish_index = text.find("publish:")
         if publish_index != -1 and "environment: agent-runtime" in text[publish_index:]:
             errors.append(f"{path}: publish job must not use agent-runtime environment")
+
+    if path.name == "devflow-auto-recovery.yml":
+        _require_fragments(
+            path,
+            text,
+            (
+                "rerun-failed-jobs",
+                "recovery_policy.py",
+                "recovery_task.py",
+                "devflow_notify",
+                "No task-control notification was emitted",
+            ),
+            errors,
+        )
+        if "issues: write" in text:
+            errors.append(f"{path}: auto recovery must not write Issues directly")
+
+    if path.name == "devflow-product-gate.yml":
+        _require_fragments(
+            path,
+            text,
+            (
+                "devflow_product_gate",
+                "verify_changed_paths.py",
+                "run_gate_profile.py",
+                "auto_merge",
+                "devflow_post_merge",
+            ),
+            errors,
+        )
+        if "environment: agent-runtime" in text:
+            errors.append(f"{path}: product gate must not access relay Environment Secrets")
+
+    if path.name == "devflow-incident.yml":
+        _require_fragments(
+            path,
+            text,
+            (
+                "repository_dispatch",
+                "devflow_notify",
+                "/ack` only confirms",
+                "control_issue_number",
+            ),
+            errors,
+        )
+        if "workflow_run:" in text:
+            errors.append(f"{path}: Incident must not notify directly from raw workflow failures")
+
+    if path.name == "devflow-post-merge.yml":
+        _require_fragments(
+            path,
+            text,
+            (
+                "devflow_post_merge",
+                "run_gate_profile.py",
+                "recovery_task.py",
+                "finalize_task.py",
+                "devflow_notify",
+            ),
+            errors,
+        )
+        if "environment: agent-runtime" in text:
+            errors.append(f"{path}: post-merge must not access relay Environment Secrets")
+
     return errors
 
 
