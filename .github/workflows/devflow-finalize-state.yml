@@ -1,0 +1,84 @@
+name: Devflow Finalize State
+
+on:
+  workflow_run:
+    workflows:
+      - Devflow Post Merge
+    types:
+      - completed
+
+permissions:
+  contents: write
+
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+
+jobs:
+  finalize:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Persist DONE state, final report and reusable lessons
+        shell: bash
+        env:
+          VERIFIED_RUN_ID: ${{ github.event.workflow_run.id }}
+          VERIFIED_RUN_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          set -euo pipefail
+          git pull --ff-only origin main
+          python - <<'PY'
+          import json
+          import os
+          from datetime import UTC, datetime
+          from pathlib import Path
+
+          now = datetime.now(UTC).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
+          root = Path('docs/implementation/chatgpt-web-codex-devflow-v1')
+          state_path = root / 'task_state.yaml'
+          state = json.loads(state_path.read_text(encoding='utf-8'))
+          state['state_revision'] += 1
+          state['status'] = 'DONE'
+          state['execution_status'] = 'COMPLETED'
+          state['research_acceptance_status'] = 'PASS'
+          state['last_successful_step'] = 'final_exact_main_post_merge_verified'
+          state['next_action'] = 'use_gradual_migration_policy_for_future_low_risk_tasks'
+          state['gate_results']['W08'] = 'PASS'
+          state['gate_results']['post_merge'] = 'PASS'
+          state['post_merge']['status'] = 'PASS'
+          state['post_merge']['verified_run_ids'] = [int(os.environ['VERIFIED_RUN_ID'])]
+          state['human_gate'] = {'required': False, 'reason': None, 'minimum_action': None, 'resume_from': None}
+          state['notification']['last_type'] = 'COMPLETED'
+          state['notification']['acknowledged'] = True
+          state['updated_at_utc'] = now
+          state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+
+          active_path = Path('docs/implementation/ACTIVE_TASKS.yaml')
+          active = json.loads(active_path.read_text(encoding='utf-8'))
+          entry = next(x for x in active['tasks'] if x['task_id'] == state['task_id'])
+          entry['status'] = 'DONE'
+          entry['current_stage'] = 'W08'
+          active_path.write_text(json.dumps(active, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+
+          (root / 'W08_result.md').write_text(f'''# W08 结果：最终 Post-Merge 与收尾\n\n## 状态\n\n```yaml\nphase: W08\nstatus: COMPLETED\nlast_successful_step: final_exact_main_post_merge_verified\nnext_action: gradual_future_adoption\nhuman_intervention_required: false\n```\n\n## 结果\n\n- marker-driven exact-main 状态、Workflow 安全、devflow tests、薄切片 Gate 和完整仓库 Test 全部通过；\n- 最终 post-merge run：{os.environ['VERIFIED_RUN_URL']}；\n- canonical state、STATUS、HANDOFF 和 ACTIVE_TASKS 已收敛；\n- 临时开发 Workflow 已清理；\n- 只生成一次有价值的 COMPLETED 通知。\n''', encoding='utf-8')
+
+          (root / 'FINAL_REPORT.md').write_text(f'''# 最终报告：ChatGPT Web + GitHub Actions + Codex Thin Worker\n\n## 最终状态\n\n```yaml\nstatus: DONE\nexecution_status: COMPLETED\nresearch_acceptance_status: PASS\npost_merge: PASS\nverified_run_id: {os.environ['VERIFIED_RUN_ID']}\n```\n\n## 已交付\n\n- 分层 AGENTS、Policies、Runbooks、Templates 与 Project Instructions；\n- canonical task state、状态一致性和恢复协议；\n- trusted Gate Profiles、Scope Guard、Manifest 与 Failure Bundle；\n- reusable Codex Thin Worker、localhost 私有 Forwarder、Secret 权限分离；\n- Relay Health、独立 public-log Secret Audit、valuable-only Incident 与 marker-driven post-merge；\n- 一个真实低风险薄切片，单 Session 完成有限重试终态修复和回归测试；\n- 后续三任务观察窗与渐进迁移标准。\n\n## 安全结论\n\nPublic 仓库与 Codex 参数不包含真实 Relay URL、hostname、API Key 或模型 ID。Secret-bearing Job 没有仓库写权限；Publish Job 没有 Relay Secrets。\n\n## 后续使用\n\n新任务从 `docs/process/runbooks/start-new-task.md` 启动；恢复任务读取 canonical state 和 HANDOFF；符合准入条件的低风险代码修改使用 Codex Thin Worker，其余继续由 ChatGPT Web 直接执行。\n''', encoding='utf-8')
+
+          lessons_path = Path('docs/ENGINEERING_ISSUES_AND_LESSONS.md')
+          lessons = lessons_path.read_text(encoding='utf-8')
+          block = '''\n\n## DEVFLOW-001 Codex Relay 与仓库写权限必须分离\n\n- **现象**：Public 仓库既需要私有中转站配置，又需要 Agent 提交代码。\n- **根因**：同一 Job 同时持有 Relay Secret 和 `contents: write` 会扩大泄漏与供应链风险。\n- **修复**：Codex Job 使用 `agent-runtime` Environment 且仅 `contents: read`；只输出经过 Secret Audit 和 SHA Manifest 的 Patch；独立 Publish Job 无 Relay Secret，重新应用、验收后再 Push。\n- **预防规则**：任何 Agent 工作流不得让 Secret-bearing 进程拥有仓库写权限。\n\n## DEVFLOW-002 Codex 不应看到真实上游 URL\n\n- **现象**：客户端错误日志可能打印完整 Responses endpoint 或 hostname。\n- **根因**：把私有 endpoint 直接作为 Codex Action 参数。\n- **修复**：Codex 只连接 `127.0.0.1`；Runner 内无日志 Forwarder 私下标准化和转发真实 endpoint，并额外 Mask/扫描编码变体。\n- **预防规则**：Public Agent Workflow 统一使用 localhost Forwarder，禁止把真实 URL 写入 YAML、配置、日志或 Artifact。\n\n## DEVFLOW-003 Thin Worker 固定成本要求合适粒度\n\n- **现象**：即使只改一行，Codex Session 仍有系统指令、工具和多轮缓存读取的固定上下文。\n- **根因**：把机械微步骤拆成多个独立 Agent Session。\n- **修复**：一个工作包同时包含明确 Bug、对应回归测试和定向 Gate；显式 `low`、一个 Session、无自动第二 Session。\n- **预防规则**：不为单个 import、格式或一行改动单独调用 Codex；先组合成可独立验收的小工作包。\n\n## DEVFLOW-004 任务通知只发送有价值状态\n\n- **现象**：Actions、审计 PASS 和每个中间步骤造成大量无价值邮件。\n- **根因**：把 Workflow 完成等同于用户需要知道的任务事件。\n- **修复**：每任务一个控制 Issue，只在 COMPLETED、INTERRUPTED、HUMAN_REQUIRED、SECURITY_BLOCKED 时指派并 @mention。\n- **预防规则**：普通 PASS、重试、缓存、Push 和成功审计只写 Summary/Artifact，不创建 Issue。\n'''
+          if '## DEVFLOW-001 ' not in lessons:
+              lessons_path.write_text(lessons.rstrip() + block + '\n', encoding='utf-8')
+          PY
+          python scripts/devflow/render_task_docs.py docs/implementation/chatgpt-web-codex-devflow-v1
+          rm -f .github/workflows/devflow-finalize-state.yml
+          rm -rf scripts/devflow/__pycache__
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Close out ChatGPT Web and Codex devflow migration"
+          git push origin HEAD:main
