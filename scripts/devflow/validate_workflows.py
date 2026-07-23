@@ -6,8 +6,7 @@ from pathlib import Path
 
 ACTION_REF = re.compile(r"^\s*-?\s*uses:\s*([^\s#]+)", re.MULTILINE)
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
-TARGETS = (
-    "_reusable-codex-thin-worker.yml",
+WORKFLOW_TARGETS = (
     "codex-task.yml",
     "devflow-auto-recovery.yml",
     "devflow-product-gate.yml",
@@ -17,6 +16,7 @@ TARGETS = (
     "devflow-incident.yml",
     "devflow-post-merge.yml",
 )
+ACTION_TARGETS = (Path(".github/actions/codex-thin-worker/action.yml"),)
 
 
 def _require_fragments(path: Path, text: str, fragments: tuple[str, ...], errors: list[str]) -> None:
@@ -33,7 +33,7 @@ def validate_file(path: Path) -> list[str]:
         errors.append(f"{path}: pull_request_target is forbidden")
     if "danger-full-access" in text or "safety-strategy: unsafe" in text:
         errors.append(f"{path}: unsafe Codex execution mode is forbidden")
-    if "eval " in text or "bash -c \"${{" in text:
+    if "eval " in text or 'bash -c "${{' in text:
         errors.append(f"{path}: arbitrary evaluated workflow input is forbidden")
     for reference in ACTION_REF.findall(text):
         if reference.startswith("./"):
@@ -45,24 +45,47 @@ def validate_file(path: Path) -> list[str]:
         if not FULL_SHA.fullmatch(revision):
             errors.append(f"{path}: action must be pinned to a full SHA: {reference}")
 
-    if path.name == "_reusable-codex-thin-worker.yml":
+    if path.name == "codex-task.yml":
         _require_fragments(
             path,
             text,
             (
-                "environment: agent-runtime",
+                "workflow_dispatch:",
+                "name: agent-runtime",
+                "deployment: false",
                 "contents: read",
-                "http://127.0.0.1:8787/v1/responses",
-                "effort: low",
-                "safety-strategy: drop-sudo",
-                "recovery generation",
+                "./.github/actions/codex-thin-worker",
+                "http://127.0.0.1:8787/health",
+                "secret-free-publish",
                 "devflow_product_gate",
             ),
             errors,
         )
-        publish_index = text.find("publish:")
-        if publish_index != -1 and "environment: agent-runtime" in text[publish_index:]:
-            errors.append(f"{path}: publish job must not use agent-runtime environment")
+        if re.search(r"^\s{2}push:\s*$", text, re.MULTILINE):
+            errors.append(f"{path}: Codex Task must use explicit dispatch, not a task-branch push trigger")
+        publish_index = text.find("\n  publish:")
+        if publish_index == -1:
+            errors.append(f"{path}: missing secret-free publish job")
+        elif "agent-runtime" in text[publish_index:]:
+            errors.append(f"{path}: publish and continuation jobs must not use agent-runtime")
+
+    if path.as_posix().endswith(".github/actions/codex-thin-worker/action.yml"):
+        _require_fragments(
+            path,
+            text,
+            (
+                "using: composite",
+                "openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56",
+                "http://127.0.0.1:8787/v1/responses",
+                "effort: low",
+                "safety-strategy: drop-sudo",
+                "${{ inputs.api-key }}",
+                "${{ inputs.model }}",
+            ),
+            errors,
+        )
+        if "secrets." in text:
+            errors.append(f"{path}: composite action must receive explicit inputs, not read secrets directly")
 
     if path.name == "devflow-auto-recovery.yml":
         _require_fragments(
@@ -131,13 +154,19 @@ def validate_file(path: Path) -> list[str]:
 
 
 def main() -> int:
-    root = Path(".github/workflows")
+    workflow_root = Path(".github/workflows")
     errors: list[str] = []
     found: list[str] = []
-    for name in TARGETS:
-        path = root / name
+    for name in WORKFLOW_TARGETS:
+        path = workflow_root / name
         if not path.is_file():
             errors.append(f"missing workflow: {path}")
+            continue
+        found.append(path.as_posix())
+        errors.extend(validate_file(path))
+    for path in ACTION_TARGETS:
+        if not path.is_file():
+            errors.append(f"missing reusable action: {path}")
             continue
         found.append(path.as_posix())
         errors.extend(validate_file(path))
