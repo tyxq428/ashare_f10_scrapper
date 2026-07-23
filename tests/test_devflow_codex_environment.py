@@ -60,3 +60,17 @@ def test_publish_and_continuation_do_not_receive_agent_runtime() -> None:
     publish = text.split("\n  publish:\n", 1)[1]
     assert "agent-runtime" not in publish
     assert "secrets.AGENT_" not in publish
+
+
+def test_product_gate_scopes_candidate_from_merge_base_and_fails_closed() -> None:
+    workflow = REPO / ".github/workflows/devflow-product-gate.yml"
+    text = workflow.read_text(encoding="utf-8")
+    initial_scope = text.split("\n      - name: Run full product gate", 1)[0]
+    assert 'git merge-base --is-ancestor "$EXPECTED_BASE_SHA" HEAD' in initial_scope
+    assert 'MERGE_BASE="$(git merge-base origin/main HEAD)"' in initial_scope
+    assert '--base "$MERGE_BASE"' in initial_scope
+    assert "--base origin/main" not in initial_scope
+    assert "product-scope-result.json" in initial_scope
+    assert "Fail closed on changed-path scope violation" in text
+    assert "steps.scope.outcome != 'success'" in text
+    assert validate_file(workflow) == []
