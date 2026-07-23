@@ -25,7 +25,7 @@ jobs:
           pip install -e ".[dev]"
       - name: Apply only deterministic Ruff fixes
         run: |
-          ruff check --fix scripts/devflow tests/test_devflow.py
+          ruff check --fix --unsafe-fixes scripts/devflow tests/test_devflow.py
           ruff check scripts/devflow tests/test_devflow.py
       - name: Commit mechanical fixes
         shell: bash
