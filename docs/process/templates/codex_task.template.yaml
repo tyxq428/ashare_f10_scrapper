@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "task_id": "replace-me",
   "objective": "replace-me",
   "base_branch": "main",
@@ -34,7 +34,6 @@
   "stop_conditions": [
     "any changed path outside allowed_files",
     "secret audit match",
-    "context budget violation before the model call",
     "targeted gate failure after the bounded recovery budget",
     "business or architecture decision required",
     "main branch changed and cannot be replayed without conflict"
