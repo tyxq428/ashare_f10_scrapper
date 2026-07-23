@@ -43,6 +43,13 @@ LESSONS = """
 - **根因**：无人值守链由`github-actions[bot]`显式派发，而官方Action默认不允许Bot绕过写权限校验；同时流程把绝对`/tmp`路径作为`output-file` input，偏离官方相对路径与`final-message`输出模式。
 - **修复**：仅授权`github-actions[bot]`，不开放任意用户或Bot；通过Output Schema约束`final-message`，Caller Job用环境变量和Python解析后写入工作区外的`/tmp/codex-result.json`。
 - **预防规则**：Agent Action的触发者校验必须纳入薄切片；自动派发时显式列出可信Bot。模型输出先作为结构化Action output处理，不把绝对临时路径直接交给第三方Action。
+
+## GHA-018 移动的main被误算为候选分支越界修改
+
+- **现象**：Codex、Scope Guard、Targeted Gate和Publish全部通过，产品分支只修改获准的两个文件；Product Gate却在Full Gate前报告Scope失败。
+- **根因**：初始产品范围使用`git diff origin/main HEAD`。候选生成后`main`新增了观察/编排提交，双点Diff把`main`独有变化也算入候选差异。
+- **修复**：先验证`expected_base_sha`是候选祖先，再以`git merge-base origin/main HEAD`作为初始范围基线；合并前rebase到最新main后，再以`origin/main..HEAD`重跑范围和Full Gate。
+- **预防规则**：异步候选分支的初始差异必须相对共同祖先或固定批准基线计算，不能直接与移动主分支做双点Diff；真实Scope失败仍须Fail Closed。
 """.strip()
 
 
