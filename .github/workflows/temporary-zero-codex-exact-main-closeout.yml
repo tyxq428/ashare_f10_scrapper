@@ -11,7 +11,7 @@ permissions:
 
 concurrency:
   group: temporary-zero-codex-exact-main-closeout
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   PYTHONDONTWRITEBYTECODE: "1"
@@ -184,7 +184,7 @@ jobs:
           POSTMERGE_RUN: ${{ github.run_id }}
         run: |
           set -euo pipefail
-          TESTED_SHA="$(git rev-parse HEAD)"
+          export TESTED_SHA="$(git rev-parse HEAD)"
           python - <<'PY'
           from __future__ import annotations
 
@@ -303,7 +303,6 @@ jobs:
               encoding='utf-8',
           )
           PY
-          export TESTED_SHA
           python scripts/devflow/render_task_docs.py \
             docs/implementation/devflow-operational-optimization-v2
           python scripts/devflow/validate_state.py \
