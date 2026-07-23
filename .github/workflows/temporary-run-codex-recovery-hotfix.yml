@@ -1,13 +1,6 @@
 name: Temporary Run Codex Recovery Hotfix
 
 on:
-  push:
-    branches:
-      - fix/codex-recovery-circuit-breaker
-    paths:
-      - scripts/devflow/temporary_apply_codex_recovery_hotfix.py
-      - scripts/devflow/temporary_finish_codex_recovery_hotfix.py
-      - .github/workflows/temporary-run-codex-recovery-hotfix.yml
   pull_request:
     branches:
       - main
@@ -19,9 +12,13 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: temporary-codex-recovery-hotfix-pr-45
+  cancel-in-progress: true
+
 jobs:
   apply:
-    if: github.event_name == 'push' || github.head_ref == 'fix/codex-recovery-circuit-breaker'
+    if: github.head_ref == 'fix/codex-recovery-circuit-breaker'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -41,8 +38,8 @@ jobs:
           {
             python scripts/devflow/temporary_apply_codex_recovery_hotfix.py
             python scripts/devflow/temporary_finish_codex_recovery_hotfix.py
-            ruff check --fix --exit-zero scripts/devflow/recovery_policy.py scripts/devflow/validate_workflows.py tests/test_devflow.py tests/test_devflow_codex_environment.py
-            ruff format scripts/devflow/recovery_policy.py scripts/devflow/validate_workflows.py tests/test_devflow.py tests/test_devflow_codex_environment.py
+            ruff check --fix --exit-zero scripts/devflow/recovery_policy.py scripts/devflow/recovery_task.py scripts/devflow/validate_workflows.py tests/test_devflow.py tests/test_devflow_codex_environment.py
+            ruff format scripts/devflow/recovery_policy.py scripts/devflow/recovery_task.py scripts/devflow/validate_workflows.py tests/test_devflow.py tests/test_devflow_codex_environment.py
           } 2>&1 | tee /tmp/codex-recovery-hotfix-apply.log
       - name: Upload bounded patch diagnostics
         if: steps.patch.outcome != 'success'
