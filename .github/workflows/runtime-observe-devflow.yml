@@ -1,4 +1,4 @@
-name: Runtime Diagnose Product Gate Merge
+name: Runtime Observe Devflow Closeout
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
   contents: write
 
 jobs:
-  diagnose:
+  observe:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -20,47 +20,51 @@ jobs:
         with:
           ref: runtime/devflow-observer
           fetch-depth: 0
-      - name: Extract only bounded non-secret merge error lines
+      - name: Collect public-safe closeout workflow metadata
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          RUN_ID: "29998952457"
-          JOB_ID: "89179272998"
         run: |
           set -euo pipefail
-          gh api --method GET \
-            -H 'Accept: application/vnd.github+json' \
-            "repos/${{ github.repository }}/actions/jobs/${JOB_ID}/logs" \
-            > /tmp/product-gate.log
           python - <<'PY'
           import json
-          import re
+          import os
+          import subprocess
           from datetime import UTC, datetime
           from pathlib import Path
 
-          patterns = re.compile(
-              r'(##\[error\]|fatal:|error:|conflict|rebase|merge|identity|permission|protected|non-fast-forward|failed)',
-              re.IGNORECASE,
-          )
-          safe = []
-          for raw in Path('/tmp/product-gate.log').read_text(encoding='utf-8', errors='replace').splitlines():
-              if not patterns.search(raw):
-                  continue
-              line = re.sub(r'^[0-9TZ:.-]+\s+', '', raw)
-              line = re.sub(r'https?://\S+', '[URL]', line)
-              line = re.sub(r'(?i)(authorization|token|secret|key)\s*[:=]\s*\S+', r'\1=[MASKED]', line)
-              safe.append(line[:500])
-          result = {
-              'observed_at_utc': datetime.now(UTC).isoformat(),
-              'run_id': 29998952457,
-              'job_id': 89179272998,
-              'matched_lines': safe[-80:],
+          repo = os.environ['GITHUB_REPOSITORY']
+          workflows = {
+              'product_gate': 'devflow-product-gate.yml',
+              'post_merge': 'devflow-post-merge.yml',
+              'state': 'devflow-state-consistency.yml',
+              'incident': 'devflow-incident.yml',
+              'auto_recovery': 'devflow-auto-recovery.yml',
           }
-          Path('/tmp/product-gate-diagnostic.json').write_text(
+          result = {'observed_at_utc': datetime.now(UTC).isoformat(), 'workflows': {}}
+          for key, workflow in workflows.items():
+              process = subprocess.run(
+                  ['gh', 'api', f'repos/{repo}/actions/workflows/{workflow}/runs?per_page=10'],
+                  check=True,
+                  capture_output=True,
+                  text=True,
+              )
+              payload = json.loads(process.stdout)
+              result['workflows'][key] = [
+                  {
+                      field: run.get(field)
+                      for field in (
+                          'id', 'name', 'display_title', 'status', 'conclusion', 'event',
+                          'head_branch', 'head_sha', 'run_attempt', 'created_at', 'updated_at', 'html_url'
+                      )
+                  }
+                  for run in payload.get('workflow_runs', [])[:10]
+              ]
+          Path('/tmp/devflow-closeout-status.json').write_text(
               json.dumps(result, indent=2, sort_keys=True) + '\n', encoding='utf-8'
           )
           PY
-      - name: Publish diagnostic to isolated orphan branch
+      - name: Publish status to isolated orphan branch
         shell: bash
         run: |
           set -euo pipefail
@@ -69,7 +73,7 @@ jobs:
           git switch --orphan runtime-devflow-status
           git rm -rf . >/dev/null 2>&1 || true
           mkdir -p runtime
-          cp /tmp/product-gate-diagnostic.json runtime/product-gate-diagnostic.json
-          git add runtime/product-gate-diagnostic.json
-          git commit -m "Publish bounded Product Gate diagnostic"
+          cp /tmp/devflow-closeout-status.json runtime/devflow-closeout-status.json
+          git add runtime/devflow-closeout-status.json
+          git commit -m "Publish safe devflow closeout status"
           git push --force origin HEAD:refs/heads/runtime/devflow-status
