@@ -76,14 +76,30 @@ jobs:
         if: steps.patch.outcome == 'success' && steps.validate.outcome != 'success'
         run: exit 1
       - name: Commit patch and remove temporary runners
+        id: commit
         if: steps.patch.outcome == 'success' && steps.validate.outcome == 'success'
+        continue-on-error: true
         run: |
-          git rm .github/workflows/temporary-patch-codex-recovery-circuit-breaker.yml
-          git rm .github/workflows/temporary-run-codex-recovery-hotfix.yml
-          git rm scripts/devflow/temporary_apply_codex_recovery_hotfix.py
-          git rm scripts/devflow/temporary_finish_codex_recovery_hotfix.py
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .github scripts/devflow tests docs
-          git commit -m "Stop blocked Codex recovery loops and require immutable failure context"
-          git push origin HEAD:fix/codex-recovery-circuit-breaker
+          set -o pipefail
+          {
+            git rm .github/workflows/temporary-patch-codex-recovery-circuit-breaker.yml
+            git rm .github/workflows/temporary-run-codex-recovery-hotfix.yml
+            git rm scripts/devflow/temporary_apply_codex_recovery_hotfix.py
+            git rm scripts/devflow/temporary_finish_codex_recovery_hotfix.py
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add .github scripts/devflow tests docs
+            git commit -m "Stop blocked Codex recovery loops and require immutable failure context"
+            git push origin HEAD:fix/codex-recovery-circuit-breaker
+          } 2>&1 | tee /tmp/codex-recovery-hotfix-commit.log
+      - name: Upload bounded commit diagnostics
+        if: steps.commit.outcome != 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: codex-recovery-hotfix-commit-${{ github.run_id }}
+          path: /tmp/codex-recovery-hotfix-commit.log
+          if-no-files-found: error
+          retention-days: 3
+      - name: Fail after commit diagnostic upload
+        if: steps.commit.outcome != 'success'
+        run: exit 1
