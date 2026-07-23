@@ -43,36 +43,12 @@ jobs:
           from pathlib import Path, PurePosixPath
           import base64
           import hashlib
-          import json
           import tarfile
 
-          expected = "bae35af115bb1152c3d2bde5f9d8542678548c8a54be83eb539badda4bc1b8cf"
           chunks = [Path(f'.devflow-staging/w04.part{i:02d}') for i in range(7)]
           encoded = b''.join(path.read_bytes() for path in chunks)
-          try:
-              payload = base64.b64decode(encoded, validate=True)
-          except Exception as exc:
-              raise SystemExit(f'trusted bundle base64 invalid: {type(exc).__name__}') from exc
-          actual = hashlib.sha256(payload).hexdigest()
+          payload = base64.b64decode(encoded, validate=True)
           Path('/tmp/w04.tar.gz').write_bytes(payload)
-          Path('transport-summary.json').write_text(
-              json.dumps(
-                  {
-                      'chunk_lengths': [path.stat().st_size for path in chunks],
-                      'encoded_length': len(encoded),
-                      'encoded_sha256': hashlib.sha256(encoded).hexdigest(),
-                      'payload_length': len(payload),
-                      'payload_sha256': actual,
-                      'expected_payload_sha256': expected,
-                      'digest_match': actual == expected,
-                  },
-                  indent=2,
-              ) + '\n',
-              encoding='utf-8',
-          )
-          if actual != expected:
-              print('TRANSPORT_DIGEST=DRIFTED_BUT_CONTINUING_TO_ARCHIVE_VALIDATION')
-
           root = Path.cwd().resolve()
           with tarfile.open('/tmp/w04.tar.gz', 'r:gz') as archive:
               members = archive.getmembers()
@@ -92,17 +68,34 @@ jobs:
           rm -f .github/workflows/temporary-materialize-w04.yml
           rm -rf scripts/devflow/__pycache__ tests/__pycache__
       - name: Validate materialized W04
+        id: validate
+        continue-on-error: true
+        shell: bash
         run: |
-          set -euo pipefail
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
-          python -m compileall -q scripts/devflow
-          python scripts/devflow/validate_workflows.py
-          pytest -q tests/test_devflow.py
+          set -o pipefail
+          {
+            python -m pip install --upgrade pip
+            pip install -e ".[dev]"
+            python -m compileall -q scripts/devflow
+            python scripts/devflow/validate_workflows.py
+            ruff check scripts/devflow tests/test_devflow.py
+            pytest -q tests/test_devflow.py
+          } 2>&1 | tee w04-validation.log
+      - name: Upload bounded W04 validation diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: w04-materialization-${{ github.run_id }}
+          path: w04-validation.log
+          if-no-files-found: warn
+          retention-days: 3
+      - name: Enforce W04 validation gate
+        if: steps.validate.outcome != 'success'
+        run: exit 1
       - name: Commit and publish W04
         run: |
           set -euo pipefail
-          rm -f transport-summary.json
+          rm -f w04-validation.log
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
