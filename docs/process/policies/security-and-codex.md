@@ -92,11 +92,13 @@ Caller Job必须：
 - 一个明确目标；
 - 显式允许路径和禁止路径；
 - 每个 Task Generation 一次 Session；
-- `effort: low`；
+- 正式运行固定 `effort: xhigh`；
 - 输出 Schema；
 - 一个 Targeted Gate；
 - 不做总规划、业务口径、Secret/Workflow 变更、长报告或无限修复；
 - 越界修改立即 `SECURITY_BLOCKED`，不得提交或自动重试。
+
+新任务模板与自动恢复生成器必须写入 `reasoning_effort: xhigh`。为让已经发布的历史控制分支继续完成 Product Gate/Post-Merge，Schema v1 解析器可只读兼容旧值 `low`；运行时不得根据旧值降级，实际 Codex Action 仍固定使用 `xhigh`。
 
 ## Recovery Generation
 
