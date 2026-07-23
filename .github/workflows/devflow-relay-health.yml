@@ -1,0 +1,75 @@
+name: Devflow Relay Health
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  health:
+    if: github.actor == 'tyxq428'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: agent-runtime
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: Register private value masks
+        shell: bash
+        env:
+          ENDPOINT: ${{ secrets.AGENT_RESPONSES_ENDPOINT }}
+          API_KEY: ${{ secrets.AGENT_API_KEY }}
+          MODEL: ${{ secrets.AGENT_MODEL }}
+        run: |
+          set +x
+          python - <<'PY'
+          import base64
+          import os
+          from urllib.parse import quote, urlsplit
+          endpoint = os.environ['ENDPOINT']
+          key = os.environ['API_KEY']
+          model = os.environ['MODEL']
+          parsed = urlsplit(endpoint)
+          for value in {
+              endpoint, endpoint.rstrip('/'), parsed.netloc, parsed.hostname or '', key, model,
+              quote(endpoint, safe=''), quote(key, safe=''),
+              base64.b64encode(endpoint.encode()).decode(),
+              base64.urlsafe_b64encode(endpoint.encode()).decode(),
+              base64.b64encode(key.encode()).decode(),
+              base64.urlsafe_b64encode(key.encode()).decode(),
+          }:
+              if len(value) >= 3:
+                  print(f'::add-mask::{value}')
+          PY
+      - name: Run minimal streaming Responses health check
+        env:
+          AGENT_RESPONSES_ENDPOINT: ${{ secrets.AGENT_RESPONSES_ENDPOINT }}
+          AGENT_API_KEY: ${{ secrets.AGENT_API_KEY }}
+          AGENT_MODEL: ${{ secrets.AGENT_MODEL }}
+          PYTHONPATH: scripts/devflow
+        run: python scripts/devflow/relay_health.py
+      - name: Audit safe health summary
+        if: always()
+        env:
+          AGENT_RESPONSES_ENDPOINT: ${{ secrets.AGENT_RESPONSES_ENDPOINT }}
+          AGENT_API_KEY: ${{ secrets.AGENT_API_KEY }}
+          AGENT_MODEL: ${{ secrets.AGENT_MODEL }}
+        run: |
+          python scripts/devflow/secret_audit.py relay-health-summary.json \
+            --output relay-health-secret-audit.json
+      - name: Upload diagnostics only on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: relay-health-diagnostics-${{ github.run_id }}
+          path: |
+            relay-health-summary.json
+            relay-health-secret-audit.json
+          if-no-files-found: warn
+          retention-days: 7
