@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - .github/workflows/temporary-run-codex-circuit-breaker.yml
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -43,7 +44,10 @@ jobs:
           for index, name in enumerate(names, start=1):
               marker = f'      - name: {name}'
               start = lines.index(marker)
-              run_index = next(i for i in range(start + 1, len(lines)) if lines[i] == '        run: |')
+              run_index = next(
+                  i for i in range(start + 1, len(lines))
+                  if lines[i] == '        run: |'
+              )
               body = []
               for raw in lines[run_index + 1:]:
                   if raw.startswith('      - name: '):
