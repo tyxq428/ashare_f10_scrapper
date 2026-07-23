@@ -1,0 +1,37 @@
+name: Temporary Kick Codex Thin Slice
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/temporary-kick-codex-thin-slice.yml
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch-if-not-running:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Dispatch trusted control branch only when no active run exists
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TASK_BRANCH: task/codex-resilient-command-terminal-status-auto-v1
+        run: |
+          set -euo pipefail
+          ACTIVE="$(gh api --paginate \
+            "repos/${{ github.repository }}/actions/workflows/codex-task.yml/runs?branch=${TASK_BRANCH}&per_page=100" \
+            --jq '[.workflow_runs[] | select(.status == "queued" or .status == "in_progress")] | length')"
+          if [[ "$ACTIVE" != "0" ]]; then
+            echo "CODEX_TASK_ALREADY_ACTIVE=${ACTIVE}" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          gh api --method POST \
+            "repos/${{ github.repository }}/actions/workflows/codex-task.yml/dispatches" \
+            -f ref=main \
+            -f "inputs[task_branch]=${TASK_BRANCH}"
+          echo "CODEX_TASK_DISPATCHED=${TASK_BRANCH}" >> "$GITHUB_STEP_SUMMARY"
