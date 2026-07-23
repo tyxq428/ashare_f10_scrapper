@@ -97,24 +97,21 @@ jobs:
               encoding='utf-8',
           )
           for key, item in request.items():
-              print(f'{key}={str(item).lower() if isinstance(item, bool) else item}')
+              output = str(item).lower() if isinstance(item, bool) else item
+              print(f'{key}={output}')
           PY
 
-      - name: Collect open pull request heads and remote refs
+      - name: Collect open pull request heads and current main
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          TASK_BRANCH: ${{ steps.request.outputs.task_branch }}
-          PUBLISH_BRANCH: ${{ steps.request.outputs.publish_branch }}
         run: |
           set -euo pipefail
-          gh api --paginate \
+          gh api --paginate --slurp \
             "repos/${{ github.repository }}/pulls?state=open&per_page=100" \
-            --jq '[.[] | {head: .head.ref}]' > /tmp/open-pull-requests.json
-          git fetch --no-tags origin main \
-            "+refs/heads/${TASK_BRANCH}:refs/remotes/origin/${TASK_BRANCH}" \
-            "+refs/heads/${PUBLISH_BRANCH}:refs/remotes/origin/${PUBLISH_BRANCH}" \
-            >/dev/null 2>&1 || true
+            --jq '[.[][] | {head: .head.ref}]' \
+            > /tmp/open-pull-requests.json
+          git fetch --no-tags origin main
 
       - name: Build deterministic dry-run plan
         shell: bash
@@ -153,8 +150,13 @@ jobs:
           PY
           while IFS= read -r branch; do
             [[ -n "$branch" ]] || continue
-            git push origin --delete "$branch"
-            echo "DELETED_MANAGED_BRANCH=${branch}" >> "$GITHUB_STEP_SUMMARY"
+            if git ls-remote --exit-code --heads origin \
+              "refs/heads/${branch}" >/dev/null 2>&1; then
+              git push origin --delete "$branch"
+              echo "DELETED_MANAGED_BRANCH=${branch}" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "MANAGED_BRANCH_ALREADY_ABSENT=${branch}" >> "$GITHUB_STEP_SUMMARY"
+            fi
           done < /tmp/deletable-branches.txt
 
       - name: Record dry-run default
