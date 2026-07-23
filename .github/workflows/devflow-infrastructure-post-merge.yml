@@ -1,3 +1,4 @@
+# Retrigger after clean branch restoration; deterministic only, no Codex.
 name: Devflow Infrastructure Post Merge
 
 on:
