@@ -28,14 +28,20 @@ max_recovery_generations: 1
 
 1. Web Supervisor 先写当前 `Wxx_plan.md`。
 2. 从最新 `main` 创建 `task/codex-<slug>` 控制分支并提交任务描述；任务中不得包含 Secret。
-3. `Codex Task` 验证 Task Descriptor，再调用 reusable workflow。
-4. Secret-bearing Codex Job 以 `contents: read` 运行 localhost Forwarder、一次 Codex Session、Scope Guard、Targeted Gate、Secret Audit 和 Patch Manifest。
-5. Secret-free Publish Job 验证 Manifest、应用 Patch、重跑 Targeted Gate，移除任务描述后 Push 隔离产品分支。
-6. Publish 成功后显式发送 `devflow_product_gate`，不依赖 Push 递归触发。
-7. Product Gate 从控制分支重新读取 immutable descriptor，执行 Scope Guard 和 Full Gate。
-8. 若 `risk_class=low` 且 `auto_merge=true`，同步最新 `main`、必要时 rebase 并重跑 Gate，然后自动合并。
-9. 合并后显式发送 `devflow_post_merge`，在 exact main 执行 Post-Merge Profile。
-10. Post-Merge 通过后自动更新 canonical state、阶段结果和最终报告；`notify_completion=true` 时发送一次完成通知。
+3. 通过 `workflow_dispatch` 显式启动默认分支上的 `Codex Task`，输入只包含可信控制分支名；不依赖任务分支 Push。
+4. `Codex Task` 验证 Task Descriptor，并在普通 Job 上直接声明 `environment: agent-runtime`。
+5. Secret-bearing Codex Job 以 `contents: read` checkout 控制分支，运行安全预检和 localhost Forwarder，再调用 `.github/actions/codex-thin-worker/action.yml` composite action完成一次 Codex Session。
+6. 同一 Secret-bearing Job 继续执行 Scope Guard、Targeted Gate、Secret Audit 和 Patch Manifest；Composite action只接收显式 Key/Model inputs，不直接读取 `secrets.*`。
+7. Secret-free Publish Job 验证 Manifest、应用 Patch、重跑 Targeted Gate，移除任务描述后 Push 隔离产品分支。
+8. Publish 成功后显式发送 `devflow_product_gate`，不依赖 Push 递归触发。
+9. Product Gate 从控制分支重新读取 immutable descriptor，执行 Scope Guard 和 Full Gate。
+10. 若 `risk_class=low` 且 `auto_merge=true`，同步最新 `main`、必要时 rebase 并重跑 Gate，然后自动合并。
+11. 合并后显式发送 `devflow_post_merge`，在 exact main 执行 Post-Merge Profile。
+12. Post-Merge 通过后自动更新 canonical state、阶段结果和最终报告；`notify_completion=true` 时发送一次完成通知。
+
+## 为什么不用 Secret-bearing reusable workflow
+
+`agent-runtime` Environment Secrets 必须直接绑定到入口 Workflow 的普通 Job。正式探针已证明普通 Job 可以读取三项 Secret，而旧本地 `workflow_call` 边界中的同名表达式为空。后续可复用性由 composite action提供；不得重新把 Environment Secret Job移回 reusable workflow。
 
 ## 自动恢复
 
