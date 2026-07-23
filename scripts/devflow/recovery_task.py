@@ -35,26 +35,36 @@ def build_recovery_descriptor(
     value = deepcopy(original)
     parent_task_id = descriptor.parent_task_id or descriptor.task_id
     base_task_id = parent_task_id
+    value["schema_version"] = 2
     value["task_id"] = f"{base_task_id}-recovery-g{generation}"
     value["parent_task_id"] = base_task_id
     value["parent_run_id"] = source_run_id
     value["recovery_generation"] = generation
     value["expected_base_sha"] = expected_base_sha
-    value["publish_branch"] = f"codex/{base_task_id}-recovery-g{generation}"
+    value["publish_branch"] = (
+        f"codex/{base_task_id}-recovery-g{generation}"
+    )
+    value["reasoning_effort"] = "xhigh"
+    value["context_budget"] = asdict(descriptor.context_budget)
     value["objective"] = (
         f"Recover the approved low-risk task after {reason_code}. "
-        f"Preserve the original scope and repair only the failing deterministic gate."
+        "Preserve the original scope and repair only the failing "
+        "deterministic gate."
     )
     changes = list(value.get("required_changes", []))
-    changes.append(f"Repair failure {reason_code}: {safe_summary(reason)}")
-    changes.append("Do not widen the allowed file set or change business semantics.")
+    changes.append(
+        f"Repair failure {reason_code}: {safe_summary(reason)}"
+    )
+    changes.append(
+        "Do not widen the allowed file set or change business semantics."
+    )
     value["required_changes"] = changes
     notes = list(value.get("acceptance_notes", []))
     notes.append(f"Parent workflow run: {source_run_id}")
-    notes.append("This is the only automatic Codex recovery generation.")
+    notes.append(
+        "This is the only automatic Codex recovery generation."
+    )
     value["acceptance_notes"] = notes
-    value["reasoning_effort"] = "xhigh"
-    value["context_budget"] = asdict(descriptor.context_budget)
     value["automatic_second_session"] = 0
     value["session_limit"] = 1
 
@@ -87,7 +97,10 @@ def main() -> int:
         expected_base_sha=args.expected_base_sha,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    args.output.write_text(
+        json.dumps(result, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
     print(f"RECOVERY_TASK_ID={result['task_id']}")
     print(f"RECOVERY_PUBLISH_BRANCH={result['publish_branch']}")
     return 0
