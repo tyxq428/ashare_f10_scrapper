@@ -39,16 +39,30 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat .devflow-staging/w04.part0* | base64 --decode > /tmp/w04.tar.gz
           python - <<'PY'
           from pathlib import Path, PurePosixPath
+          import base64
           import hashlib
           import tarfile
 
           expected = "bae35af115bb1152c3d2bde5f9d8542678548c8a54be83eb539badda4bc1b8cf"
-          payload = Path('/tmp/w04.tar.gz').read_bytes()
-          if hashlib.sha256(payload).hexdigest() != expected:
+          chunks = [Path(f'.devflow-staging/w04.part{i:02d}') for i in range(7)]
+          for path in chunks:
+              data = path.read_bytes()
+              print(f'TRANSPORT_CHUNK={path.name}:{len(data)}:{hashlib.sha256(data).hexdigest()}')
+          encoded = b''.join(path.read_bytes() for path in chunks)
+          print(f'TRANSPORT_ENCODED_LENGTH={len(encoded)}')
+          print(f'TRANSPORT_ENCODED_SHA256={hashlib.sha256(encoded).hexdigest()}')
+          try:
+              payload = base64.b64decode(encoded, validate=True)
+          except Exception as exc:
+              raise SystemExit(f'trusted bundle base64 invalid: {type(exc).__name__}') from exc
+          actual = hashlib.sha256(payload).hexdigest()
+          print(f'TRANSPORT_PAYLOAD_LENGTH={len(payload)}')
+          print(f'TRANSPORT_PAYLOAD_SHA256={actual}')
+          if actual != expected:
               raise SystemExit('trusted bundle digest mismatch')
+          Path('/tmp/w04.tar.gz').write_bytes(payload)
 
           root = Path.cwd().resolve()
           with tarfile.open('/tmp/w04.tar.gz', 'r:gz') as archive:
