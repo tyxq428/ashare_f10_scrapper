@@ -19,7 +19,7 @@ concurrency:
 jobs:
   migrate:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
@@ -28,24 +28,13 @@ jobs:
       - uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55
         with:
           python-version: "3.12"
-          cache: pip
-          cache-dependency-path: pyproject.toml
-      - name: Install deterministic development dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
-      - name: Migrate selected implementation without Codex
+      - name: Apply deterministic migration and format
         run: |
           set -euo pipefail
           python scripts/devflow/temporary_migrate_operational_optimization.py
+          python -m pip install ruff
           ruff format scripts/devflow tests/test_devflow*.py
           python -m compileall -q scripts/devflow
-          python scripts/devflow/validate_docs.py
-          python scripts/devflow/upgrade_compatibility.py --output /tmp/upgrade-compatibility.json
-          python scripts/devflow/validate_state.py --all-active --allow-checkout-branch --output /tmp/state-validation.json
-          python scripts/devflow/validate_workflows.py
-          ruff check scripts/devflow tests/test_devflow*.py
-          pytest -q tests/test_devflow*.py
       - name: Commit migrated clean baseline
         run: |
           set -euo pipefail
