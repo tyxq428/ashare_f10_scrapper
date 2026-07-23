@@ -23,7 +23,7 @@ permissions:
 
 concurrency:
   group: temporary-materialize-w04
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   materialize:
