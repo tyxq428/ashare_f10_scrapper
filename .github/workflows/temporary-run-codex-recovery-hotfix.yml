@@ -6,6 +6,7 @@ on:
       - fix/codex-recovery-circuit-breaker
     paths:
       - scripts/devflow/temporary_apply_codex_recovery_hotfix.py
+      - scripts/devflow/temporary_finish_codex_recovery_hotfix.py
       - .github/workflows/temporary-run-codex-recovery-hotfix.yml
   pull_request:
     branches:
@@ -29,7 +30,11 @@ jobs:
           ref: fix/codex-recovery-circuit-breaker
           fetch-depth: 0
       - name: Apply deterministic patch
-        run: python scripts/devflow/temporary_apply_codex_recovery_hotfix.py
+        run: |
+          python scripts/devflow/temporary_apply_codex_recovery_hotfix.py
+          python scripts/devflow/temporary_finish_codex_recovery_hotfix.py
+          ruff check --fix scripts/devflow/recovery_policy.py scripts/devflow/validate_workflows.py tests/test_devflow.py tests/test_devflow_codex_environment.py
+          ruff format scripts/devflow/recovery_policy.py scripts/devflow/validate_workflows.py tests/test_devflow.py tests/test_devflow_codex_environment.py
       - name: Validate without Codex
         run: |
           python -m compileall -q scripts/devflow
@@ -41,6 +46,7 @@ jobs:
           git rm .github/workflows/temporary-patch-codex-recovery-circuit-breaker.yml
           git rm .github/workflows/temporary-run-codex-recovery-hotfix.yml
           git rm scripts/devflow/temporary_apply_codex_recovery_hotfix.py
+          git rm scripts/devflow/temporary_finish_codex_recovery_hotfix.py
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add .github scripts/devflow tests docs
