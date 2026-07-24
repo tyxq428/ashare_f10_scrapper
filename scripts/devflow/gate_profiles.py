@@ -23,6 +23,8 @@ DEVFLOW_TESTS = [
     "tests/test_devflow.py",
     "tests/test_devflow_codex_environment.py",
     "tests/test_devflow_operational_optimization.py",
+    "tests/test_devflow_legacy_codex_branch_audit.py",
+    "tests/test_devflow_codex_trigger_surface.py",
 ]
 
 GATE_PROFILES: dict[str, list[list[str]]] = {
