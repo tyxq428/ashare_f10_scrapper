@@ -1,0 +1,57 @@
+{
+  "schema_version": 2,
+  "state_revision": 1,
+  "task_id": "codex-trigger-surface-audit-v2",
+  "title": "Historical Codex rerun quarantine and paid-probe trigger hardening",
+  "status": "RUNNING",
+  "execution_status": "RUNNING",
+  "acceptance": {
+    "domain": "generic",
+    "status": "PENDING",
+    "reason_code": null,
+    "details_path": null
+  },
+  "security_status": "PENDING",
+  "working_branch": "feature/codex-trigger-surface-audit-v2",
+  "pull_request": null,
+  "base_sha_at_start": "fa1427a08bc62b7fdf55a991fec99cb22f442562",
+  "last_product_commit_sha": "fa1427a08bc62b7fdf55a991fec99cb22f442562",
+  "last_state_commit_sha": null,
+  "current_stage": "W01",
+  "last_completed_stage": "W00",
+  "last_successful_step": "historical_rerun_and_paid_probe_gap_identified",
+  "next_action": "quarantine_legacy_task_branches_and_harden_probe_triggers",
+  "gate_results": {
+    "W00_TRIGGER_SURFACE_AUDIT": "PASS",
+    "W01_LEGACY_RERUN_QUARANTINE": "PENDING",
+    "W02_PAID_PROBE_BOUNDARY": "PENDING",
+    "W03_PERMANENT_GUARDS": "PENDING",
+    "W04_PRE_MERGE": "PENDING",
+    "W05_EXACT_MAIN": "PENDING",
+    "CODEX_CALLS_DURING_TASK": "0"
+  },
+  "retry_budget": {
+    "infrastructure": 3,
+    "codex_sessions": 0,
+    "codex_recovery_generations": 0,
+    "replans": 2
+  },
+  "human_gate": {
+    "required": false,
+    "reason": null,
+    "minimum_action": null,
+    "resume_from": null
+  },
+  "post_merge": {
+    "status": "PENDING",
+    "merge_sha": null,
+    "verified_run_ids": []
+  },
+  "notification": {
+    "generation": 0,
+    "last_type": null,
+    "acknowledged": true,
+    "control_issue_number": null
+  },
+  "updated_at_utc": "2026-07-24T03:55:00Z"
+}
