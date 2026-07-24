@@ -7,7 +7,7 @@ status: PASS
 implementation_pull_request: 58
 implementation_head_sha: aaa63aa9b89dd4eda9b3b6e70ea59f90937a2dcf
 implementation_merge_sha: 1f20a6531329ce957d9a3d5a0478071b92d11496
-closeout_pull_request: pending
+closeout_pull_request: 59
 exact_main_tree_equivalence: PASS_NO_FILE_DIFF
 codex_policy_after_merge: disabled
 bark_requests_before_closeout: 0
@@ -40,7 +40,7 @@ PR #58 merge commit相对该已验证head只增加一个merge commit，文件差
 
 ## 原子Closeout
 
-Closeout分支从精确implementation merge SHA创建，并将以下文件一起更新：
+Closeout PR #59从精确implementation merge SHA创建，并将以下文件一起更新：
 
 - `task_state.yaml`；
 - `ACTIVE_TASKS.yaml`；
@@ -72,7 +72,7 @@ expected_receipt_artifacts_max: 1
 expected_issue_receipt_indexes_max: 1
 ```
 
-Closeout合并后，main上的State Consistency成功Run将触发独立producer。producer扫描本次精确main第一父差异，dispatch唯一completion事件；Incident随后创建canonical Issue、写入稳定任务完成marker、最多执行一个Bark POST，并生成安全回执。
+PR #59合并后，main上的State Consistency成功Run将触发独立producer。producer扫描本次精确main第一父差异，dispatch唯一completion事件；Incident随后创建canonical Issue、写入稳定任务完成marker、最多执行一个Bark POST，并生成安全回执。
 
 实际State Consistency、producer、Incident Run ID、Artifact ID、delivery status、request initiated和HTTP状态将在事件完成后通过纯文档观察PR追加到本文件；不会修改notification generation，也不会重发Bark。
 
