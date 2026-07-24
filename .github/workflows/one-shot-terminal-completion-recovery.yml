@@ -1,0 +1,126 @@
+name: One-Shot Canonical Completion Recovery
+
+on:
+  push:
+    branches:
+      - chore/devflow-terminal-notification-recovery-v1-one-shot
+    paths:
+      - .github/workflows/one-shot-terminal-completion-recovery.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: one-shot-terminal-completion-recovery-v1
+  cancel-in-progress: false
+
+jobs:
+  dispatch-canonical-completion:
+    if: github.actor == 'tyxq428' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: 08583fda1e4d75dceb53f2e4bfc85f78ef5be97c
+          persist-credentials: false
+
+      - name: Validate the immutable canonical completion and build payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == \
+            "08583fda1e4d75dceb53f2e4bfc85f78ef5be97c" ]]
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          task_id = 'devflow-terminal-notification-recovery-v1'
+          state_path = Path(
+              'docs/implementation/devflow-terminal-notification-recovery-v1/task_state.yaml'
+          )
+          index_path = Path('docs/implementation/ACTIVE_TASKS.yaml')
+          state = json.loads(state_path.read_text(encoding='utf-8'))
+          index = json.loads(index_path.read_text(encoding='utf-8'))
+          entries = [
+              item for item in index['tasks']
+              if item.get('task_id') == task_id
+          ]
+          assert len(entries) == 1
+          assert entries[0]['status'] == 'DONE'
+          assert entries[0]['branch'] == 'main'
+          assert state['status'] == 'DONE'
+          assert state['execution_status'] == 'COMPLETED'
+          assert state['acceptance']['status'] == 'PASS'
+          assert state['security_status'] == 'PASS'
+          assert state['post_merge']['status'] == 'PASS'
+          assert state['human_gate']['required'] is False
+          assert state['notification'] == {
+              'generation': 1,
+              'last_type': 'COMPLETED',
+              'acknowledged': False,
+              'control_issue_number': None,
+          }
+          payload = {
+              'task_id': task_id,
+              'action': 'COMPLETED',
+              'notification_type': 'COMPLETED',
+              'reason_code': 'TERMINAL_NOTIFICATION_RECOVERY_COMPLETE',
+              'reason': (
+                  'The independently validated terminal-notification recovery task '
+                  'reached canonical DONE / COMPLETED / PASS on exact main.'
+              ),
+              'minimum_action': 'No action is required.',
+              'fingerprint': f'task-completed:{task_id}:g1',
+              'source_workflow': 'Devflow State Consistency',
+              'source_run_id': 30097971601,
+              'failure_steps': [],
+              'target_url': (
+                  'https://github.com/tyxq428/ashare_f10_scrapper/pull/59'
+              ),
+          }
+          Path('/tmp/devflow-notification.json').write_text(
+              json.dumps(payload),
+              encoding='utf-8',
+          )
+          PY
+          python scripts/devflow/notification_event.py prepare \
+            --repo . \
+            --repository "${{ github.repository }}" \
+            --payload /tmp/devflow-notification.json \
+            --validated-output /tmp/validated-notification.json \
+            --bark-output /tmp/bark-message.json
+
+      - name: Dispatch the one canonical completion event
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(
+              Path('/tmp/devflow-notification.json').read_text(encoding='utf-8')
+          )
+          wrapper = {
+              'event_type': 'devflow_notify',
+              'client_payload': payload,
+          }
+          Path('/tmp/devflow-notification-wrapper.json').write_text(
+              json.dumps(wrapper),
+              encoding='utf-8',
+          )
+          PY
+          gh api --method POST \
+            "repos/${{ github.repository }}/dispatches" \
+            --input /tmp/devflow-notification-wrapper.json
+          echo "CANONICAL_COMPLETION_RECOVERY_DISPATCH=1" \
+            >> "$GITHUB_STEP_SUMMARY"
+          echo "BARK_REQUESTS_IN_THIS_WORKFLOW=0" \
+            >> "$GITHUB_STEP_SUMMARY"
+          echo "CODEX_CALLS=0" >> "$GITHUB_STEP_SUMMARY"
+          echo "RESPONSES_PAID_PROBES=0" >> "$GITHUB_STEP_SUMMARY"
+          echo "RELAY_SECRET_READS=0" >> "$GITHUB_STEP_SUMMARY"
+          echo "HISTORICAL_CODEX_RERUNS=0" >> "$GITHUB_STEP_SUMMARY"
