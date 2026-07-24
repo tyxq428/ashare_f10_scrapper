@@ -17,7 +17,7 @@ AUTO_RECOVERY = ROOT / ".github/workflows/devflow-auto-recovery.yml"
 PRODUCT_GATE = ROOT / ".github/workflows/devflow-product-gate.yml"
 POST_MERGE = ROOT / ".github/workflows/devflow-post-merge.yml"
 STATE_CONSISTENCY = ROOT / ".github/workflows/devflow-state-consistency.yml"
-OBSOLETE_TERMINAL = ROOT / ".github/workflows/devflow-terminal-state-notify.yml"
+TERMINAL_PRODUCER = ROOT / ".github/workflows/devflow-terminal-state-notify.yml"
 RECEIPT_COMMENT = DEVFLOW / "bark_delivery_receipt_comment.py"
 
 
@@ -28,6 +28,16 @@ def test_incident_uses_task_level_dispatch_not_raw_workflow_completion() -> None
     assert "workflow_run:" not in text
     assert "notification_event.py prepare" in text
     assert "devflow-task-control-chatgpt-web-codex-devflow-v1" not in text
+
+
+def test_completed_incident_deduplicates_across_notification_generations() -> None:
+    text = INCIDENT.read_text(encoding="utf-8")
+    assert 'COMPLETION_MARKER="devflow-task-completed:${TASK_ID}"' in text
+    assert "devflow-task-completed:{value['task_id']}" in text
+    assert "TASK_COMPLETION=ALREADY_RECORDED" in text
+    assert "grep -Fq -- \"$MARKER\"" in text
+    assert "grep -Fq -- \"$COMPLETION_MARKER\"" in text
+    assert "devflow-task-control-${{" in text
 
 
 def test_bark_transport_is_single_attempt_fail_open_and_secret_isolated() -> None:
@@ -87,25 +97,40 @@ def test_auto_recovery_binds_terminal_events_without_retrying_bark() -> None:
     assert validate_auto_recovery(AUTO_RECOVERY) == []
 
 
-def test_completion_dispatch_waits_for_state_consistency_and_fails_open() -> None:
+def test_state_consistency_validates_only_and_has_no_notification_transport() -> None:
     text = STATE_CONSISTENCY.read_text(encoding="utf-8")
-    assert "notify-terminal-state:" in text
-    assert "needs: consistency" in text
-    assert "github.event_name == 'push' && github.ref_name == 'main'" in text
-    assert "continue-on-error: true" in text
-    assert "contents: write" in text
-    assert "ref: ${{ github.sha }}" in text
-    assert "fetch-depth: 0" in text
+    assert "validate_state.py" in text
+    assert "validate_workflows.py" in text
+    assert "pytest -q" in text
+    assert "notify-terminal-state:" not in text
+    assert "terminal_notification_scan.py" not in text
+    assert "devflow_notify" not in text
+    assert "contents: write" not in text
+    assert "BARK_PUSH_URL" not in text
+    assert "--request POST" not in text
+
+
+def test_completion_producer_runs_only_after_successful_main_push_validation() -> None:
+    text = TERMINAL_PRODUCER.read_text(encoding="utf-8")
+    assert "workflow_run:" in text
+    assert "      - Devflow State Consistency" in text
+    assert "github.event.workflow_run.conclusion == 'success'" in text
+    assert "github.event.workflow_run.event == 'push'" in text
+    assert "github.event.workflow_run.head_branch == 'main'" in text
+    assert "ref: ${{ github.event.workflow_run.head_sha }}" in text
+    assert "fetch-depth: 2" in text
+    assert "git merge-base --is-ancestor" in text
+    assert 'git rev-parse "${SOURCE_HEAD_SHA}^1"' in text
     assert "terminal_notification_scan.py" in text
     assert "devflow_notify" in text
     assert "TERMINAL_NOTIFICATION_FAILURE=FAIL_OPEN" in text
-    assert "STATE_CONSISTENCY_REQUIRED_BEFORE_COMPLETION=YES" in text
+    assert "STATE_CONSISTENCY_SUCCESS_REQUIRED=YES" in text
+    assert "RAW_WORKFLOW_FAILURE_NOTIFICATIONS=0" in text
+    assert "BARK_REQUESTS_IN_THIS_WORKFLOW=0" in text
     assert "NOTIFICATION_FAILURE_AUTO_RECOVERY=0" in text
     assert "notification-runtime" not in text
     assert "BARK_PUSH_URL" not in text
     assert "--request POST" not in text
-    assert "BARK_REQUESTS_IN_THIS_WORKFLOW=0" in text
-    assert not OBSOLETE_TERMINAL.exists()
 
 
 def test_failed_product_and_post_merge_paths_do_not_dispatch_duplicates() -> None:
@@ -134,7 +159,13 @@ def test_notification_channel_manifest_matches_workflow_surface() -> None:
     summary = validate_channels()
     assert summary["status"] == "PASS", summary["errors"]
     assert summary["completion_producer"].endswith(
-        "devflow-state-consistency.yml"
+        "devflow-terminal-state-notify.yml"
+    )
+    assert summary["completion_scanner_workflows"] == [
+        ".github/workflows/devflow-terminal-state-notify.yml"
+    ]
+    assert summary["stable_completion_marker"] == (
+        "devflow-task-completed:<task-id>"
     )
     assert summary["completion_delivery_fail_open"] is True
     assert summary["bark_post_locations"] == 1
