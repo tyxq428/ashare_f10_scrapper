@@ -9,6 +9,12 @@ WORKFLOW_ROOT = Path(".github/workflows")
 INCIDENT = WORKFLOW_ROOT / "devflow-incident.yml"
 STATE_CONSISTENCY = WORKFLOW_ROOT / "devflow-state-consistency.yml"
 AUTO_RECOVERY = WORKFLOW_ROOT / "devflow-auto-recovery.yml"
+RECEIPT_BUILDER = Path("scripts/devflow/bark_delivery_result.py")
+RECEIPT_COMMENT = Path("scripts/devflow/bark_delivery_receipt_comment.py")
+UPLOAD_ARTIFACT_REF = (
+    "actions/upload-artifact@"
+    "ea165f8d65b6e75b540449e92b4886f43607fa02"
+)
 
 
 def _load_object(path: Path) -> dict[str, Any]:
@@ -74,6 +80,33 @@ def validate() -> dict[str, Any]:
         if bark.get(key) != expected:
             errors.append(f"Bark policy mismatch for {key}")
 
+    receipt: dict[str, Any] = {}
+    receipt_value = bark.get("receipt")
+    if not isinstance(receipt_value, dict):
+        errors.append("Bark delivery receipt policy is missing")
+    else:
+        receipt = receipt_value
+    expected_receipt = {
+        "enabled": True,
+        "builder": RECEIPT_BUILDER.as_posix(),
+        "issue_comment_renderer": RECEIPT_COMMENT.as_posix(),
+        "artifact_name_prefix": "bark-delivery-receipt-",
+        "artifact_file": "/tmp/bark-delivery-result.json",
+        "retention_days": 14,
+        "maximum_files": 1,
+        "issue_index_enabled": True,
+        "artifact_upload_fail_open": True,
+        "issue_index_fail_open": True,
+        "response_body_stored": False,
+        "response_headers_stored": False,
+        "endpoint_stored": False,
+        "raw_error_stored": False,
+        "secret_value_stored": False,
+    }
+    for key, expected in expected_receipt.items():
+        if receipt.get(key) != expected:
+            errors.append(f"Bark receipt policy mismatch for {key}")
+
     producer = manifest.get("completion_producer")
     if not isinstance(producer, dict):
         errors.append("completion producer policy is missing")
@@ -111,6 +144,21 @@ def validate() -> dict[str, Any]:
             f"{secret_users}"
         )
 
+    receipt_script_users = [
+        path.as_posix()
+        for path, text in workflow_text.items()
+        if RECEIPT_BUILDER.name in text or RECEIPT_COMMENT.name in text
+    ]
+    if receipt_script_users != [INCIDENT.as_posix()]:
+        errors.append(
+            "Bark receipt scripts must be used only by Devflow Incident: "
+            f"{receipt_script_users}"
+        )
+
+    for script in (RECEIPT_BUILDER, RECEIPT_COMMENT):
+        if not script.is_file():
+            errors.append(f"missing Bark receipt script: {script}")
+
     incident_text = workflow_text.get(INCIDENT, "")
     required_incident = (
         "repository_dispatch:",
@@ -122,17 +170,45 @@ def validate() -> dict[str, Any]:
         "--proto '=https'",
         "--tlsv1.2",
         "--output /dev/null",
+        "bark_delivery_result.py build",
+        "bark_delivery_result.py validate",
+        "bark_delivery_receipt_comment.py",
+        UPLOAD_ARTIFACT_REF,
+        "bark-delivery-receipt-${{",
+        "path: /tmp/bark-delivery-result.json",
+        "if-no-files-found: error",
+        "retention-days: 14",
+        "compression-level: 0",
         "BARK_DELIVERY=FAILED_FAIL_OPEN",
+        "BARK_DELIVERY_RECEIPT=FAILED_FAIL_OPEN",
+        "BARK_RECEIPT_ARTIFACT=UPLOADED",
+        "BARK_RECEIPT_ARTIFACT=FAILED_FAIL_OPEN",
+        "BARK_RECEIPT_ISSUE_INDEX=RECORDED_OR_DEDUPLICATED",
+        "BARK_RECEIPT_ISSUE_INDEX=FAILED_FAIL_OPEN",
         "BARK_AUTOMATIC_RETRIES=0",
         "BARK_REQUESTS_PER_LOGICAL_NOTIFICATION_MAX=1",
         "BARK_RESPONSE_BODY_STORED=0",
+        "BARK_RESPONSE_HEADERS_STORED=0",
         "BARK_ENDPOINT_DIAGNOSTICS_PRINTED=0",
+        "BARK_SECRET_VALUE_STORED=0",
     )
     for fragment in required_incident:
         if fragment not in incident_text:
             errors.append(f"Devflow Incident missing Bark guard: {fragment}")
     if incident_text.count("--request POST") != 1:
         errors.append("Devflow Incident must contain exactly one Bark POST location")
+    if incident_text.count("actions/upload-artifact@") != 1:
+        errors.append(
+            "Devflow Incident must contain exactly one receipt Artifact upload"
+        )
+    if incident_text.count("path: /tmp/bark-delivery-result.json") != 1:
+        errors.append("Bark receipt Artifact must contain exactly one JSON path")
+    if incident_text.count("bark_delivery_result.py build") != 1:
+        errors.append("Devflow Incident must build exactly one Bark receipt")
+    if incident_text.count("bark_delivery_result.py validate") != 1:
+        errors.append("Devflow Incident must validate exactly one Bark receipt")
+    if incident_text.count("bark_delivery_receipt_comment.py") != 1:
+        errors.append("Devflow Incident must render exactly one receipt index")
     for forbidden in (
         "workflow_run:",
         "--show-error",
@@ -144,6 +220,20 @@ def validate() -> dict[str, Any]:
     ):
         if forbidden in incident_text:
             errors.append(f"Devflow Incident contains forbidden path: {forbidden}")
+
+    comment_text = (
+        RECEIPT_COMMENT.read_text(encoding="utf-8")
+        if RECEIPT_COMMENT.is_file()
+        else ""
+    )
+    for fragment in (
+        "[BARK][DELIVERY_RECEIPT]",
+        "devflow-bark-delivery-receipt:",
+        "response body, response headers, endpoint diagnostics",
+        "artifact_url must identify the exact current-repository Artifact",
+    ):
+        if fragment not in comment_text:
+            errors.append(f"Bark receipt comment renderer missing guard: {fragment}")
 
     consistency_text = workflow_text.get(STATE_CONSISTENCY, "")
     for fragment in (
@@ -172,6 +262,8 @@ def validate() -> dict[str, Any]:
         "secrets.AGENT_",
         "openai/codex-action@",
         "--request POST",
+        RECEIPT_BUILDER.name,
+        RECEIPT_COMMENT.name,
     ):
         if forbidden in consistency_text:
             errors.append(
@@ -185,6 +277,8 @@ def validate() -> dict[str, Any]:
         "      - Devflow Terminal State Notification\n",
         "notification-runtime",
         "BARK_PUSH_URL",
+        RECEIPT_BUILDER.name,
+        RECEIPT_COMMENT.name,
     ):
         if forbidden in auto_text:
             errors.append(
@@ -205,9 +299,15 @@ def validate() -> dict[str, Any]:
         "status": "PASS" if not errors else "FAIL",
         "notification_runtime_workflows": environment_users,
         "bark_secret_workflows": secret_users,
+        "bark_receipt_workflows": receipt_script_users,
         "completion_producer": STATE_CONSISTENCY.as_posix(),
         "completion_delivery_fail_open": not errors,
         "bark_post_locations": incident_text.count("--request POST"),
+        "bark_receipt_artifact_uploads": incident_text.count(
+            "actions/upload-artifact@"
+        ),
+        "bark_receipt_retention_days": receipt.get("retention_days"),
+        "bark_receipt_issue_index": receipt.get("issue_index_enabled"),
         "raw_workflow_run_notifications": 0 if not errors else None,
         "automatic_bark_retries": 0 if not errors else None,
         "errors": errors,
