@@ -1,3 +1,4 @@
+# ruff: noqa: E402, I001
 from __future__ import annotations
 
 import sys
@@ -8,8 +9,8 @@ ROOT = Path(__file__).resolve().parents[1]
 DEVFLOW = ROOT / "scripts/devflow"
 sys.path.insert(0, str(DEVFLOW))
 
-from assert_auto_recovery_boundaries import validate as validate_auto_recovery  # noqa: E402
-from validate_notification_channels import validate as validate_channels  # noqa: E402
+from assert_auto_recovery_boundaries import validate as validate_auto_recovery
+from validate_notification_channels import validate as validate_channels
 
 INCIDENT = ROOT / ".github/workflows/devflow-incident.yml"
 AUTO_RECOVERY = ROOT / ".github/workflows/devflow-auto-recovery.yml"
