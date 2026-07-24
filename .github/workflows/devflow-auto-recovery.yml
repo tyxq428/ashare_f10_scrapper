@@ -148,24 +148,10 @@ jobs:
             >> "$GITHUB_STEP_SUMMARY"
 
       - name: Prove automatic paid, Bark and Codex paths are absent
+        shell: bash
         run: |
           set -euo pipefail
-          ! grep -Fq 'codex-task.yml/dispatches' \
-            .github/workflows/devflow-auto-recovery.yml
-          ! grep -Fq 'RETRY_CODEX' \
-            .github/workflows/devflow-auto-recovery.yml
-          ! grep -Fq 'recovery_task.py' \
-            .github/workflows/devflow-auto-recovery.yml
-          ! grep -Fq 'Devflow Relay Health' \
-            .github/workflows/devflow-auto-recovery.yml
-          ! grep -Fq 'Devflow Incident' \
-            .github/workflows/devflow-auto-recovery.yml
-          ! grep -Fq 'Devflow Terminal State Notification' \
-            .github/workflows/devflow-auto-recovery.yml
-          ! grep -Fq 'BARK_PUSH_URL' \
-            .github/workflows/devflow-auto-recovery.yml
-          ! grep -Fq 'notification-runtime' \
-            .github/workflows/devflow-auto-recovery.yml
+          python scripts/devflow/assert_auto_recovery_boundaries.py
           echo "AUTOMATIC_CODEX_PATHS=0" >> "$GITHUB_STEP_SUMMARY"
           echo "AUTOMATIC_PAID_RELAY_PROBE_RETRIES=0" >> "$GITHUB_STEP_SUMMARY"
           echo "AUTOMATIC_BARK_RETRIES=0" >> "$GITHUB_STEP_SUMMARY"
