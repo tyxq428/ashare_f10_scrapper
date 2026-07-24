@@ -42,7 +42,13 @@
         "endpoint_stored": false,
         "raw_error_stored": false,
         "secret_value_stored": false
-      }
+      },
+      "allowed_schemes": [
+        "http",
+        "https"
+      ],
+      "https_minimum_tls": "1.2",
+      "http_transport_is_unencrypted": true
     }
   },
   "completion_producer": {
@@ -57,5 +63,30 @@
     "strict_done_required": true,
     "state_consistency_pass_required": true,
     "failure_changes_task_state": false
+  },
+  "one_time_live_retest": {
+    "test_id": "bark-all-status-live-retest-v3-http-20260724",
+    "workflow": ".github/workflows/bark-all-status-live-retest-v2.yml",
+    "issue_number": 61,
+    "reservation_marker": "bark-all-status-live-retest-v3-http-reservation:20260724",
+    "result_marker": "[BARK][ALL_STATUS_LIVE_RETEST_V3_HTTP]",
+    "statuses": [
+      "COMPLETED",
+      "INTERRUPTED",
+      "HUMAN_REQUIRED",
+      "SECURITY_BLOCKED"
+    ],
+    "expected_requests": 4,
+    "allowed_schemes": [
+      "http",
+      "https"
+    ],
+    "run_attempt_must_equal": 1,
+    "automatic_retry": false,
+    "response_body_stored": false,
+    "response_headers_stored": false,
+    "endpoint_stored": false,
+    "raw_error_stored": false,
+    "secret_value_stored": false
   }
 }

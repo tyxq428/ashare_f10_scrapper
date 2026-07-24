@@ -18,6 +18,7 @@ PRODUCT_GATE = ROOT / ".github/workflows/devflow-product-gate.yml"
 POST_MERGE = ROOT / ".github/workflows/devflow-post-merge.yml"
 STATE_CONSISTENCY = ROOT / ".github/workflows/devflow-state-consistency.yml"
 TERMINAL_PRODUCER = ROOT / ".github/workflows/devflow-terminal-state-notify.yml"
+LIVE_RETEST = ROOT / ".github/workflows/bark-all-status-live-retest-v2.yml"
 RECEIPT_COMMENT = DEVFLOW / "bark_delivery_receipt_comment.py"
 
 
@@ -48,8 +49,10 @@ def test_bark_transport_is_single_attempt_fail_open_and_secret_isolated() -> Non
     assert "continue-on-error: true" in text
     assert text.count("--request POST") == 1
     assert "--retry 0" in text
-    assert "--proto '=https'" in text
-    assert "--tlsv1.2" in text
+    assert "--proto '=http,https'" in text
+    assert "CURL_PROTOCOL_ARGS+=(--tlsv1.2)" in text
+    assert 'BARK_ENDPOINT="${BARK_ENDPOINT%/}"' in text
+    assert "SKIPPED_INVALID_CONFIGURATION" in text
     assert "--show-error" not in text
     assert "--output /dev/null" in text
     assert "BARK_DELIVERY=FAILED_FAIL_OPEN" in text
@@ -83,6 +86,27 @@ def test_bark_receipt_artifact_and_issue_index_are_bounded_and_fail_open() -> No
     assert "BARK_RECEIPT_ISSUE_INDEX=FAILED_FAIL_OPEN" in text
     assert "devflow-bark-delivery-receipt:" in comment_script
     assert "issues: write" in text
+
+
+
+
+def test_owner_approved_http_or_https_all_status_retest_is_bounded() -> None:
+    text = LIVE_RETEST.read_text(encoding="utf-8")
+    assert "bark-all-status-live-retest-v3-http-reservation:20260724" in text
+    assert "[BARK][ALL_STATUS_LIVE_RETEST_V3_HTTP]" in text
+    assert "STATUSES=(COMPLETED INTERRUPTED HUMAN_REQUIRED SECURITY_BLOCKED)" in text
+    assert "github.run_attempt == 1" in text
+    assert "--proto '=http,https'" in text
+    assert "VALID_HTTP" in text
+    assert "VALID_HTTPS" in text
+    assert "CURL_PROTOCOL_ARGS+=(--tlsv1.2)" in text
+    assert "--retry 0" in text
+    assert text.count("--request POST") == 1
+    assert "EXPECTED_REAL_BARK_REQUESTS=4" in text
+    assert "BARK_ALL_STATUS_LIVE_RETEST_V3_HTTP=DELIVERED" in text
+    assert "--show-error" not in text
+    assert "agent-runtime" not in text
+    assert "openai/codex-action@" not in text
 
 
 def test_auto_recovery_binds_terminal_events_without_retrying_bark() -> None:
@@ -170,6 +194,8 @@ def test_notification_channel_manifest_matches_workflow_surface() -> None:
     assert summary["completion_delivery_fail_open"] is True
     assert summary["bark_post_locations"] == 1
     assert summary["automatic_bark_retries"] == 0
+    assert summary["allowed_bark_schemes"] == ["http", "https"]
+    assert summary["one_time_live_retest"]["expected_requests"] == 4
     assert summary["bark_receipt_workflows"] == [
         ".github/workflows/devflow-incident.yml"
     ]
