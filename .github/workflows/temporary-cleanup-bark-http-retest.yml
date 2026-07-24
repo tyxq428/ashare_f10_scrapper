@@ -1,0 +1,106 @@
+name: Finalize Bark HTTP Retest
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+    paths:
+      - scripts/devflow/prepare_bark_http_retest_cleanup.py
+      - .github/workflows/temporary-cleanup-bark-http-retest.yml
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: finalize-bark-http-retest-v1
+  cancel-in-progress: false
+
+jobs:
+  finalize:
+    if: >-
+      github.run_attempt == 1 &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'chore/cleanup-bark-http-retest-v1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: chore/cleanup-bark-http-retest-v1
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Wait for and capture the safe HTTP retest result
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 36); do
+            gh api --paginate \
+              "repos/${{ github.repository }}/issues/61/comments?per_page=100" \
+              > /tmp/issue61-comments.json
+            if jq -e \
+              'any(.[]; (.body // "") | contains("[BARK][ALL_STATUS_HTTP_RETEST]"))' \
+              /tmp/issue61-comments.json > /dev/null; then
+              echo "BARK_HTTP_RETEST_RESULT=OBSERVED" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "BARK_HTTP_RETEST_RESULT=NOT_OBSERVED" >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+
+      - name: Prepare permanent result and remove the one-time surface
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/devflow/prepare_bark_http_retest_cleanup.py
+          python -m compileall -q scripts/devflow
+          python scripts/devflow/validate_notification_channels.py
+          python scripts/devflow/validate_workflows.py
+          pytest -q \
+            tests/test_devflow_bark_notification.py \
+            tests/test_devflow_bark_workflow.py
+
+      - name: Update the safe result Issue state
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ALL_DELIVERED="$(jq -r '.all_delivered' /tmp/bark-http-retest-result.json)"
+          RUN_ID="$(jq -r '.run_id' /tmp/bark-http-retest-result.json)"
+          if [[ "$ALL_DELIVERED" == "true" ]]; then
+            gh issue edit 61 --repo "${{ github.repository }}" \
+              --title "[BARK LIVE TEST][COMPLETED] HTTP/HTTPS all-status retest"
+          else
+            gh issue edit 61 --repo "${{ github.repository }}" \
+              --title "[BARK LIVE TEST][HUMAN_REQUIRED] HTTP/HTTPS all-status retest failed"
+          fi
+          cat > /tmp/bark-http-retest-cleanup-comment.md <<EOF
+          [BARK][HTTP_RETEST_CLEANUP_PREPARED]
+
+          - Source Run: https://github.com/${{ github.repository }}/actions/runs/${RUN_ID}
+          - All delivered: \`${ALL_DELIVERED}\`
+          - One-time Workflow and Activation: removed in this cleanup PR
+          - Production protocols retained: \`http\`, \`https\`
+          - Automatic retries: \`0\`
+          EOF
+          gh issue comment 61 --repo "${{ github.repository }}" \
+            --body-file /tmp/bark-http-retest-cleanup-comment.md
+
+      - name: Commit the final permanent state
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Record Bark HTTP retest and remove one-time surface"
+          git push origin HEAD:chore/cleanup-bark-http-retest-v1
