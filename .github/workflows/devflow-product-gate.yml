@@ -144,14 +144,22 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          python scripts/devflow/notification_event.py resolve-task \
+            --repo . \
+            --output /tmp/resolved-notification-task.json
           python - <<'PY'
           import json
           from pathlib import Path
 
+          resolved = json.loads(
+              Path('/tmp/resolved-notification-task.json').read_text(
+                  encoding='utf-8'
+              )
+          )
           payload = {
               'event_type': 'devflow_notify',
               'client_payload': {
-                  'task_id': '${{ steps.task.outputs.task_id }}',
+                  'task_id': resolved['task_id'],
                   'action': 'HUMAN_REQUIRED',
                   'notification_type': 'HUMAN_REQUIRED',
                   'reason_code': 'AUTO_MERGE_NOT_APPROVED',
