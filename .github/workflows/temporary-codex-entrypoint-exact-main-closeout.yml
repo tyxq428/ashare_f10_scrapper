@@ -1,3 +1,4 @@
+# Direct trigger after the exact-main closeout workflow exists; no Codex or relay access.
 name: Temporary Codex Entrypoint Exact Main Closeout
 
 on:
