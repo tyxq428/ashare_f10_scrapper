@@ -49,7 +49,7 @@
     {
       "task_id": "devflow-bark-terminal-notification-v1",
       "title": "Devflow Bark terminal notification channel",
-      "status": "WAITING_HUMAN",
+      "status": "VERIFYING",
       "branch": "feature/devflow-bark-terminal-notification-v1",
       "pull_request": 54,
       "current_stage": "W05",
