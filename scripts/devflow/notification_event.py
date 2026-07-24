@@ -344,7 +344,7 @@ def render_bark_message(
         "HUMAN_REQUIRED": "👤",
         "SECURITY_BLOCKED": "🛡",
     }[kind]
-    title = _truncate(f"{icon} {repo_name} · {title_suffix}", 120)
+    title = _truncate(f"{icon} [{kind}] {repo_name} · {title_suffix}", 120)
     body = "\n".join(
         (
             validated["task_id"],

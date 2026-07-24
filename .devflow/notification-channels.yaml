@@ -57,5 +57,25 @@
     "strict_done_required": true,
     "state_consistency_pass_required": true,
     "failure_changes_task_state": false
+  },
+  "one_time_live_test": {
+    "activation_id": "bark-all-status-live-test-v1-20260724",
+    "workflow": ".github/workflows/devflow-incident.yml",
+    "activation_file": ".devflow/bark-all-status-live-test-activation.json",
+    "issue_number": 61,
+    "statuses": [
+      "COMPLETED",
+      "INTERRUPTED",
+      "HUMAN_REQUIRED",
+      "SECURITY_BLOCKED"
+    ],
+    "expected_requests": 4,
+    "run_attempt_must_equal": 1,
+    "automatic_retry": false,
+    "response_body_stored": false,
+    "response_headers_stored": false,
+    "endpoint_stored": false,
+    "raw_error_stored": false,
+    "secret_value_stored": false
   }
 }

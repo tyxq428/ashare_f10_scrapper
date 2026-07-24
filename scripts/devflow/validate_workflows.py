@@ -405,6 +405,11 @@ def _validate_incident(path: Path, text: str, errors: list[str]) -> None:
             "BARK_DELIVERY=FAILED_FAIL_OPEN",
             "BARK_AUTOMATIC_RETRIES=0",
             "does **not** trigger repair",
+            ".devflow/bark-all-status-live-test-activation.json",
+            "bark-all-status-live-test:",
+            "EXPECTED_REAL_BARK_REQUESTS=4",
+            "BARK_ALL_STATUS_LIVE_TEST=DELIVERED",
+            "gh issue comment 61",
         ),
         errors,
     )
@@ -422,8 +427,10 @@ def _validate_incident(path: Path, text: str, errors: list[str]) -> None:
         errors,
         message="Incident contains a forbidden raw, model or Relay path",
     )
-    if text.count("--request POST") != 1:
-        errors.append(f"{path}: exactly one Bark POST location is allowed")
+    if text.count("--request POST") != 2:
+        errors.append(
+            f"{path}: one production and one approved live-test Bark POST are required"
+        )
 
 
 def _validate_post_merge(path: Path, text: str, errors: list[str]) -> None:

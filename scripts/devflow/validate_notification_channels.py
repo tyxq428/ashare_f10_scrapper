@@ -10,6 +10,9 @@ INCIDENT = WORKFLOW_ROOT / "devflow-incident.yml"
 STATE_CONSISTENCY = WORKFLOW_ROOT / "devflow-state-consistency.yml"
 TERMINAL_PRODUCER = WORKFLOW_ROOT / "devflow-terminal-state-notify.yml"
 AUTO_RECOVERY = WORKFLOW_ROOT / "devflow-auto-recovery.yml"
+LIVE_TEST_ACTIVATION = Path(
+    ".devflow/bark-all-status-live-test-activation.json"
+)
 RECEIPT_BUILDER = Path("scripts/devflow/bark_delivery_result.py")
 RECEIPT_COMMENT = Path("scripts/devflow/bark_delivery_receipt_comment.py")
 UPLOAD_ARTIFACT_REF = (
@@ -145,6 +148,44 @@ def validate() -> dict[str, Any]:
             if producer.get(key) != expected:
                 errors.append(f"completion producer policy mismatch for {key}")
 
+
+    live_test = manifest.get("one_time_live_test")
+    expected_live_test = {
+        "activation_id": "bark-all-status-live-test-v1-20260724",
+        "workflow": INCIDENT.as_posix(),
+        "activation_file": LIVE_TEST_ACTIVATION.as_posix(),
+        "issue_number": 61,
+        "statuses": expected_types,
+        "expected_requests": 4,
+        "run_attempt_must_equal": 1,
+        "automatic_retry": False,
+        "response_body_stored": False,
+        "response_headers_stored": False,
+        "endpoint_stored": False,
+        "raw_error_stored": False,
+        "secret_value_stored": False,
+    }
+    if live_test != expected_live_test:
+        errors.append("one-time Bark all-status live-test policy mismatch")
+
+    try:
+        activation = _load_object(LIVE_TEST_ACTIVATION)
+    except ValueError as exc:
+        errors.append(str(exc))
+        activation = {}
+    expected_activation = {
+        "schema_version": 1,
+        "activation_id": "bark-all-status-live-test-v1-20260724",
+        "approved_by": "tyxq428",
+        "issue_number": 61,
+        "active": True,
+        "statuses": expected_types,
+        "expected_requests": 4,
+        "automatic_retry": False,
+    }
+    if activation != expected_activation:
+        errors.append("one-time Bark all-status activation mismatch")
+
     workflow_text: dict[Path, str] = {}
     for path in sorted(WORKFLOW_ROOT.glob("*.yml")):
         workflow_text[path] = path.read_text(encoding="utf-8")
@@ -235,15 +276,23 @@ def validate() -> dict[str, Any]:
         "BARK_RESPONSE_HEADERS_STORED=0",
         "BARK_ENDPOINT_DIAGNOSTICS_PRINTED=0",
         "BARK_SECRET_VALUE_STORED=0",
+        ".devflow/bark-all-status-live-test-activation.json",
+        "bark-all-status-live-test:",
+        "COMPLETED INTERRUPTED HUMAN_REQUIRED SECURITY_BLOCKED",
+        "EXPECTED_REAL_BARK_REQUESTS=4",
+        "BARK_ALL_STATUS_LIVE_TEST=DELIVERED",
+        "gh issue comment 61",
     )
     for fragment in required_incident:
         if fragment not in incident_text:
             errors.append(f"Devflow Incident missing Bark guard: {fragment}")
-    if incident_text.count("--request POST") != 1:
-        errors.append("Devflow Incident must contain exactly one Bark POST location")
-    if incident_text.count("actions/upload-artifact@") != 1:
+    if incident_text.count("--request POST") != 2:
         errors.append(
-            "Devflow Incident must contain exactly one receipt Artifact upload"
+            "Devflow Incident must contain one production and one approved live-test Bark POST"
+        )
+    if incident_text.count("actions/upload-artifact@") != 2:
+        errors.append(
+            "Devflow Incident must contain one receipt and one live-test Artifact upload"
         )
     if incident_text.count("path: /tmp/bark-delivery-result.json") != 1:
         errors.append("Bark receipt Artifact must contain exactly one JSON path")
@@ -391,6 +440,7 @@ def validate() -> dict[str, Any]:
         "bark_receipt_issue_index": receipt.get("issue_index_enabled"),
         "raw_workflow_failure_notifications": 0 if not errors else None,
         "automatic_bark_retries": 0 if not errors else None,
+        "one_time_live_test": live_test,
         "errors": errors,
     }
     return summary

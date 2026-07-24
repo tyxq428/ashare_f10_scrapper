@@ -46,7 +46,7 @@ def test_bark_transport_is_single_attempt_fail_open_and_secret_isolated() -> Non
     assert "BARK_PUSH_URL: ${{ secrets.BARK_PUSH_URL }}" in text
     assert "github.run_attempt == 1" in text
     assert "continue-on-error: true" in text
-    assert text.count("--request POST") == 1
+    assert text.count("--request POST") == 2
     assert "--retry 0" in text
     assert "--proto '=https'" in text
     assert "--tlsv1.2" in text
@@ -70,7 +70,7 @@ def test_bark_receipt_artifact_and_issue_index_are_bounded_and_fail_open() -> No
     assert "bark_delivery_result.py build" in text
     assert "bark_delivery_result.py validate" in text
     assert "bark_delivery_receipt_comment.py" in text
-    assert text.count("actions/upload-artifact@") == 1
+    assert text.count("actions/upload-artifact@") == 2
     assert "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02" in text
     assert "path: /tmp/bark-delivery-result.json" in text
     assert "bark-delivery-receipt-${{" in text
@@ -84,6 +84,21 @@ def test_bark_receipt_artifact_and_issue_index_are_bounded_and_fail_open() -> No
     assert "devflow-bark-delivery-receipt:" in comment_script
     assert "issues: write" in text
 
+
+
+def test_owner_approved_all_status_live_test_is_bounded() -> None:
+    text = INCIDENT.read_text(encoding="utf-8")
+    assert ".devflow/bark-all-status-live-test-activation.json" in text
+    assert "bark-all-status-live-test:" in text
+    assert "COMPLETED INTERRUPTED HUMAN_REQUIRED SECURITY_BLOCKED" in text
+    assert "EXPECTED_REAL_BARK_REQUESTS=4" in text
+    assert "BARK_ALL_STATUS_LIVE_TEST=DELIVERED" in text
+    assert "gh issue comment 61" in text
+    assert "github.run_attempt == 1" in text
+    assert "--retry 0" in text
+    assert "--output /dev/null" in text
+    assert "response_body_stored" in text
+    assert "secret_value_stored" in text
 
 def test_auto_recovery_binds_terminal_events_without_retrying_bark() -> None:
     text = AUTO_RECOVERY.read_text(encoding="utf-8")
@@ -168,11 +183,11 @@ def test_notification_channel_manifest_matches_workflow_surface() -> None:
         "devflow-task-completed:<task-id>"
     )
     assert summary["completion_delivery_fail_open"] is True
-    assert summary["bark_post_locations"] == 1
+    assert summary["bark_post_locations"] == 2
     assert summary["automatic_bark_retries"] == 0
     assert summary["bark_receipt_workflows"] == [
         ".github/workflows/devflow-incident.yml"
     ]
-    assert summary["bark_receipt_artifact_uploads"] == 1
+    assert summary["bark_receipt_artifact_uploads"] == 2
     assert summary["bark_receipt_retention_days"] == 14
     assert summary["bark_receipt_issue_index"] is True
