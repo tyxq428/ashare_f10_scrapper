@@ -7,6 +7,7 @@ status: PASS
 implementation_pull_request: 56
 implementation_head_sha: 025dd4dd09d18ddb23d3e6d73fe955a05425d860
 implementation_merge_sha: 303e2082c8fb655162aed5ef281d2305c26a4e52
+closeout_pull_request: 57
 exact_main_tree_equivalence: PASS_NO_FILE_DIFF
 codex_policy_after_merge: disabled
 bark_requests_before_closeout: 0
@@ -36,7 +37,7 @@ Merge commit相对该已验证head没有文件差异；只新增一个merge comm
 
 ## 原子Closeout
 
-Closeout分支从精确implementation merge SHA创建，并将以下文件一起更新：
+Closeout PR #57从精确implementation merge SHA创建，并将以下文件一起更新：
 
 - `task_state.yaml`；
 - `ACTIVE_TASKS.yaml`；
