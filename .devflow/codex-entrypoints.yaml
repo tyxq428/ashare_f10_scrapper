@@ -50,6 +50,8 @@
     "default_mode": "configuration_only",
     "paid_confirmation": "I_ACCEPT_ONE_PAID_RESPONSES_PROBE",
     "automatic_retry": false,
+    "github_rerun_paid_request": false,
+    "paid_request_requires_run_attempt": 1,
     "maximum_requests_per_dispatch": 1
   },
   "secret_audit_policy": {
