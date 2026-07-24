@@ -1,15 +1,15 @@
 {
-  "schema_version": 1,
-  "activation_id": "bark-all-status-live-test-v1-20260724",
-  "approved_by": "tyxq428",
-  "issue_number": 61,
-  "active": true,
-  "statuses": [
-    "COMPLETED",
-    "INTERRUPTED",
-    "HUMAN_REQUIRED",
-    "SECURITY_BLOCKED"
-  ],
-  "expected_requests": 4,
-  "automatic_retry": false
+    "schema_version": 1,
+    "activation_id": "bark-all-status-live-test-v1-20260724",
+    "approved_by": "tyxq428",
+    "active": true,
+    "issue_number": 61,
+    "expected_requests": 4,
+    "automatic_retry": false,
+    "statuses": [
+        "COMPLETED",
+        "INTERRUPTED",
+        "HUMAN_REQUIRED",
+        "SECURITY_BLOCKED"
+    ]
 }
