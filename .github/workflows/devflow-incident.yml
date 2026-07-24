@@ -167,10 +167,9 @@ jobs:
                   f"- Minimum action: {value['minimum_action']}",
                   f"- Recovery record: `{value['state_path'].replace('task_state.yaml', 'HANDOFF.md')}`",
                   '',
-                  '`/ack` only confirms that you saw this message. It does **not** '
-                  'trigger repair, retry, Codex, resume or state changes. Automatic '
-                  'classification and bounded recovery already happened before this '
-                  'notification.',
+                  '`/ack` only confirms that you saw this message. It does **not** trigger repair, '
+                  'retry, Codex, resume or state changes. Automatic classification and bounded '
+                  'recovery already happened before this notification.',
                   f"<!-- {value['marker']} -->",
               )
           )
