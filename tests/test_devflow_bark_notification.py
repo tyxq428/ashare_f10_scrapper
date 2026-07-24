@@ -164,6 +164,26 @@ def test_completed_event_and_bark_rendering(tmp_path: Path) -> None:
     assert bark["group"] == "ashare-f10-scrapper-devflow"
     assert bark["url"].endswith("/pull/99")
     assert "sample-task" in bark["body"]
+    assert "[COMPLETED]" in bark["title"]
+
+
+@pytest.mark.parametrize(
+    "status",
+    ["COMPLETED", "INTERRUPTED", "HUMAN_REQUIRED", "SECURITY_BLOCKED"],
+)
+def test_every_bark_title_contains_the_literal_status(status: str) -> None:
+    validated = {
+        "task_id": "status-title-test",
+        "notification_type": status,
+        "reason_code": f"SIMULATED_{status}",
+        "reason": "Synthetic rendering test.",
+        "minimum_action": "No action is required.",
+        "source_workflow": "Unit Test",
+        "source_run_id": 1,
+        "target_url": "https://github.com/tyxq428/ashare_f10_scrapper/actions/runs/1",
+    }
+    bark = render_bark_message(validated, repository=REPOSITORY)
+    assert f"[{status}]" in bark["title"]
 
 
 def test_target_url_must_stay_inside_repository(tmp_path: Path) -> None:
