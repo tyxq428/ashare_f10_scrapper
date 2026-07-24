@@ -30,7 +30,7 @@
     },
     {
       "task_id": "codex-trigger-surface-audit-v2",
-      "title": "Historical Codex rerun quarantine and paid-probe trigger hardening",
+      "title": "Historical Codex rerun quarantine and paid probe trigger hardening",
       "status": "DONE",
       "branch": "main",
       "pull_request": 52,
@@ -61,7 +61,7 @@
       "status": "RUNNING",
       "branch": "feature/devflow-bark-delivery-receipt-v1",
       "pull_request": null,
-      "current_stage": "W00",
+      "current_stage": "W01",
       "state_path": "docs/implementation/devflow-bark-delivery-receipt-v1/task_state.yaml"
     }
   ]
