@@ -1,29 +1,30 @@
 {
   "schema_version": 2,
-  "state_revision": 3,
+  "state_revision": 4,
   "task_id": "codex-trigger-surface-reconciliation-v3",
   "title": "Codex trigger-surface reconciliation and Environment protection confirmation",
-  "status": "VERIFYING",
-  "execution_status": "RUNNING",
+  "status": "DONE",
+  "execution_status": "COMPLETED",
   "acceptance": {
     "domain": "generic",
-    "status": "PENDING",
-    "reason_code": null,
-    "details_path": "docs/implementation/codex-trigger-surface-reconciliation-v3/W01_result.md"
+    "status": "PASS",
+    "reason_code": "RECONCILIATION_COMPLETE",
+    "details_path": "docs/implementation/codex-trigger-surface-reconciliation-v3/FINAL_REPORT.md"
   },
   "security_status": "PASS",
-  "working_branch": "feature/codex-trigger-surface-reconciliation-v3",
+  "working_branch": "main",
   "pull_request": 53,
   "base_sha_at_start": "9e01fb6669c8a4a74573645e775ad68215d96139",
   "last_product_commit_sha": "9e01fb6669c8a4a74573645e775ad68215d96139",
   "last_state_commit_sha": null,
   "current_stage": "W02",
-  "last_completed_stage": "W01",
-  "last_successful_step": "agent_runtime_environment_protection_confirmed_by_user",
-  "next_action": "run_pr_head_deterministic_checks_and_merge_pr53",
+  "last_completed_stage": "W02",
+  "last_successful_step": "exact_main_reconciliation_closeout_pass",
+  "next_action": "none",
   "gate_results": {
     "W00_DIFF_RECONCILIATION": "PASS",
     "W01_ENVIRONMENT_PROTECTION": "PASS:USER_ATTESTATION",
+    "W02_FINAL_CLOSEOUT": "PASS",
     "CODEX_TASK_PLATFORM_STATE": "ACTIVE_ELIGIBILITY_ONLY",
     "AGENT_RUNTIME_REQUIRED_REVIEWERS": "tyxq428,jellycookie",
     "AGENT_RUNTIME_SELF_REVIEW": "ALLOWED_BY_USER_DECISION",
@@ -34,6 +35,14 @@
     "CODEX_TASK_DECISION": "KEEP_ELIGIBILITY_ONLY",
     "AUTOMATIC_MODEL_PATHS": "0",
     "RESPONSES_AUTOMATIC_PAID_PATHS": "0",
+    "PR_HEAD_TEST": "PASS:30071385184",
+    "PR_HEAD_E2E_688521": "PASS:30071385102",
+    "PR_HEAD_STATE_CONSISTENCY": "PASS:30071385151",
+    "PR_HEAD_SHA": "c234a6036d6357661bb18c8e425d29d4e3c8ab2b",
+    "MERGE_SHA": "49f39ce2ff5eed1ac06be8dbd5de1cc3949530b7",
+    "EXACT_MAIN_POLICY": "PASS:DISABLED",
+    "EXACT_MAIN_ENTRYPOINT": "PASS:ELIGIBILITY_ONLY",
+    "IMPLEMENTATION_FILES_CHANGED": "0",
     "CODEX_CALLS_DURING_RECONCILIATION": "0",
     "RESPONSES_PAID_PROBES_DURING_RECONCILIATION": "0",
     "RELAY_SECRET_READS_DURING_RECONCILIATION": "0",
@@ -52,15 +61,19 @@
     "resume_from": null
   },
   "post_merge": {
-    "status": "PENDING",
-    "merge_sha": null,
-    "verified_run_ids": []
+    "status": "PASS",
+    "merge_sha": "49f39ce2ff5eed1ac06be8dbd5de1cc3949530b7",
+    "verified_run_ids": [
+      30071385184,
+      30071385102,
+      30071385151
+    ]
   },
   "notification": {
-    "generation": 2,
-    "last_type": "RESUMED",
+    "generation": 3,
+    "last_type": "COMPLETED",
     "acknowledged": true,
     "control_issue_number": null
   },
-  "updated_at_utc": "2026-07-24T06:07:12Z"
+  "updated_at_utc": "2026-07-24T06:12:23Z"
 }
