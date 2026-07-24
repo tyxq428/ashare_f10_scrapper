@@ -45,14 +45,14 @@ jobs:
           ref: main
           persist-credentials: false
 
-      - name: Reserve this owner-approved activation exactly once
+      - name: Reserve this owner-approved recovery activation exactly once
         id: reserve
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          RESERVATION_MARKER='bark-all-status-live-test-reservation:bark-all-status-live-test-v1-20260724'
+          RESERVATION_MARKER='bark-all-status-live-test-reservation:bark-all-status-live-test-v1-20260724-recovery1'
           RESULT_MARKER='[BARK][ALL_STATUS_LIVE_TEST]'
           gh api --paginate \
             "repos/${{ github.repository }}/issues/61/comments?per_page=100" \
@@ -63,24 +63,25 @@ jobs:
              grep -Fq -- "$RESULT_MARKER" \
               /tmp/bark-all-status-existing-comments.txt; then
             echo "should_run=false" >> "$GITHUB_OUTPUT"
-            echo "BARK_ALL_STATUS_ACTIVATION=ALREADY_RESERVED_OR_COMPLETED" \
+            echo "BARK_ALL_STATUS_RECOVERY=ALREADY_RESERVED_OR_COMPLETED" \
               >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
 
           cat > /tmp/bark-all-status-reservation.md <<EOF
-          [BARK][ALL_STATUS_LIVE_TEST_RESERVED]
+          [BARK][ALL_STATUS_LIVE_TEST_RECOVERY_RESERVED]
 
           - Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          - Expected real requests: `4`
-          - Automatic retries: `0`
+          - Expected real requests: 4
+          - Automatic retries: 0
+          - Recovery generation: 1
 
           <!-- ${RESERVATION_MARKER} -->
           EOF
           gh issue comment 61 --repo "${{ github.repository }}" \
             --body-file /tmp/bark-all-status-reservation.md
           echo "should_run=true" >> "$GITHUB_OUTPUT"
-          echo "BARK_ALL_STATUS_ACTIVATION=RESERVED" >> "$GITHUB_STEP_SUMMARY"
+          echo "BARK_ALL_STATUS_RECOVERY=RESERVED" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Validate activation and build status-labelled messages
         if: steps.reserve.outputs.should_run == 'true'
@@ -183,9 +184,9 @@ jobs:
             for STATUS in "${STATUSES[@]}"; do
               MESSAGE="${RESULTS_DIR}/messages/${STATUS}.json"
               TITLE="$(jq -r '.title' "$MESSAGE")"
+              set +e
               HTTP_STATUS_RAW="$(curl \
                 --silent \
-                --fail \
                 --retry 0 \
                 --proto '=https' \
                 --tlsv1.2 \
@@ -198,6 +199,7 @@ jobs:
                 --write-out '%{http_code}' \
                 "$BARK_PUSH_URL")"
               CURL_RC=$?
+              set -e
               python - "$STATUS" "$TITLE" "$CURL_RC" "$HTTP_STATUS_RAW" \
                 "$RESULTS_JSONL" <<'PY'
           import json
@@ -282,6 +284,7 @@ jobs:
           value = {
               'schema_version': 1,
               'activation_id': 'bark-all-status-live-test-v1-20260724',
+              'recovery_generation': 1,
               'issue_number': 61,
               'expected_statuses': expected,
               'expected_requests': 4,
@@ -355,6 +358,7 @@ jobs:
               '[BARK][ALL_STATUS_LIVE_TEST]',
               '',
               f'- Run: https://github.com/{repository}/actions/runs/{run_id}',
+              f"- Recovery generation: `{value['recovery_generation']}`",
               f"- Expected requests: `{value['expected_requests']}`",
               f"- Actual requests: `{value['actual_requests']}`",
               f"- All delivered: `{str(value['all_delivered']).lower()}`",
