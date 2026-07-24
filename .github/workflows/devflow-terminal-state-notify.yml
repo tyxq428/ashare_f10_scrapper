@@ -1,0 +1,147 @@
+name: Devflow Terminal State Notification
+
+on:
+  workflow_run:
+    workflows:
+      - Devflow State Consistency
+    types:
+      - completed
+
+permissions:
+  contents: write
+
+concurrency:
+  group: >-
+    devflow-terminal-state-notification-${{
+      github.event.workflow_run.id
+    }}-${{ github.event.workflow_run.run_attempt }}
+  cancel-in-progress: false
+
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  notify-new-terminal-state:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Validate the successful State Consistency source
+        id: source
+        continue-on-error: true
+        shell: bash
+        env:
+          SOURCE_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+          SOURCE_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$SOURCE_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$SOURCE_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          git fetch --no-tags origin \
+            "+refs/heads/main:refs/remotes/origin/main"
+          git merge-base --is-ancestor "$SOURCE_HEAD_SHA" origin/main
+          BEFORE_SHA="$(git rev-parse "${SOURCE_HEAD_SHA}^1")"
+          [[ "$BEFORE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          echo "before_sha=${BEFORE_SHA}" >> "$GITHUB_OUTPUT"
+          echo "after_sha=${SOURCE_HEAD_SHA}" >> "$GITHUB_OUTPUT"
+          echo "source_run_id=${SOURCE_RUN_ID}" >> "$GITHUB_OUTPUT"
+          echo "SOURCE_STATE_CONSISTENCY=VALIDATED" >> "$GITHUB_STEP_SUMMARY"
+          echo "SOURCE_HEAD_SHA=${SOURCE_HEAD_SHA}" >> "$GITHUB_STEP_SUMMARY"
+          echo "SOURCE_RUN_ID=${SOURCE_RUN_ID}" >> "$GITHUB_STEP_SUMMARY"
+          echo "SOURCE_RUN_ATTEMPT=${SOURCE_RUN_ATTEMPT}" \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Scan only newly completed canonical generations
+        id: scan
+        if: steps.source.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/devflow/terminal_notification_scan.py \
+            --repo . \
+            --before "${{ steps.source.outputs.before_sha }}" \
+            --after "${{ steps.source.outputs.after_sha }}" \
+            --repository "${{ github.repository }}" \
+            --source-run-id "${{ steps.source.outputs.source_run_id }}" \
+            --output /tmp/devflow-terminal-events.json
+
+      - name: Dispatch each canonical completion through the notification bus
+        id: dispatch
+        if: steps.scan.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          events = json.loads(
+              Path('/tmp/devflow-terminal-events.json').read_text(encoding='utf-8')
+          )
+          if not isinstance(events, list):
+              raise SystemExit('TERMINAL_EVENTS_MUST_BE_AN_ARRAY')
+          for index, event in enumerate(events):
+              if not isinstance(event, dict):
+                  raise SystemExit('TERMINAL_EVENT_MUST_BE_AN_OBJECT')
+              wrapper = {
+                  'event_type': 'devflow_notify',
+                  'client_payload': event,
+              }
+              Path(
+                  f'/tmp/devflow-terminal-notification-{index:04d}.json'
+              ).write_text(json.dumps(wrapper), encoding='utf-8')
+          print(f'TERMINAL_EVENTS_PREPARED={len(events)}')
+          PY
+          shopt -s nullglob
+          PAYLOADS=(/tmp/devflow-terminal-notification-*.json)
+          for payload in "${PAYLOADS[@]}"; do
+            gh api --method POST \
+              "repos/${{ github.repository }}/dispatches" \
+              --input "$payload"
+          done
+          echo "TERMINAL_NOTIFICATION_DISPATCHES=${#PAYLOADS[@]}" \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Preserve the validated task result when production fails
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ steps.source.outcome }}" == "failure" || \
+                "${{ steps.scan.outcome }}" == "failure" || \
+                "${{ steps.dispatch.outcome }}" == "failure" ]]; then
+            echo "TERMINAL_NOTIFICATION_FAILURE=FAIL_OPEN" \
+              >> "$GITHUB_STEP_SUMMARY"
+            echo "Canonical state and State Consistency remain authoritative." \
+              >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "TERMINAL_NOTIFICATION_PIPELINE=COMPLETED_OR_SAFELY_SKIPPED" \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "STATE_CONSISTENCY_SUCCESS_REQUIRED=YES" \
+            >> "$GITHUB_STEP_SUMMARY"
+          echo "SOURCE_EVENT_REQUIRED=PUSH" >> "$GITHUB_STEP_SUMMARY"
+          echo "SOURCE_BRANCH_REQUIRED=MAIN" >> "$GITHUB_STEP_SUMMARY"
+          echo "RAW_WORKFLOW_FAILURE_NOTIFICATIONS=0" \
+            >> "$GITHUB_STEP_SUMMARY"
+          echo "BARK_REQUESTS_IN_THIS_WORKFLOW=0" \
+            >> "$GITHUB_STEP_SUMMARY"
+          echo "NOTIFICATION_FAILURE_AUTO_RECOVERY=0" \
+            >> "$GITHUB_STEP_SUMMARY"
