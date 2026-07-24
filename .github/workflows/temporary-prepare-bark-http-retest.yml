@@ -1,0 +1,58 @@
+name: Prepare Bark HTTP Transport Retest
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+    paths:
+      - scripts/devflow/prepare_bark_http_retest.py
+      - scripts/devflow/prepare_bark_http_retest_v2.py
+      - .github/workflows/temporary-prepare-bark-http-retest.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: prepare-bark-http-transport-retest-v1
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: >-
+      github.run_attempt == 1 &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'feature/devflow-bark-http-transport-retest-v1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: feature/devflow-bark-http-transport-retest-v1
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Prepare and validate HTTP-compatible Bark transport and retest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/devflow/prepare_bark_http_retest_v2.py
+          python -m compileall -q scripts/devflow
+          python scripts/devflow/validate_notification_channels.py
+          python scripts/devflow/validate_workflows.py
+          pytest -q \
+            tests/test_devflow_bark_notification.py \
+            tests/test_devflow_bark_workflow.py
+
+      - name: Commit the reviewed prepared change set
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Allow HTTP Bark transport and prepare all-status retest"
+          git push origin HEAD:feature/devflow-bark-http-transport-retest-v1
