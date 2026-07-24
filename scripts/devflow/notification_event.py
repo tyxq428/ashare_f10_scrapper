@@ -97,6 +97,7 @@ def _strict_done(state: dict[str, Any]) -> bool:
         and human_gate.get("required") is False
         and isinstance(notification, dict)
         and notification.get("last_type") == "COMPLETED"
+        and notification.get("acknowledged") is False
     )
 
 
@@ -235,9 +236,47 @@ def validate_notification(
         for item in raw_steps
     ]
 
-    if notification_type == "COMPLETED" and not _strict_done(task.state):
+    notification = task.state.get("notification")
+    generation = None
+    if isinstance(notification, dict):
+        raw_generation = notification.get("generation")
+        if (
+            isinstance(raw_generation, int)
+            and not isinstance(raw_generation, bool)
+            and raw_generation >= 0
+        ):
+            generation = raw_generation
+
+    if notification_type == "COMPLETED":
+        if not _strict_done(task.state):
+            raise NotificationValidationError(
+                "COMPLETED requires canonical DONE / COMPLETED / PASS, "
+                "post-merge PASS and an unacknowledged completion generation"
+            )
+        if task.index_entry.get("status") != "DONE":
+            raise NotificationValidationError(
+                "COMPLETED requires ACTIVE_TASKS to record DONE"
+            )
+        if generation is None or generation <= 0:
+            raise NotificationValidationError(
+                "COMPLETED requires a positive notification generation"
+            )
+        expected_fingerprint = f"task-completed:{task.task_id}:g{generation}"
+        if fingerprint != expected_fingerprint:
+            raise NotificationValidationError(
+                "COMPLETED fingerprint must bind the canonical generation"
+            )
+        if source_workflow != "Devflow State Consistency":
+            raise NotificationValidationError(
+                "COMPLETED must originate from Devflow State Consistency"
+            )
+        if failure_steps:
+            raise NotificationValidationError(
+                "COMPLETED must not contain failure steps"
+            )
+    elif task.state.get("status") == "DONE":
         raise NotificationValidationError(
-            "COMPLETED requires canonical DONE / COMPLETED / PASS and post-merge PASS"
+            "non-completion notifications are forbidden for a DONE task"
         )
 
     target_url = _validated_target_url(
@@ -246,16 +285,11 @@ def validate_notification(
         source_run_id=source_run_id,
         pull_request=task.state.get("pull_request"),
     )
-    notification = task.state.get("notification")
     issue_number = None
-    generation = None
     if isinstance(notification, dict):
         value = notification.get("control_issue_number")
         if isinstance(value, int) and not isinstance(value, bool) and value > 0:
             issue_number = value
-        raw_generation = notification.get("generation")
-        if isinstance(raw_generation, int) and not isinstance(raw_generation, bool) and raw_generation >= 0:
-            generation = raw_generation
 
     return {
         "task_id": task.task_id,
