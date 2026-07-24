@@ -114,8 +114,11 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          GITHUB_API_URL_VALUE: ${{ github.api_url }}
+          GITHUB_REPOSITORY_VALUE: ${{ github.repository }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
+          set +x
           python - <<'PY'
           import json
           from pathlib import Path
@@ -132,10 +135,24 @@ jobs:
               encoding='utf-8',
           )
           PY
-          gh api --method POST \
-            "repos/${{ github.repository }}/dispatches" \
-            --input /tmp/devflow-notification-wrapper.json
-          echo "CANONICAL_COMPLETION_RECOVERY_DISPATCH=1" \
+          HTTP_STATUS="$(curl \
+            --silent \
+            --retry 0 \
+            --connect-timeout 10 \
+            --max-time 30 \
+            --request POST \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            --header 'Content-Type: application/json' \
+            --data-binary @/tmp/devflow-notification-wrapper.json \
+            --output /dev/null \
+            --write-out '%{http_code}' \
+            "${GITHUB_API_URL_VALUE}/repos/${GITHUB_REPOSITORY_VALUE}/dispatches")"
+          CURL_RC=$?
+          echo "CANONICAL_COMPLETION_DISPATCH_CURL_EXIT=${CURL_RC}" \
+            >> "$GITHUB_STEP_SUMMARY"
+          echo "CANONICAL_COMPLETION_DISPATCH_HTTP_STATUS=${HTTP_STATUS}" \
             >> "$GITHUB_STEP_SUMMARY"
           echo "BARK_REQUESTS_IN_THIS_WORKFLOW=0" \
             >> "$GITHUB_STEP_SUMMARY"
@@ -143,3 +160,4 @@ jobs:
           echo "RESPONSES_PAID_PROBES=0" >> "$GITHUB_STEP_SUMMARY"
           echo "RELAY_SECRET_READS=0" >> "$GITHUB_STEP_SUMMARY"
           echo "HISTORICAL_CODEX_RERUNS=0" >> "$GITHUB_STEP_SUMMARY"
+          [[ "$CURL_RC" -eq 0 && "$HTTP_STATUS" == "204" ]]
