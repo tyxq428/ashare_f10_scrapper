@@ -28,8 +28,9 @@
     }
   },
   "completion_producer": {
-    "workflow": ".github/workflows/devflow-terminal-state-notify.yml",
-    "source": "canonical_task_state_transition_on_main",
-    "strict_done_required": true
+    "workflow": ".github/workflows/devflow-state-consistency.yml",
+    "source": "canonical_task_state_transition_after_consistency_pass_on_main",
+    "strict_done_required": true,
+    "state_consistency_pass_required": true
   }
 }
