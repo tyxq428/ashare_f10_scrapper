@@ -235,9 +235,10 @@ jobs:
           echo "::add-mask::${BARK_PUSH_URL}"
           HTTP_STATUS="$(curl \
             --silent \
-            --show-error \
             --fail \
             --retry 0 \
+            --proto '=https' \
+            --tlsv1.2 \
             --connect-timeout 10 \
             --max-time 20 \
             --request POST \
@@ -266,3 +267,5 @@ jobs:
           echo "BARK_AUTOMATIC_RETRIES=0" >> "$GITHUB_STEP_SUMMARY"
           echo "BARK_REQUESTS_PER_LOGICAL_NOTIFICATION_MAX=1" \
             >> "$GITHUB_STEP_SUMMARY"
+          echo "BARK_RESPONSE_BODY_STORED=0" >> "$GITHUB_STEP_SUMMARY"
+          echo "BARK_ENDPOINT_DIAGNOSTICS_PRINTED=0" >> "$GITHUB_STEP_SUMMARY"
