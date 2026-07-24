@@ -78,7 +78,8 @@ def test_failed_product_and_post_merge_paths_do_not_dispatch_duplicates() -> Non
     )[0]
     assert "'event_type': 'devflow_notify'" not in failure_prefix
     assert "Centralized Auto Recovery will classify the terminal task event" in product
-    assert "'task_id': '${{ steps.task.outputs.task_id }}'" in product
+    assert "notification_event.py resolve-task" in product
+    assert "'task_id': resolved['task_id']" in product
 
     post_merge = POST_MERGE.read_text(encoding="utf-8")
     assert "'event_type': 'devflow_notify'" not in post_merge
