@@ -2,15 +2,15 @@
 
 ## 当前事实
 
-- 状态：VERIFYING
-- 执行状态：RUNNING
-- 领域验收：generic/PENDING
+- 状态：DONE
+- 执行状态：COMPLETED
+- 领域验收：generic/PASS
 - 安全状态：PASS
 - 阶段：W08
-- 分支：`feature/codex-entrypoint-hardening-v1`
+- 分支：`main`
 - PR：51
-- 最后成功步骤：`forced_premerge_zero_codex_validation_pass`
-- 下一动作：`merge_pr51_then_run_exact_main_closeout`
+- 最后成功步骤：`exact_main_zero_codex_hardening_closeout_pass`
+- 下一动作：`none`
 
 ## 当前阻塞
 

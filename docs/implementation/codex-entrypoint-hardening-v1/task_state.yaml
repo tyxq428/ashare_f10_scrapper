@@ -1,26 +1,26 @@
 {
   "schema_version": 2,
-  "state_revision": 2,
+  "state_revision": 3,
   "task_id": "codex-entrypoint-hardening-v1",
   "title": "Codex entrypoint hardening and one-time activation controls",
-  "status": "VERIFYING",
-  "execution_status": "RUNNING",
+  "status": "DONE",
+  "execution_status": "COMPLETED",
   "acceptance": {
     "domain": "generic",
-    "status": "PENDING",
+    "status": "PASS",
     "reason_code": null,
-    "details_path": null
+    "details_path": "docs/implementation/codex-entrypoint-hardening-v1/FINAL_REPORT.md"
   },
   "security_status": "PASS",
-  "working_branch": "feature/codex-entrypoint-hardening-v1",
+  "working_branch": "main",
   "pull_request": 51,
   "base_sha_at_start": "3dd0075c83651d73677ecf8105946ae34bad362e",
-  "last_product_commit_sha": "1798816ac30efb32548370faa08af0f0909fe5a1",
+  "last_product_commit_sha": "bb218c37c51fc0eb865ef13937ea5b531abc7f15",
   "last_state_commit_sha": null,
   "current_stage": "W08",
-  "last_completed_stage": "W07",
-  "last_successful_step": "forced_premerge_zero_codex_validation_pass",
-  "next_action": "merge_pr51_then_run_exact_main_closeout",
+  "last_completed_stage": "W08",
+  "last_successful_step": "exact_main_zero_codex_hardening_closeout_pass",
+  "next_action": "none",
   "gate_results": {
     "W00_ENTRYPOINT_INVENTORY": "PASS",
     "W01_PRODUCT_GATE_ZERO_MODEL": "PASS",
@@ -31,7 +31,9 @@
     "W06_TRUSTED_REPRODUCTION": "PASS",
     "W07_ONE_TIME_GRANT": "PASS",
     "W08_PRE_MERGE": "PASS:30058774833",
-    "CODEX_CALLS_DURING_HARDENING": "0"
+    "CODEX_CALLS_DURING_HARDENING": "0",
+    "W08_EXACT_MAIN": "PASS:30059172006",
+    "CODEX_POLICY_AFTER_HARDENING": "disabled"
   },
   "retry_budget": {
     "infrastructure": 3,
@@ -46,15 +48,17 @@
     "resume_from": null
   },
   "post_merge": {
-    "status": "PENDING",
-    "merge_sha": null,
-    "verified_run_ids": []
+    "status": "PASS",
+    "merge_sha": "43223c2f1acac7f903a5d897cf21656f226956f8",
+    "verified_run_ids": [
+      30059172006
+    ]
   },
   "notification": {
-    "generation": 0,
-    "last_type": null,
+    "generation": 1,
+    "last_type": "COMPLETED",
     "acknowledged": true,
     "control_issue_number": null
   },
-  "updated_at_utc": "2026-07-24T01:24:10Z"
+  "updated_at_utc": "2026-07-24T01:34:11Z"
 }

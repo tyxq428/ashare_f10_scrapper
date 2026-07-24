@@ -1,17 +1,17 @@
 # STATUS：codex-entrypoint-hardening-v1
 
 ```yaml
-status: VERIFYING
-execution_status: RUNNING
+status: DONE
+execution_status: COMPLETED
 acceptance_domain: generic
-acceptance_status: PENDING
+acceptance_status: PASS
 security_status: PASS
 current_stage: W08
-last_completed_stage: W07
-branch: feature/codex-entrypoint-hardening-v1
+last_completed_stage: W08
+branch: main
 pull_request: 51
-next_action: merge_pr51_then_run_exact_main_closeout
-post_merge: PENDING
+next_action: none
+post_merge: PASS
 human_intervention_required: false
 ```
 
