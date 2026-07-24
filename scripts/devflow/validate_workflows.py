@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 
 from validate_codex_entrypoints import validate as validate_codex_entrypoints
+from validate_notification_channels import validate as validate_notification_channels
 
 ACTION_REF = re.compile(r"^\s*-?\s*uses:\s*([^\s#]+)", re.MULTILINE)
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -18,6 +19,7 @@ WORKFLOW_TARGETS = (
     "devflow-legacy-codex-rerun-audit.yml",
     "devflow-incident.yml",
     "devflow-post-merge.yml",
+    "devflow-terminal-state-notify.yml",
 )
 ACTION_TARGETS = (Path(".github/actions/codex-thin-worker/action.yml"),)
 
@@ -160,9 +162,13 @@ def validate_file(path: Path) -> list[str]:
                 "workflow_run:",
                 "rerun-failed-jobs",
                 "recovery_policy.py",
+                "notification_event.py resolve-task",
+                "value['task_id'] = resolved['task_id']",
                 "devflow_notify",
+                "assert_auto_recovery_boundaries.py",
                 "No Codex task, Relay paid probe or model session was retried",
                 "AUTOMATIC_PAID_RELAY_PROBE_RETRIES=0",
+                "AUTOMATIC_BARK_RETRIES=0",
             ),
             errors,
         )
@@ -172,14 +178,18 @@ def validate_file(path: Path) -> list[str]:
             (
                 "      - Codex Task\n",
                 "      - Devflow Relay Health\n",
+                "      - Devflow Incident\n",
+                "      - Devflow Terminal State Notification\n",
                 "actions/workflows/codex-task.yml/dispatches",
                 "steps.decision.outputs.action == 'RETRY_CODEX'",
                 "python scripts/devflow/recovery_task.py",
                 "environment: agent-runtime",
                 "secrets.AGENT_",
+                "${{ secrets.BARK_PUSH_URL }}",
+                "name: notification-runtime",
             ),
             errors,
-            message="automatic model or paid-probe path is forbidden",
+            message="automatic model, paid-probe or Bark retry path is forbidden",
         )
         if "issues: write" in text:
             errors.append(f"{path}: auto recovery must not write Issues directly")
@@ -197,6 +207,9 @@ def validate_file(path: Path) -> list[str]:
                 "product-scope-result.json",
                 "Fail closed on changed-path scope violation",
                 "PRODUCT_GATE_WEB_REPAIR_REQUIRED",
+                "Centralized Auto Recovery will classify the terminal task event",
+                "No direct duplicate devflow notification was dispatched",
+                "'task_id': '${{ steps.task.outputs.task_id }}'",
                 'git config user.name "github-actions[bot]"',
                 "Fail closed when automatic merge boundary is blocked",
                 "auto_merge",
@@ -223,6 +236,14 @@ def validate_file(path: Path) -> list[str]:
         )[0]:
             errors.append(
                 f"{path}: initial scope must use merge base, not moving main"
+            )
+        failure_prefix = text.split(
+            "Notify when a task is not approved for automatic merge",
+            1,
+        )[0]
+        if "'event_type': 'devflow_notify'" in failure_prefix:
+            errors.append(
+                f"{path}: failed product gate must be classified by Auto Recovery"
             )
 
     if path.name == "devflow-state-consistency.yml":
@@ -319,15 +340,36 @@ def validate_file(path: Path) -> list[str]:
             (
                 "repository_dispatch",
                 "devflow_notify",
-                "does **not** trigger repair",
+                "notification_event.py prepare",
                 "control_issue_number",
+                "name: notification-runtime",
+                "${{ secrets.BARK_PUSH_URL }}",
+                "github.run_attempt == 1",
+                "continue-on-error: true",
+                "--retry 0",
+                "--output /dev/null",
+                "BARK_DELIVERY=FAILED_FAIL_OPEN",
+                "BARK_AUTOMATIC_RETRIES=0",
+                "does **not** trigger repair",
             ),
             errors,
         )
-        if "workflow_run:" in text:
-            errors.append(
-                f"{path}: Incident must not notify directly from raw failures"
-            )
+        _forbid(
+            path,
+            text,
+            (
+                "workflow_run:",
+                "agent-runtime",
+                "secrets.AGENT_",
+                "openai/codex-action@",
+                "private_responses_forwarder.py",
+                "relay_health.py",
+            ),
+            errors,
+            message="Incident contains a forbidden raw, model or Relay path",
+        )
+        if text.count("--request POST") != 1:
+            errors.append(f"{path}: exactly one Bark POST location is allowed")
 
     if path.name == "devflow-post-merge.yml":
         _require_fragments(
@@ -337,7 +379,8 @@ def validate_file(path: Path) -> list[str]:
                 "devflow_post_merge",
                 "run_gate_profile.py",
                 "POST_MERGE_WEB_REPAIR_REQUIRED",
-                "devflow_notify",
+                "Centralized Auto Recovery will classify the terminal task event",
+                "No direct duplicate devflow notification was dispatched",
             ),
             errors,
         )
@@ -350,9 +393,44 @@ def validate_file(path: Path) -> list[str]:
                 "actions/workflows/codex-task.yml/dispatches",
                 "python scripts/devflow/recovery_task.py",
                 "RETRY_CODEX",
+                "'event_type': 'devflow_notify'",
             ),
             errors,
-            message="Post-Merge automatic model path is forbidden",
+            message="Post-Merge automatic model or duplicate notification path is forbidden",
+        )
+
+    if path.name == "devflow-terminal-state-notify.yml":
+        _require_fragments(
+            path,
+            text,
+            (
+                "push:",
+                "      - main",
+                "docs/implementation/*/task_state.yaml",
+                "ref: ${{ github.sha }}",
+                "fetch-depth: 0",
+                "persist-credentials: false",
+                "terminal_notification_scan.py",
+                "devflow_notify",
+                "RAW_WORKFLOW_RUN_NOTIFICATIONS=0",
+                "BARK_REQUESTS_IN_THIS_WORKFLOW=0",
+            ),
+            errors,
+        )
+        _forbid(
+            path,
+            text,
+            (
+                "workflow_run:",
+                "notification-runtime",
+                "BARK_PUSH_URL",
+                "agent-runtime",
+                "secrets.AGENT_",
+                "openai/codex-action@",
+                "--request POST",
+            ),
+            errors,
+            message="terminal state producer must remain secret-free and bus-only",
         )
 
     return errors
@@ -377,11 +455,18 @@ def main() -> int:
             continue
         found.append(path.as_posix())
         errors.extend(validate_file(path))
+
     entrypoint_summary = validate_codex_entrypoints()
     errors.extend(
         f"codex-entrypoint: {item}"
         for item in entrypoint_summary.get("errors", [])
     )
+    notification_summary = validate_notification_channels()
+    errors.extend(
+        f"notification-channel: {item}"
+        for item in notification_summary.get("errors", [])
+    )
+
     summary = {
         "status": "PASS" if not errors else "FAIL",
         "files": found,
@@ -390,6 +475,12 @@ def main() -> int:
         ),
         "automatic_paid_probe_retries": entrypoint_summary.get(
             "automatic_paid_probe_retries"
+        ),
+        "automatic_bark_retries": notification_summary.get(
+            "automatic_bark_retries"
+        ),
+        "bark_post_locations": notification_summary.get(
+            "bark_post_locations"
         ),
         "errors": errors,
     }
