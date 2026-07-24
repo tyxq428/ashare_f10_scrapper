@@ -1,56 +1,64 @@
 {
   "schema_version": 2,
-  "state_revision": 6,
+  "state_revision": 7,
   "task_id": "devflow-bark-delivery-receipt-v1",
   "title": "Devflow Bark delivery receipt artifact and live verification",
-  "status": "VERIFYING",
-  "execution_status": "RUNNING",
+  "status": "DONE",
+  "execution_status": "COMPLETED",
   "acceptance": {
     "domain": "generic",
-    "status": "PENDING",
-    "reason_code": null,
-    "details_path": "docs/implementation/devflow-bark-delivery-receipt-v1/W04_result.md"
+    "status": "PASS",
+    "reason_code": "BARK_DELIVERY_RECEIPT_COMPLETE",
+    "details_path": "docs/implementation/devflow-bark-delivery-receipt-v1/FINAL_REPORT.md"
   },
   "security_status": "PASS",
-  "working_branch": "feature/devflow-bark-delivery-receipt-v1",
+  "working_branch": "main",
   "pull_request": 56,
   "base_sha_at_start": "20b9a866a8d7ed8d839ef86416ac22d876167cec",
-  "last_product_commit_sha": "1c3e1eca154df833a9cd1724dc4ae036af1b29cc",
+  "last_product_commit_sha": "303e2082c8fb655162aed5ef281d2305c26a4e52",
   "last_state_commit_sha": null,
   "current_stage": "W05",
-  "last_completed_stage": "W04",
-  "last_successful_step": "final_premerge_exact_head_gates_pass_and_no_parallel_PR_overlap",
-  "next_action": "run_resumed_exact_head_gates_mark_PR56_ready_and_merge",
+  "last_completed_stage": "W05",
+  "last_successful_step": "receipt_implementation_merged_exact_main_verified_and_atomic_closeout_PR57_opened",
+  "next_action": "none",
   "gate_results": {
     "W00_OBSERVABILITY_INVENTORY": "PASS",
     "W01_RECEIPT_MODEL": "PASS",
     "W02_INCIDENT_RECEIPT_INTEGRATION": "PASS",
     "W03_RECEIPT_GUARDS_AND_DOCS": "PASS",
     "W04_EXACT_PR_HEAD": "PASS:fd12abe80c52396a3dd91e7e2149e93011ef3715",
-    "W04_UPGRADE_COMPATIBILITY": "PASS:30093710989",
-    "W04_TEST": "PASS:30093710936",
-    "W04_STATE_CONSISTENCY": "PASS:30093710984",
-    "W04_E2E_688521": "PASS:30093710983",
-    "W04_OPEN_PULL_REQUESTS": "1:PR56_ONLY",
-    "W04_PARALLEL_PATH_OVERLAP": "0",
+    "W05_FINAL_EXACT_PR_HEAD": "PASS:025dd4dd09d18ddb23d3e6d73fe955a05425d860",
+    "W05_UPGRADE_COMPATIBILITY": "PASS:30093873675",
+    "W05_TEST": "PASS:30093873645",
+    "W05_STATE_CONSISTENCY": "PASS:30093873768",
+    "W05_E2E_688521": "PASS:30093873659",
+    "IMPLEMENTATION_PR": "56",
+    "IMPLEMENTATION_MERGE_SHA": "303e2082c8fb655162aed5ef281d2305c26a4e52",
+    "CLOSEOUT_PR": "57",
+    "EXACT_MAIN_TREE_EQUIVALENCE": "PASS:NO_FILE_DIFF_FROM_TESTED_HEAD",
+    "EXACT_MAIN_CODEX_POLICY": "PASS:DISABLED",
+    "EXACT_MAIN_NOTIFICATION_MANIFEST": "PASS",
     "BARK_POST_LOCATIONS": "1",
     "DELIVERY_RECEIPT_ARTIFACT_UPLOADS": "1",
     "DELIVERY_RECEIPT_ARTIFACT_FILES_MAX": "1",
     "DELIVERY_RECEIPT_RETENTION_DAYS": "14",
     "DELIVERY_RECEIPT_ISSUE_INDEX": "ENABLED",
+    "DELIVERY_RECEIPT_OBSERVATION_STATUS": "PENDING_CLOSEOUT_MAIN_EVENT",
     "CODEX_CALLS": "0",
     "RESPONSES_PAID_PROBES": "0",
     "RELAY_SECRET_READS": "0",
     "HISTORICAL_CODEX_RERUNS": "0",
     "SYNTHETIC_BARK_TESTS": "0",
-    "BARK_LIVE_REQUESTS": "0",
+    "BARK_LIVE_REQUESTS_BEFORE_CLOSEOUT": "0",
+    "BARK_LIVE_REQUESTS_FOR_CLOSEOUT_MAX": "1",
+    "BARK_AUTOMATIC_RETRIES": "0",
     "BARK_SECRET_VALUE_READS_BY_CHATGPT": "0"
   },
   "retry_budget": {
-    "infrastructure": 3,
+    "infrastructure": 0,
     "codex_sessions": 0,
     "codex_recovery_generations": 0,
-    "replans": 2
+    "replans": 0
   },
   "human_gate": {
     "required": false,
@@ -59,15 +67,20 @@
     "resume_from": null
   },
   "post_merge": {
-    "status": "PENDING",
-    "merge_sha": null,
-    "verified_run_ids": []
+    "status": "PASS",
+    "merge_sha": "303e2082c8fb655162aed5ef281d2305c26a4e52",
+    "verified_run_ids": [
+      30093873675,
+      30093873645,
+      30093873768,
+      30093873659
+    ]
   },
   "notification": {
-    "generation": 0,
-    "last_type": null,
-    "acknowledged": true,
+    "generation": 1,
+    "last_type": "COMPLETED",
+    "acknowledged": false,
     "control_issue_number": null
   },
-  "updated_at_utc": "2026-07-24T12:40:00Z"
+  "updated_at_utc": "2026-07-24T12:49:00Z"
 }
