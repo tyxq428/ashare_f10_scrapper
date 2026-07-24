@@ -6,107 +6,264 @@ on:
       - devflow_notify
 
 permissions:
-  issues: write
   contents: read
 
-# Every valuable notification for this task uses one serialized queue and one
-# canonical Issue. Automatic retries and repairs never enter this workflow.
+# Valuable task notifications share one task-specific serialized queue. Raw
+# workflow failures, automatic retries and deterministic repairs never enter it.
 concurrency:
-  group: devflow-task-control-chatgpt-web-codex-devflow-v1
+  group: >-
+    devflow-task-control-${{
+      github.event.client_payload.task_id || 'unresolved'
+    }}
   cancel-in-progress: false
 
 jobs:
   valuable-notification:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    outputs:
+      should_push: ${{ steps.issue.outputs.should_push }}
+      task_id: ${{ steps.prepare.outputs.task_id }}
+      notification_type: ${{ steps.prepare.outputs.notification_type }}
+      issue_number: ${{ steps.issue.outputs.issue_number }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           ref: main
           persist-credentials: false
 
-      - name: Create or update the canonical task control issue
+      - name: Validate the task-level terminal notification
+        id: prepare
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
           PAYLOAD_JSON: ${{ toJson(github.event.client_payload) }}
         run: |
           set -euo pipefail
           printf '%s' "$PAYLOAD_JSON" > /tmp/devflow-notification.json
+          python scripts/devflow/notification_event.py prepare \
+            --repo . \
+            --repository "${{ github.repository }}" \
+            --payload /tmp/devflow-notification.json \
+            --validated-output /tmp/validated-notification.json \
+            --bark-output /tmp/bark-message.json
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          from pathlib import Path
+
+          value = json.loads(
+              Path('/tmp/validated-notification.json').read_text(encoding='utf-8')
+          )
+          for key in ('task_id', 'notification_type', 'marker'):
+              print(f"{key}={value[key]}")
+          PY
+
+      - name: Create or update the canonical task control issue
+        id: issue
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TASK_ID="$(jq -r '.task_id' /tmp/validated-notification.json)"
+          CONTROL_TITLE="$(jq -r '.control_title' /tmp/validated-notification.json)"
+          ISSUE_NUMBER="$(jq -r '.control_issue_number // empty' \
+            /tmp/validated-notification.json)"
+          TYPE="$(jq -r '.notification_type' /tmp/validated-notification.json)"
+          MARKER="$(jq -r '.marker' /tmp/validated-notification.json)"
+
+          if [[ -n "$ISSUE_NUMBER" ]]; then
+            gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}" \
+              > /tmp/task-control-issue.json
+          else
+            gh api --paginate \
+              "repos/${{ github.repository }}/issues?state=all&per_page=100" \
+              --jq '.[] | select(has("pull_request") | not) | {number,title,state}' \
+              > /tmp/task-control-issues.jsonl
+            python - "$CONTROL_TITLE" <<'PY' > /tmp/task-control-match.json
+          import json
+          import sys
+          from pathlib import Path
+
+          title = sys.argv[1]
+          matches = []
+          path = Path('/tmp/task-control-issues.jsonl')
+          if path.exists():
+              for raw in path.read_text(encoding='utf-8').splitlines():
+                  if not raw.strip():
+                      continue
+                  value = json.loads(raw)
+                  if value.get('title') == title:
+                      matches.append(value)
+          if len(matches) > 1:
+              raise SystemExit('MULTIPLE_CANONICAL_TASK_CONTROL_ISSUES')
+          print(json.dumps(matches[0] if matches else {}))
+          PY
+            ISSUE_NUMBER="$(jq -r '.number // empty' /tmp/task-control-match.json)"
+            if [[ -z "$ISSUE_NUMBER" ]]; then
+              ISSUE_NUMBER="$(gh api --method POST \
+                "repos/${{ github.repository }}/issues" \
+                -f title="$CONTROL_TITLE" \
+                -f body="Canonical task-control Issue for ${TASK_ID}." \
+                --jq '.number')"
+            fi
+            gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}" \
+              > /tmp/task-control-issue.json
+          fi
+
+          python - "$CONTROL_TITLE" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          expected = sys.argv[1]
+          value = json.loads(
+              Path('/tmp/task-control-issue.json').read_text(encoding='utf-8')
+          )
+          if 'pull_request' in value:
+              raise SystemExit('TASK_CONTROL_TARGET_IS_A_PULL_REQUEST')
+          if value.get('title') != expected:
+              raise SystemExit('TASK_CONTROL_TITLE_MISMATCH')
+          if value.get('state') not in {'open', 'closed'}:
+              raise SystemExit('TASK_CONTROL_STATE_INVALID')
+          PY
+
+          if gh api --paginate \
+            "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments?per_page=100" \
+            --jq '.[].body' | grep -Fq -- "$MARKER"; then
+            echo "VALUABLE_NOTIFICATION=ALREADY_RECORDED" >> "$GITHUB_STEP_SUMMARY"
+            echo "issue_number=${ISSUE_NUMBER}" >> "$GITHUB_OUTPUT"
+            echo "should_push=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          ISSUE_STATE="$(jq -r '.state' /tmp/task-control-issue.json)"
+          if [[ "$ISSUE_STATE" == "closed" && "$TYPE" != "COMPLETED" ]]; then
+            gh issue reopen "$ISSUE_NUMBER" --repo "${{ github.repository }}"
+          fi
+
           python - <<'PY'
           import json
           from pathlib import Path
 
-          allowed = {'COMPLETED', 'HUMAN_REQUIRED', 'SECURITY_BLOCKED', 'INTERRUPTED'}
-          value = json.loads(Path('/tmp/devflow-notification.json').read_text())
-          kind = value.get('notification_type')
-          if kind not in allowed:
-              raise SystemExit(f'notification type is not valuable: {kind!r}')
-          required = ('reason_code', 'reason', 'minimum_action', 'fingerprint', 'source_workflow', 'source_run_id')
-          for key in required:
-              if value.get(key) in (None, ''):
-                  raise SystemExit(f'missing notification field: {key}')
-          PY
-
-          TASK_ID="chatgpt-web-codex-devflow-v1"
-          CONTROL_TITLE="[TASK CONTROL] ${TASK_ID}"
-          STATE_PATH="docs/implementation/${TASK_ID}/task_state.yaml"
-          ISSUE_NUMBER="$(python - "$STATE_PATH" <<'PY'
-          import json
-          import sys
-          from pathlib import Path
-          data = json.loads(Path(sys.argv[1]).read_text())
-          value = data.get('notification', {}).get('control_issue_number')
-          if isinstance(value, int) and not isinstance(value, bool) and value > 0:
-              print(value)
-          PY
-          )"
-          [[ -n "$ISSUE_NUMBER" ]]
-
-          ISSUE_DATA="$(gh issue view "$ISSUE_NUMBER" --repo "${{ github.repository }}" \
-            --json number,title,state)"
-          [[ "$(jq -r '.title' <<<"$ISSUE_DATA")" == "$CONTROL_TITLE" ]]
-
-          TYPE="$(jq -r '.notification_type' /tmp/devflow-notification.json)"
-          REASON_CODE="$(jq -r '.reason_code' /tmp/devflow-notification.json)"
-          REASON="$(jq -r '.reason' /tmp/devflow-notification.json)"
-          MINIMUM_ACTION="$(jq -r '.minimum_action' /tmp/devflow-notification.json)"
-          FINGERPRINT="$(jq -r '.fingerprint' /tmp/devflow-notification.json)"
-          SOURCE_WORKFLOW="$(jq -r '.source_workflow' /tmp/devflow-notification.json)"
-          SOURCE_RUN="$(jq -r '.source_run_id' /tmp/devflow-notification.json)"
-          SOURCE_URL="https://github.com/${{ github.repository }}/actions/runs/${SOURCE_RUN}"
-          FAILURE_STEPS="$(jq -r '(.failure_steps // []) | if length == 0 then "none" else join(", ") end' /tmp/devflow-notification.json)"
-
-          MARKER="devflow-root:${FINGERPRINT}:${TYPE}"
-          if gh api --paginate "/repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments?per_page=100" \
-            --jq '.[].body' | grep -Fq "$MARKER"; then
-            echo "VALUABLE_NOTIFICATION=ALREADY_RECORDED"
-            exit 0
-          fi
-
-          if [[ "$(jq -r '.state' <<<"$ISSUE_DATA")" == "CLOSED" && "$TYPE" != "COMPLETED" ]]; then
-            gh issue reopen "$ISSUE_NUMBER" --repo "${{ github.repository }}"
-          fi
-
-          COMMENT=$(cat <<EOF
-          @tyxq428
-
-          [TASK][${TYPE}]
-
-          - Task: \`${TASK_ID}\`
-          - Workflow: \`${SOURCE_WORKFLOW}\`
-          - Run: ${SOURCE_URL}
-          - Classification: \`${REASON_CODE}\`
-          - Failed steps: ${FAILURE_STEPS}
-          - Reason: ${REASON}
-          - Minimum action: ${MINIMUM_ACTION}
-          - Recovery record: \`docs/implementation/${TASK_ID}/HANDOFF.md\`
-
-          \`/ack\` only confirms that you saw this message. It does **not** trigger repair or resume execution. Automatic retry and repair were already attempted before this notification. <!-- ${MARKER} -->
-          EOF
+          value = json.loads(
+              Path('/tmp/validated-notification.json').read_text(encoding='utf-8')
           )
-          gh issue comment "$ISSUE_NUMBER" --repo "${{ github.repository }}" --body "$COMMENT"
+          failed = ', '.join(value['failure_steps']) or 'none'
+          body = '\n'.join(
+              (
+                  '@tyxq428',
+                  '',
+                  f"[TASK][{value['notification_type']}]",
+                  '',
+                  f"- Task: `{value['task_id']}`",
+                  f"- Workflow: `{value['source_workflow']}`",
+                  f"- Run: {value['source_url']}",
+                  f"- Classification: `{value['reason_code']}`",
+                  f"- Failed steps: {failed}",
+                  f"- Reason: {value['reason']}",
+                  f"- Minimum action: {value['minimum_action']}",
+                  f"- Recovery record: `{value['state_path'].replace('task_state.yaml', 'HANDOFF.md')}`",
+                  '',
+                  '`/ack` only confirms that you saw this message. It does **not** '
+                  'trigger repair, retry, Codex, resume or state changes. Automatic '
+                  'classification and bounded recovery already happened before this '
+                  'notification.',
+                  f"<!-- {value['marker']} -->",
+              )
+          )
+          Path('/tmp/task-control-comment.md').write_text(body + '\n', encoding='utf-8')
+          PY
+          gh issue comment "$ISSUE_NUMBER" --repo "${{ github.repository }}" \
+            --body-file /tmp/task-control-comment.md
 
           if [[ "$TYPE" == "COMPLETED" ]]; then
-            gh issue close "$ISSUE_NUMBER" --repo "${{ github.repository }}" --reason completed
+            gh issue close "$ISSUE_NUMBER" --repo "${{ github.repository }}" \
+              --reason completed
           fi
+          echo "VALUABLE_NOTIFICATION=RECORDED" >> "$GITHUB_STEP_SUMMARY"
+          echo "issue_number=${ISSUE_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "should_push=true" >> "$GITHUB_OUTPUT"
+
+  bark:
+    needs: valuable-notification
+    if: >-
+      needs.valuable-notification.outputs.should_push == 'true' &&
+      github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    environment:
+      name: notification-runtime
+      deployment: false
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Rebuild the validated Bark message from trusted main
+        shell: bash
+        env:
+          PAYLOAD_JSON: ${{ toJson(github.event.client_payload) }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$PAYLOAD_JSON" > /tmp/devflow-notification.json
+          python scripts/devflow/notification_event.py prepare \
+            --repo . \
+            --repository "${{ github.repository }}" \
+            --payload /tmp/devflow-notification.json \
+            --validated-output /tmp/validated-notification.json \
+            --bark-output /tmp/bark-message.json
+
+      - name: Send one terminal Bark notification
+        id: bark_delivery
+        continue-on-error: true
+        shell: bash
+        env:
+          BARK_PUSH_URL: ${{ secrets.BARK_PUSH_URL }}
+        run: |
+          set -euo pipefail
+          set +x
+          if [[ -z "$BARK_PUSH_URL" ]]; then
+            echo "BARK_DELIVERY=SKIPPED_MISSING_CONFIGURATION" \
+              >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "::add-mask::${BARK_PUSH_URL}"
+          HTTP_STATUS="$(curl \
+            --silent \
+            --show-error \
+            --fail \
+            --retry 0 \
+            --connect-timeout 10 \
+            --max-time 20 \
+            --request POST \
+            --header 'Content-Type: application/json; charset=utf-8' \
+            --data-binary @/tmp/bark-message.json \
+            --output /dev/null \
+            --write-out '%{http_code}' \
+            "$BARK_PUSH_URL")"
+          [[ "$HTTP_STATUS" =~ ^2[0-9][0-9]$ ]]
+          echo "BARK_DELIVERY=ACCEPTED_HTTP_${HTTP_STATUS}" \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Preserve the task result when Bark is unavailable
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ steps.bark_delivery.outcome }}" == "failure" ]]; then
+            echo "BARK_DELIVERY=FAILED_FAIL_OPEN" >> "$GITHUB_STEP_SUMMARY"
+            echo "The canonical task state and Issue notification remain authoritative." \
+              >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "BARK_DELIVERY_STEP=COMPLETED_OR_SAFELY_SKIPPED" \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "BARK_AUTOMATIC_RETRIES=0" >> "$GITHUB_STEP_SUMMARY"
+          echo "BARK_REQUESTS_PER_LOGICAL_NOTIFICATION_MAX=1" \
+            >> "$GITHUB_STEP_SUMMARY"
