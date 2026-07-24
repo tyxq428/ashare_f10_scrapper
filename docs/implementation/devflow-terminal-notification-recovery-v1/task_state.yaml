@@ -1,26 +1,26 @@
 {
   "schema_version": 2,
-  "state_revision": 3,
+  "state_revision": 4,
   "task_id": "devflow-terminal-notification-recovery-v1",
   "title": "Reliable terminal completion producer and Bark live verification",
-  "status": "VERIFYING",
-  "execution_status": "RUNNING",
+  "status": "DONE",
+  "execution_status": "COMPLETED",
   "acceptance": {
     "domain": "generic",
-    "status": "PENDING",
-    "reason_code": null,
-    "details_path": "docs/implementation/devflow-terminal-notification-recovery-v1/W04_result.md"
+    "status": "PASS",
+    "reason_code": "TERMINAL_NOTIFICATION_RECOVERY_COMPLETE",
+    "details_path": "docs/implementation/devflow-terminal-notification-recovery-v1/FINAL_REPORT.md"
   },
   "security_status": "PASS",
-  "working_branch": "feature/devflow-terminal-notification-recovery-v1",
+  "working_branch": "main",
   "pull_request": 58,
   "base_sha_at_start": "5afbb17a574bb850e93d6134719b621e3fdfd10c",
-  "last_product_commit_sha": "f7431c16262cd98e790038316af11ef10e126f2c",
+  "last_product_commit_sha": "1f20a6531329ce957d9a3d5a0478071b92d11496",
   "last_state_commit_sha": null,
   "current_stage": "W05",
-  "last_completed_stage": "W04",
-  "last_successful_step": "exact_PR_head_gates_pass_and_W05_merge_plan_persisted",
-  "next_action": "run_final_exact_head_gates_mark_PR58_ready_and_merge",
+  "last_completed_stage": "W05",
+  "last_successful_step": "independent_terminal_producer_merged_exact_main_verified_and_atomic_closeout_prepared",
+  "next_action": "none",
   "gate_results": {
     "PREVIOUS_TASK_CANONICAL_DONE": "PASS",
     "PREVIOUS_TASK_CONTROL_ISSUE": "ABSENT",
@@ -29,26 +29,40 @@
     "W02_STABLE_COMPLETION_DEDUP": "PASS",
     "W03_MANIFEST_VALIDATORS_DOCS": "PASS",
     "W04_EXACT_PR_HEAD": "PASS:f7431c16262cd98e790038316af11ef10e126f2c",
-    "W04_UPGRADE_COMPATIBILITY": "PASS:30096753427",
-    "W04_TEST": "PASS:30096753429",
-    "W04_STATE_CONSISTENCY": "PASS:30096753352",
-    "W04_E2E_688521": "PASS:30096753381",
+    "W05_FINAL_EXACT_PR_HEAD": "PASS:aaa63aa9b89dd4eda9b3b6e70ea59f90937a2dcf",
+    "W05_UPGRADE_COMPATIBILITY": "PASS:30096957054",
+    "W05_TEST": "PASS:30096957038",
+    "W05_STATE_CONSISTENCY": "PASS:30096957030",
+    "W05_E2E_688521": "PASS:30096957087",
+    "IMPLEMENTATION_PR": "58",
+    "IMPLEMENTATION_MERGE_SHA": "1f20a6531329ce957d9a3d5a0478071b92d11496",
+    "CLOSEOUT_PR": "PENDING",
+    "EXACT_MAIN_TREE_EQUIVALENCE": "PASS:NO_FILE_DIFF_FROM_TESTED_HEAD",
+    "EXACT_MAIN_CODEX_POLICY": "PASS:DISABLED",
+    "EXACT_MAIN_STATE_CONSISTENCY_VALIDATION_ONLY": "PASS",
+    "EXACT_MAIN_INDEPENDENT_COMPLETION_PRODUCER": "PASS",
     "COMPLETION_PRODUCER_WORKFLOWS": "1",
     "STATE_CONSISTENCY_EMBEDDED_PRODUCERS": "0",
     "STABLE_COMPLETION_MARKER": "ENABLED",
+    "DELIVERY_RECEIPT_ARTIFACT_FILES_MAX": "1",
+    "DELIVERY_RECEIPT_RETENTION_DAYS": "14",
+    "DELIVERY_RECEIPT_ISSUE_INDEX": "ENABLED",
+    "DELIVERY_RECEIPT_OBSERVATION_STATUS": "PENDING_CLOSEOUT_MAIN_EVENT",
     "CODEX_CALLS": "0",
     "RESPONSES_PAID_PROBES": "0",
     "RELAY_SECRET_READS": "0",
     "HISTORICAL_CODEX_RERUNS": "0",
     "SYNTHETIC_BARK_TESTS": "0",
-    "BARK_LIVE_REQUESTS": "0",
+    "BARK_LIVE_REQUESTS_BEFORE_CLOSEOUT": "0",
+    "BARK_LIVE_REQUESTS_FOR_CLOSEOUT_MAX": "1",
+    "BARK_AUTOMATIC_RETRIES": "0",
     "BARK_SECRET_VALUE_READS_BY_CHATGPT": "0"
   },
   "retry_budget": {
-    "infrastructure": 3,
+    "infrastructure": 0,
     "codex_sessions": 0,
     "codex_recovery_generations": 0,
-    "replans": 2
+    "replans": 0
   },
   "human_gate": {
     "required": false,
@@ -57,15 +71,20 @@
     "resume_from": null
   },
   "post_merge": {
-    "status": "PENDING",
-    "merge_sha": null,
-    "verified_run_ids": []
+    "status": "PASS",
+    "merge_sha": "1f20a6531329ce957d9a3d5a0478071b92d11496",
+    "verified_run_ids": [
+      30096957054,
+      30096957038,
+      30096957030,
+      30096957087
+    ]
   },
   "notification": {
-    "generation": 0,
-    "last_type": null,
-    "acknowledged": true,
+    "generation": 1,
+    "last_type": "COMPLETED",
+    "acknowledged": false,
     "control_issue_number": null
   },
-  "updated_at_utc": "2026-07-24T13:31:00Z"
+  "updated_at_utc": "2026-07-24T13:39:00Z"
 }
