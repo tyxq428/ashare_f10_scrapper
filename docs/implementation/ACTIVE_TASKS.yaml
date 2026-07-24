@@ -34,7 +34,7 @@
       "status": "VERIFYING",
       "branch": "feature/codex-trigger-surface-audit-v2",
       "pull_request": 52,
-      "current_stage": "W04",
+      "current_stage": "W05",
       "state_path": "docs/implementation/codex-trigger-surface-audit-v2/task_state.yaml"
     }
   ]
