@@ -67,10 +67,10 @@
     {
       "task_id": "devflow-terminal-notification-recovery-v1",
       "title": "Reliable terminal completion producer and Bark live verification",
-      "status": "RUNNING",
+      "status": "VERIFYING",
       "branch": "feature/devflow-terminal-notification-recovery-v1",
-      "pull_request": null,
-      "current_stage": "W00",
+      "pull_request": 58,
+      "current_stage": "W04",
       "state_path": "docs/implementation/devflow-terminal-notification-recovery-v1/task_state.yaml"
     }
   ]
