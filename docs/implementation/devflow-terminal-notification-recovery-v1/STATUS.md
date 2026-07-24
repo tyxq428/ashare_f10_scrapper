@@ -5,11 +5,11 @@ status: VERIFYING
 execution_status: RUNNING
 acceptance: PENDING
 security_status: PASS
-current_stage: W04
-last_completed_stage: W03
+current_stage: W05
+last_completed_stage: W04
 branch: feature/devflow-terminal-notification-recovery-v1
 pull_request: 58
-next_action: run_exact_PR_head_gates_and_prepare_W05_merge_state
+next_action: run_final_exact_head_gates_mark_PR58_ready_and_merge
 codex_calls: 0
 responses_paid_probes: 0
 relay_secret_reads: 0
@@ -20,16 +20,14 @@ bark_live_requests: 0
 
 ## 已完成
 
-- 上一完成事件缺失的可观察性对账；
-- 独立 `workflow_run` success producer；
-- State Consistency恢复为validation-only；
--跨generation稳定task completion marker；
-- single-producer manifest、永久Validator与测试；
--通知Policy和Incident Runbook；
--精确实现head `6f068f4d5b368b70faf5dfc12bc69c9f4f0aae69` 的四个Gate全部PASS。
+- W00完成事件缺失对账与恢复设计；
+- W01独立State Consistency成功后继producer；
+- W02跨generation稳定task completion marker；
+- W03机器清单、永久Validator、测试、Policy与Runbook；
+- W04精确head `f7431c16262cd98e790038316af11ef10e126f2c` 的四个Gate全部PASS。
 
 ## 当前阶段
 
-W04对包含全部代码和文档的精确PR head运行完整Gate。通过后写W04结果并进入W05实现合并状态。当前真实Bark请求仍为0。
+W05对包含全部实现、结果文档和合并状态的最终精确PR head再次运行完整Gate。通过后PR #58转Ready并合并；实现合并不会发送Bark，真实请求只在独立DONE closeout后发生。
 
 冲突时以 `task_state.yaml` 为准。
