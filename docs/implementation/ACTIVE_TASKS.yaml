@@ -45,6 +45,15 @@
       "pull_request": 53,
       "current_stage": "W02",
       "state_path": "docs/implementation/codex-trigger-surface-reconciliation-v3/task_state.yaml"
+    },
+    {
+      "task_id": "devflow-bark-terminal-notification-v1",
+      "title": "Devflow Bark terminal notification channel",
+      "status": "RUNNING",
+      "branch": "feature/devflow-bark-terminal-notification-v1",
+      "pull_request": null,
+      "current_stage": "W00",
+      "state_path": "docs/implementation/devflow-bark-terminal-notification-v1/task_state.yaml"
     }
   ]
 }
