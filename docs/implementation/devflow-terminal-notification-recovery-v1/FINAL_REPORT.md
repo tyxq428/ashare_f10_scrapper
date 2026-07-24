@@ -9,7 +9,7 @@ acceptance: PASS
 security_status: PASS
 implementation_pull_request: 58
 implementation_merge_sha: 1f20a6531329ce957d9a3d5a0478071b92d11496
-closeout_pull_request: pending
+closeout_pull_request: 59
 codex_policy: disabled
 human_action_remaining: false
 ```
@@ -47,16 +47,16 @@ source_head_branch: main
 生产者还会：
 
 - checkout来源Run的精确 `head_sha`；
--确认该SHA仍是当前main的祖先；
--使用该SHA的第一父提交作为before；
--只扫描本次main commit中新增加的canonical COMPLETED generation；
--为每个有效事件发送一次 `repository_dispatch: devflow_notify`；
--在source、scan或dispatch失败时fail-open；
--不访问 `notification-runtime`；
--不读取 `BARK_PUSH_URL`；
--不执行HTTP请求；
--不写Issue；
--不触发Auto Recovery。
+- 确认该SHA仍是当前main的祖先；
+- 使用该SHA的第一父提交作为before；
+- 只扫描本次main commit中新增加的canonical COMPLETED generation；
+- 为每个有效事件发送一次 `repository_dispatch: devflow_notify`；
+- 在source、scan或dispatch失败时fail-open；
+- 不访问 `notification-runtime`；
+- 不读取 `BARK_PUSH_URL`；
+- 不执行HTTP请求；
+- 不写Issue；
+- 不触发Auto Recovery。
 
 `Devflow State Consistency` 现在只承担验证责任，不再嵌入通知Job。
 
@@ -80,9 +80,9 @@ devflow-task-completed:<task-id>
 
 - producer Workflow重跑不能补发；
 - State Consistency重跑不能补发；
--恢复generation不能让同一任务再次发送完成Bark；
--迟到的相同或旧完成事件不能补发；
--每个任务生命周期最多一条COMPLETED Bark。
+- 恢复generation不能让同一任务再次发送完成Bark；
+- 迟到的相同或旧完成事件不能补发；
+- 每个任务生命周期最多一条COMPLETED Bark。
 
 ## 5. Bark与回执边界
 
@@ -157,7 +157,7 @@ PR #58 merge SHA：
 
 ## 7. Canonical Closeout
 
-本closeout将以下状态原子发布到main：
+Closeout PR #59将以下状态原子发布到main：
 
 ```yaml
 status: DONE
@@ -181,7 +181,7 @@ synthetic_test_workflow: none
 maximum_live_requests: 1
 ```
 
-closeout合并后，预期链路：
+PR #59合并后，预期链路：
 
 ```text
 exact-main State Consistency PASS
