@@ -50,17 +50,34 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python scripts/devflow/prepare_bark_http_transport_v1.py
+          set -o pipefail
+          python scripts/devflow/prepare_bark_http_transport_v1.py \
+            2>&1 | tee /tmp/bark-http-preparer.log
           rm -f \
             .github/workflows/temporary-prepare-bark-http-transport-v1.yml \
             scripts/devflow/prepare_bark_http_transport_v1.py
 
-          python -m compileall -q scripts/devflow
-          python scripts/devflow/validate_notification_channels.py
-          python scripts/devflow/validate_workflows.py
-          ruff check scripts/devflow tests/test_devflow*.py --output-format=concise
-          pytest -q tests/test_devflow*.py
-          git diff --check
+          python -m compileall -q scripts/devflow \
+            2>&1 | tee -a /tmp/bark-http-preparer.log
+          python scripts/devflow/validate_notification_channels.py \
+            2>&1 | tee -a /tmp/bark-http-preparer.log
+          python scripts/devflow/validate_workflows.py \
+            2>&1 | tee -a /tmp/bark-http-preparer.log
+          ruff check scripts/devflow tests/test_devflow*.py --output-format=concise \
+            2>&1 | tee -a /tmp/bark-http-preparer.log
+          pytest -q tests/test_devflow*.py \
+            2>&1 | tee -a /tmp/bark-http-preparer.log
+          git diff --check 2>&1 | tee -a /tmp/bark-http-preparer.log
+
+      - name: Upload preparer diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: bark-http-preparer-diagnostics-${{ github.run_id }}
+          path: /tmp/bark-http-preparer.log
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
 
       - name: Persist the validated change set to the PR branch
         shell: bash
