@@ -2,9 +2,10 @@
 
 ## 当前检查点
 
-- 已从closeout main `5afbb17a574bb850e93d6134719b621e3fdfd10c` 创建新任务分支；
-- 上一Bark receipt任务canonical state为DONE，但没有对应task-control Issue；
-- 任务合同、总计划、W00计划和决策已持久化；
+- W00–W03已完成并有计划/结果；
+- 独立completion producer、stable task marker、manifest、Validator、测试和文档已实现；
+- 精确实现head `6f068f4d5b368b70faf5dfc12bc69c9f4f0aae69` 的Upgrade Compatibility、Test、State Consistency和真实688521 E2E全部PASS；
+- Draft PR #58保持开放；
 - Codex Policy保持disabled；
 - 未调用Codex、Responses、Relay、历史模型Workflow或Bark；
 - 未读取或显示Bark Secret。
@@ -12,25 +13,29 @@
 ## 当前阶段
 
 ```yaml
-stage: W00
+status: VERIFYING
+stage: W04
+last_completed_stage: W03
+pull_request: 58
 next_action:
-  - record_missing_completion_issue_evidence
-  - add_independent_workflow_run_success_producer
-  - remove_embedded_state_consistency_producer
-  - add_stable_completion_marker
-  - write_W00_result_and_W01_plan
+  - wait_for_exact_PR_head_checks
+  - inspect_only_failed_deterministic_checks
+  - write_W04_result
+  - persist_W05_plan_and_merge_state
+  - run_final_exact_head_checks
+  - mark_PR58_ready_and_merge
 ```
 
 ## 不要执行
 
 - 不修改已完成旧任务的notification generation；
-- 不重跑旧State Consistency或Incident；
+- 不重跑旧State Consistency、producer或Incident；
 - 不通过UI Re-run补发；
 - 不创建任意payload synthetic测试；
 - 不读取或输出 `BARK_PUSH_URL`；
 - 不让producer失败改变canonical任务结果；
 - 不调用Codex、Responses、Relay Health、Secret Audit或历史模型Workflow。
 
-## 最终验证
+## 合并后的真实验证
 
-修复合并后，以本任务自己的原子DONE closeout触发独立producer。只有一个stable completion marker可进入Incident，随后最多一个Bark POST和一个安全回执Artifact。
+实现合并后使用独立closeout PR把本任务原子更新为DONE generation1。main State Consistency成功后，独立producer应产生可观察Run、一个canonical completion Issue、最多一个Bark POST和一个安全回执Artifact。
