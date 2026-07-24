@@ -36,6 +36,15 @@
       "pull_request": 52,
       "current_stage": "W05",
       "state_path": "docs/implementation/codex-trigger-surface-audit-v2/task_state.yaml"
+    },
+    {
+      "task_id": "codex-trigger-surface-reconciliation-v3",
+      "title": "Codex trigger-surface reconciliation and Environment protection confirmation",
+      "status": "WAITING_HUMAN",
+      "branch": "feature/codex-trigger-surface-reconciliation-v3",
+      "pull_request": null,
+      "current_stage": "W01",
+      "state_path": "docs/implementation/codex-trigger-surface-reconciliation-v3/task_state.yaml"
     }
   ]
 }
