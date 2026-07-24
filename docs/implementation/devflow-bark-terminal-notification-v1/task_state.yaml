@@ -1,37 +1,43 @@
 {
   "schema_version": 2,
-  "state_revision": 7,
+  "state_revision": 8,
   "task_id": "devflow-bark-terminal-notification-v1",
   "title": "Devflow Bark terminal notification channel",
-  "status": "VERIFYING",
-  "execution_status": "RUNNING",
+  "status": "DONE",
+  "execution_status": "COMPLETED",
   "acceptance": {
     "domain": "generic",
-    "status": "PENDING",
-    "reason_code": null,
-    "details_path": "docs/implementation/devflow-bark-terminal-notification-v1/W04_result.md"
+    "status": "PASS",
+    "reason_code": "BARK_TERMINAL_NOTIFICATION_COMPLETE",
+    "details_path": "docs/implementation/devflow-bark-terminal-notification-v1/FINAL_REPORT.md"
   },
   "security_status": "PASS",
-  "working_branch": "feature/devflow-bark-terminal-notification-v1",
+  "working_branch": "main",
   "pull_request": 54,
   "base_sha_at_start": "379aac1ac439f1277e211984ef1acdfa2d5cdc07",
-  "last_product_commit_sha": "ac84df7f8337ee223a5958619462007c41dbad38",
+  "last_product_commit_sha": "4d782d8328b2e106708855d643e8e367c0cff73d",
   "last_state_commit_sha": null,
   "current_stage": "W05",
-  "last_completed_stage": "W04",
-  "last_successful_step": "notification_runtime_platform_configuration_confirmed_by_user",
-  "next_action": "mark_PR54_ready_and_verify_resumed_exact_head",
+  "last_completed_stage": "W05",
+  "last_successful_step": "implementation_merged_platform_configured_and_exact_main_source_verified",
+  "next_action": "none",
   "gate_results": {
     "W00_TERMINAL_NOTIFICATION_INVENTORY": "PASS",
     "W01_NOTIFICATION_EVENT_CORE": "PASS",
     "W02_GENERIC_INCIDENT_AND_BARK_TRANSPORT": "PASS",
     "W03_TERMINAL_PRODUCERS_AND_GUARDS": "PASS",
     "W04_EXACT_PR_HEAD": "PASS:16bb730900412d05adf9e634b4526629975d0f4a",
-    "W04_UPGRADE_COMPATIBILITY": "PASS:30088891192",
-    "W04_TEST": "PASS:30088891203",
-    "W04_STATE_CONSISTENCY": "PASS:30088891196",
-    "W04_E2E_688521": "PASS:30088891241",
     "W05_PLATFORM_CONFIGURATION": "PASS:USER_ATTESTATION",
+    "W05_FINAL_EXACT_PR_HEAD": "PASS:e5a3678057640a426a941f609bbe0f14eace1011",
+    "W05_UPGRADE_COMPATIBILITY": "PASS:30090241713",
+    "W05_TEST": "PASS:30090241743",
+    "W05_STATE_CONSISTENCY": "PASS:30090241736",
+    "W05_E2E_688521": "PASS:30090241816",
+    "IMPLEMENTATION_PR": "54",
+    "IMPLEMENTATION_MERGE_SHA": "4d782d8328b2e106708855d643e8e367c0cff73d",
+    "EXACT_MAIN_TREE_EQUIVALENCE": "PASS:NO_FILE_DIFF_FROM_TESTED_HEAD",
+    "EXACT_MAIN_CODEX_POLICY": "PASS:DISABLED",
+    "EXACT_MAIN_NOTIFICATION_MANIFEST": "PASS",
     "NOTIFICATION_RUNTIME_REQUIRED_REVIEWERS": "NONE",
     "NOTIFICATION_RUNTIME_ADMIN_BYPASS": "DISABLED",
     "NOTIFICATION_RUNTIME_DEPLOYMENT_BRANCHES": "MAIN_ONLY",
@@ -46,17 +52,19 @@
     "COMPLETION_SOURCE": "DEVFLOW_STATE_CONSISTENCY",
     "COMPLETION_DELIVERY_FAILURE": "FAIL_OPEN",
     "NOTIFICATION_FAILURE_AUTO_RECOVERY": "0",
+    "SYNTHETIC_BARK_TESTS": "0",
+    "BARK_REQUESTS_BEFORE_FINAL_COMPLETION_EVENT": "0",
+    "BARK_REQUESTS_FINAL_COMPLETION_EVENT_MAX": "1",
     "CODEX_CALLS": "0",
     "RESPONSES_PAID_PROBES": "0",
     "RELAY_SECRET_READS": "0",
-    "HISTORICAL_CODEX_RERUNS": "0",
-    "BARK_REQUESTS": "0"
+    "HISTORICAL_CODEX_RERUNS": "0"
   },
   "retry_budget": {
-    "infrastructure": 3,
+    "infrastructure": 0,
     "codex_sessions": 0,
     "codex_recovery_generations": 0,
-    "replans": 2
+    "replans": 0
   },
   "human_gate": {
     "required": false,
@@ -65,15 +73,15 @@
     "resume_from": null
   },
   "post_merge": {
-    "status": "PENDING",
-    "merge_sha": null,
+    "status": "PASS",
+    "merge_sha": "4d782d8328b2e106708855d643e8e367c0cff73d",
     "verified_run_ids": []
   },
   "notification": {
-    "generation": 2,
-    "last_type": "RESUMED",
-    "acknowledged": true,
+    "generation": 3,
+    "last_type": "COMPLETED",
+    "acknowledged": false,
     "control_issue_number": null
   },
-  "updated_at_utc": "2026-07-24T11:36:55Z"
+  "updated_at_utc": "2026-07-24T11:48:52Z"
 }
