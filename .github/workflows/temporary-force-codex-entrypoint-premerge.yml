@@ -67,6 +67,8 @@ jobs:
       - name: Run forced Devflow and upgrade gates
         run: |
           set -o pipefail
+          mv .github/workflows/temporary-force-codex-entrypoint-premerge.yml \
+            /tmp/temporary-force-codex-entrypoint-premerge.yml
           python -m compileall -q scripts/devflow
           python scripts/devflow/validate_state.py \
             --all-active \
@@ -205,7 +207,7 @@ jobs:
             --run-id "$PREMERGE_RUN_ID" \
             --tested-sha "$TESTED_SHA"
           git rm scripts/devflow/temporary_finalize_codex_entrypoint_premerge.py
-          git rm .github/workflows/temporary-force-codex-entrypoint-premerge.yml
+          git add -u .github/workflows/temporary-force-codex-entrypoint-premerge.yml
           git add docs/implementation
           git config user.name "github-actions[bot]"
           git config user.email \
