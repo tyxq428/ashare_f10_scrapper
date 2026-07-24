@@ -6,6 +6,9 @@ on:
       - main
     paths:
       - .devflow/bark-all-status-live-test-activation.json
+  issues:
+    types:
+      - assigned
 
 permissions:
   contents: read
@@ -18,9 +21,16 @@ concurrency:
 jobs:
   live-test:
     if: >-
-      github.event_name == 'push' &&
-      github.ref_name == 'main' &&
-      github.run_attempt == 1
+      github.run_attempt == 1 &&
+      (
+        (github.event_name == 'push' && github.ref_name == 'main') ||
+        (
+          github.event_name == 'issues' &&
+          github.event.action == 'assigned' &&
+          github.event.issue.number == 61 &&
+          github.event.assignee.login == 'tyxq428'
+        )
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -32,10 +42,48 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          ref: ${{ github.sha }}
+          ref: main
           persist-credentials: false
 
+      - name: Reserve this owner-approved activation exactly once
+        id: reserve
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          RESERVATION_MARKER='bark-all-status-live-test-reservation:bark-all-status-live-test-v1-20260724'
+          RESULT_MARKER='[BARK][ALL_STATUS_LIVE_TEST]'
+          gh api --paginate \
+            "repos/${{ github.repository }}/issues/61/comments?per_page=100" \
+            --jq '.[].body' > /tmp/bark-all-status-existing-comments.txt
+
+          if grep -Fq -- "$RESERVATION_MARKER" \
+              /tmp/bark-all-status-existing-comments.txt || \
+             grep -Fq -- "$RESULT_MARKER" \
+              /tmp/bark-all-status-existing-comments.txt; then
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            echo "BARK_ALL_STATUS_ACTIVATION=ALREADY_RESERVED_OR_COMPLETED" \
+              >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          cat > /tmp/bark-all-status-reservation.md <<EOF
+          [BARK][ALL_STATUS_LIVE_TEST_RESERVED]
+
+          - Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          - Expected real requests: `4`
+          - Automatic retries: `0`
+
+          <!-- ${RESERVATION_MARKER} -->
+          EOF
+          gh issue comment 61 --repo "${{ github.repository }}" \
+            --body-file /tmp/bark-all-status-reservation.md
+          echo "should_run=true" >> "$GITHUB_OUTPUT"
+          echo "BARK_ALL_STATUS_ACTIVATION=RESERVED" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Validate activation and build status-labelled messages
+        if: steps.reserve.outputs.should_run == 'true'
         shell: bash
         env:
           REPOSITORY_VALUE: ${{ github.repository }}
@@ -116,6 +164,7 @@ jobs:
 
       - name: Send exactly one real Bark request for each supported status
         id: live_test
+        if: steps.reserve.outputs.should_run == 'true'
         shell: bash
         env:
           BARK_PUSH_URL: ${{ secrets.BARK_PUSH_URL }}
@@ -267,7 +316,7 @@ jobs:
           echo "BARK_SECRET_VALUE_STORED=0" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload the all-status safe result
-        if: always()
+        if: steps.reserve.outputs.should_run == 'true' && always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: bark-all-status-live-test-${{ github.run_id }}
@@ -277,7 +326,7 @@ jobs:
           compression-level: 0
 
       - name: Record the safe all-status result in Issue 61
-        if: always()
+        if: steps.reserve.outputs.should_run == 'true' && always()
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -336,6 +385,7 @@ jobs:
             --body-file /tmp/bark-all-status-live-test-comment.md
 
       - name: Require all four status requests to be accepted
+        if: steps.reserve.outputs.should_run == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -357,3 +407,12 @@ jobs:
               assert item['automatic_retry'] is False
           PY
           echo "BARK_ALL_STATUS_LIVE_TEST=DELIVERED" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Record a safely deduplicated activation
+        if: steps.reserve.outputs.should_run != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "BARK_ALL_STATUS_LIVE_TEST=SKIPPED_ALREADY_RESERVED_OR_COMPLETED" \
+            >> "$GITHUB_STEP_SUMMARY"
+          echo "REAL_BARK_REQUESTS_IN_THIS_RUN=0" >> "$GITHUB_STEP_SUMMARY"
