@@ -25,6 +25,7 @@ DEVFLOW_PATTERNS = (
     "docs/ENGINEERING_ISSUES_AND_LESSONS.md",
     "scripts/devflow/**",
     "tests/test_devflow*.py",
+    "tests/fixtures/devflow/**",
     ".github/actions/codex-thin-worker/**",
     ".github/workflows/*devflow*.yml",
     ".github/workflows/*codex*.yml",
@@ -45,7 +46,10 @@ class ImpactResult:
 
 
 def _matches(path: str, patterns: tuple[str, ...]) -> bool:
-    return any(path == pattern or fnmatch.fnmatch(path, pattern) for pattern in patterns)
+    return any(
+        path == pattern or fnmatch.fnmatch(path, pattern)
+        for pattern in patterns
+    )
 
 
 def _normalize(path: str) -> str:
@@ -119,8 +123,12 @@ def main() -> int:
     if args.github_output:
         with args.github_output.open("a", encoding="utf-8") as handle:
             handle.write(f"impact={result.impact}\n")
-            handle.write(f"run_devflow_gate={str(result.run_devflow_gate).lower()}\n")
-            handle.write(f"run_full_test={str(result.run_full_test).lower()}\n")
+            handle.write(
+                f"run_devflow_gate={str(result.run_devflow_gate).lower()}\n"
+            )
+            handle.write(
+                f"run_full_test={str(result.run_full_test).lower()}\n"
+            )
             handle.write(f"run_e2e={str(result.run_e2e).lower()}\n")
     print(text)
     return 0

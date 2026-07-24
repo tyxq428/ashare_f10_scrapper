@@ -3,9 +3,13 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+
+MAX_GRANT_TTL = timedelta(minutes=60)
+GRANT_STATES = {"ISSUED", "RESERVED", "CONSUMED"}
+LEDGER_ACTIVE_STATES = {"RESERVED", "CONSUMED"}
 
 
 class CodexPolicyError(ValueError):
@@ -27,6 +31,15 @@ def file_sha256(path: Path) -> str:
     return f"sha256:{digest}"
 
 
+def text_sha256(value: str) -> str:
+    return f"sha256:{hashlib.sha256(value.encode('utf-8')).hexdigest()}"
+
+
+def allowed_files_hash(paths: tuple[str, ...] | list[str]) -> str:
+    normalized = "\n".join(sorted({item.strip() for item in paths if item.strip()}))
+    return text_sha256(normalized)
+
+
 def parse_utc(value: object, field: str) -> datetime:
     if not isinstance(value, str) or not value.endswith("Z"):
         raise CodexPolicyError(f"{field} must be an RFC3339 UTC timestamp")
@@ -37,6 +50,30 @@ def parse_utc(value: object, field: str) -> datetime:
     if result.tzinfo is None:
         raise CodexPolicyError(f"{field} must include UTC timezone")
     return result.astimezone(UTC)
+
+
+def _required_string(value: dict[str, Any], field: str) -> str:
+    raw = value.get(field)
+    if not isinstance(raw, str) or not raw.strip():
+        raise CodexPolicyError(f"{field} must be a non-empty string")
+    return raw.strip()
+
+
+def _sha(value: dict[str, Any], field: str) -> str:
+    result = _required_string(value, field)
+    if len(result) != 40 or any(ch not in "0123456789abcdef" for ch in result):
+        raise CodexPolicyError(f"{field} must be a 40-character lowercase SHA")
+    return result
+
+
+def _digest(value: dict[str, Any], field: str) -> str:
+    result = _required_string(value, field)
+    prefix, separator, digest = result.partition(":")
+    if prefix != "sha256" or not separator or len(digest) != 64:
+        raise CodexPolicyError(f"{field} must be sha256 plus 64 hex")
+    if any(ch not in "0123456789abcdef" for ch in digest):
+        raise CodexPolicyError(f"{field} must be sha256 plus 64 hex")
+    return result
 
 
 @dataclass(frozen=True)
@@ -78,14 +115,18 @@ class CodexPolicy:
         def non_negative(field: str) -> int:
             raw = limits.get(field)
             if isinstance(raw, bool) or not isinstance(raw, int) or raw < 0:
-                raise CodexPolicyError(f"limits.{field} must be a non-negative integer")
+                raise CodexPolicyError(
+                    f"limits.{field} must be a non-negative integer"
+                )
             return raw
 
         terminals = value.get("terminal_results")
         if not isinstance(terminals, list) or not terminals or not all(
             isinstance(item, str) and item for item in terminals
         ):
-            raise CodexPolicyError("terminal_results must be a non-empty string array")
+            raise CodexPolicyError(
+                "terminal_results must be a non-empty string array"
+            )
 
         policy = cls(
             mode=mode,
@@ -100,79 +141,152 @@ class CodexPolicy:
             automatic_second_session=non_negative("automatic_second_session"),
             terminal_results=tuple(terminals),
         )
+        if not policy.manual_approval_required:
+            raise CodexPolicyError("manual_approval_required must remain true")
         if policy.auto_recovery_dispatch:
             raise CodexPolicyError("auto_recovery_dispatch must remain false")
         if policy.allow_github_actions_bot:
             raise CodexPolicyError("allow_github_actions_bot must remain false")
         if policy.retry_failed_codex_job:
             raise CodexPolicyError("retry_failed_codex_job must remain false")
+        if policy.recovery_generations != 0:
+            raise CodexPolicyError("recovery_generations must remain zero")
         if policy.automatic_second_session != 0:
             raise CodexPolicyError("automatic_second_session must remain zero")
+        if policy.calls_per_task != 1 or policy.calls_per_fingerprint != 1:
+            raise CodexPolicyError("task and fingerprint call limits must equal one")
         return policy
 
 
 @dataclass(frozen=True)
-class CodexApproval:
-    approval_id: str
+class CodexGrant:
+    grant_id: str
     task_id: str
     approved_by: str
     approval_source: str
     descriptor_sha256: str
+    task_commit_sha: str
+    source_run_id: int
+    source_commit_sha: str
     failure_fingerprint: str
+    allowed_files_hash: str
     max_calls: int
+    state: str
     issued_at_utc: datetime
     expires_at_utc: datetime
 
     @classmethod
-    def from_mapping(cls, value: dict[str, Any]) -> CodexApproval:
+    def from_mapping(cls, value: dict[str, Any]) -> CodexGrant:
         if value.get("schema_version") != 1:
-            raise CodexPolicyError("approval schema_version must be 1")
-        required = (
-            "approval_id",
-            "task_id",
-            "approved_by",
-            "approval_source",
-            "descriptor_sha256",
-            "failure_fingerprint",
-        )
-        fields: dict[str, str] = {}
-        for field in required:
-            raw = value.get(field)
-            if not isinstance(raw, str) or not raw.strip():
-                raise CodexPolicyError(f"approval.{field} must be a non-empty string")
-            fields[field] = raw.strip()
-        if fields["approval_source"] != "chatgpt_web":
-            raise CodexPolicyError("approval_source must be chatgpt_web")
-        if not fields["descriptor_sha256"].startswith("sha256:"):
-            raise CodexPolicyError("descriptor_sha256 must use sha256 prefix")
+            raise CodexPolicyError("grant schema_version must be 1")
+        source_run_id = value.get("source_run_id")
+        if (
+            isinstance(source_run_id, bool)
+            or not isinstance(source_run_id, int)
+            or source_run_id <= 0
+        ):
+            raise CodexPolicyError("grant.source_run_id must be positive")
         max_calls = value.get("max_calls")
-        if isinstance(max_calls, bool) or not isinstance(max_calls, int) or max_calls != 1:
-            raise CodexPolicyError("approval.max_calls must equal 1")
-        issued = parse_utc(value.get("issued_at_utc"), "approval.issued_at_utc")
-        expires = parse_utc(value.get("expires_at_utc"), "approval.expires_at_utc")
+        if isinstance(max_calls, bool) or max_calls != 1:
+            raise CodexPolicyError("grant.max_calls must equal 1")
+        state = value.get("state")
+        if state not in GRANT_STATES:
+            raise CodexPolicyError("grant.state is invalid")
+        issued = parse_utc(value.get("issued_at_utc"), "grant.issued_at_utc")
+        expires = parse_utc(value.get("expires_at_utc"), "grant.expires_at_utc")
         if expires <= issued:
-            raise CodexPolicyError("approval expiration must follow issue time")
+            raise CodexPolicyError("grant expiration must follow issue time")
+        if expires - issued > MAX_GRANT_TTL:
+            raise CodexPolicyError("grant TTL must not exceed 60 minutes")
+        approval_source = _required_string(value, "approval_source")
+        if approval_source != "chatgpt_web":
+            raise CodexPolicyError("approval_source must be chatgpt_web")
         return cls(
-            approval_id=fields["approval_id"],
-            task_id=fields["task_id"],
-            approved_by=fields["approved_by"],
-            approval_source=fields["approval_source"],
-            descriptor_sha256=fields["descriptor_sha256"],
-            failure_fingerprint=fields["failure_fingerprint"],
+            grant_id=_required_string(value, "grant_id"),
+            task_id=_required_string(value, "task_id"),
+            approved_by=_required_string(value, "approved_by"),
+            approval_source=approval_source,
+            descriptor_sha256=_digest(value, "descriptor_sha256"),
+            task_commit_sha=_sha(value, "task_commit_sha"),
+            source_run_id=source_run_id,
+            source_commit_sha=_sha(value, "source_commit_sha"),
+            failure_fingerprint=_required_string(
+                value, "failure_fingerprint"
+            ),
+            allowed_files_hash=_digest(value, "allowed_files_hash"),
             max_calls=max_calls,
+            state=state,
             issued_at_utc=issued,
             expires_at_utc=expires,
         )
 
     def is_active(self, now: datetime) -> bool:
-        return self.issued_at_utc <= now.astimezone(UTC) < self.expires_at_utc
+        return (
+            self.state == "ISSUED"
+            and self.issued_at_utc <= now.astimezone(UTC) < self.expires_at_utc
+        )
 
 
 def ledger_entries(path: Path) -> list[dict[str, Any]]:
     value = load_object(path)
-    if value.get("schema_version") != 1:
-        raise CodexPolicyError("usage ledger schema_version must be 1")
+    schema_version = value.get("schema_version")
     entries = value.get("entries")
-    if not isinstance(entries, list) or not all(isinstance(item, dict) for item in entries):
+    if schema_version == 1 and entries == []:
+        return []
+    if schema_version != 2:
+        raise CodexPolicyError("usage ledger schema_version must be 2")
+    if not isinstance(entries, list) or not all(
+        isinstance(item, dict) for item in entries
+    ):
         raise CodexPolicyError("usage ledger entries must be an object array")
     return entries
+
+
+def reserve_grant(
+    grant: CodexGrant,
+    entries: list[dict[str, Any]],
+    *,
+    run_id: int,
+    reserved_at_utc: str,
+) -> dict[str, Any]:
+    if grant.state != "ISSUED":
+        raise CodexPolicyError("grant is not in ISSUED state")
+    for entry in entries:
+        if entry.get("state") not in LEDGER_ACTIVE_STATES:
+            continue
+        if entry.get("grant_id") == grant.grant_id:
+            raise CodexPolicyError("GRANT_ALREADY_CONSUMED")
+        if entry.get("task_id") == grant.task_id:
+            raise CodexPolicyError("TASK_CALL_BUDGET_EXHAUSTED")
+        if entry.get("failure_fingerprint") == grant.failure_fingerprint:
+            raise CodexPolicyError("FINGERPRINT_ALREADY_USED")
+    return {
+        "grant_id": grant.grant_id,
+        "task_id": grant.task_id,
+        "task_commit_sha": grant.task_commit_sha,
+        "failure_fingerprint": grant.failure_fingerprint,
+        "state": "RESERVED",
+        "run_id": run_id,
+        "reserved_at_utc": reserved_at_utc,
+        "consumed_at_utc": None,
+        "result": None,
+    }
+
+
+def consume_reservation(
+    entry: dict[str, Any],
+    *,
+    consumed_at_utc: str,
+    result: str,
+) -> dict[str, Any]:
+    if entry.get("state") != "RESERVED":
+        raise CodexPolicyError("only RESERVED entries can be consumed")
+    value = dict(entry)
+    value.update(
+        {
+            "state": "CONSUMED",
+            "consumed_at_utc": consumed_at_utc,
+            "result": result,
+        }
+    )
+    return value

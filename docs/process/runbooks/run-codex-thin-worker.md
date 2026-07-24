@@ -1,122 +1,101 @@
-# Runbook：运行 Codex Thin Worker 与自动继续
+# Runbook：一次性 Codex Thin Worker Activation
 
-## 适用条件
+## 当前永久状态
 
-问题已明确诊断；修改范围通常不超过 2–5 个文件；无业务口径、Workflow/Secret、Schema 和破坏性迁移；有 Targeted、Full 和 Post-Merge Gate。
+仓库级 Policy 默认为 `disabled`。常驻 `.github/workflows/codex-task.yml` 只执行零 Token 候选复核，不包含：
 
-## schema-v2 任务描述
+- `agent-runtime`；
+- Relay Secret；
+- localhost Forwarder；
+- `openai/codex-action`；
+- Publish 或 Product Gate 接力。
 
-从模板生成 `.agent/current_task.yaml`：
+只修改 `mode: enabled` 也不会启动模型。
 
-```yaml
-schema_version: 2
-allowed_files: 明确路径
-forbidden_patterns: 包含 .github/**、docs/**、secrets/**、.env
-gate_profile: Targeted Gate
-full_gate_profile: Full Gate
-post_merge_profile: exact-main Gate
-reasoning_effort: xhigh
-context_budget:
-  max_allowed_files: 5
-  max_task_bytes: 32768
-  max_total_allowed_file_bytes: 262144
-  max_single_file_bytes: 131072
-  max_log_excerpt_lines: 300
-  include_chat_history: false
-  include_full_sop: false
-risk_class: low | medium | high
-auto_merge: true | false
-notify_completion: true | false
-expected_base_sha: 当前main SHA
-session_limit: 1
-automatic_second_session: 0
-recovery_generation: 0
-max_recovery_generations: 1
-```
+## 唯一适用条件
 
-## 正常成功路径
+所有条件必须同时成立：
 
-1. Web Supervisor 先写 `Wxx_plan.md`；
-2. 从最新 `main` 创建 `task/codex-<slug>` 并提交不含 Secret 的 Descriptor；
-3. `workflow_dispatch` 启动默认分支上的 `Codex Task`；
-4. 入口验证 actor、控制分支和 Task Descriptor；
-5. Secret-bearing Job 直接声明 `agent-runtime`，权限为 `contents: read`；
-6. **在读取 Relay Secret 和模型调用前**运行 Context Budget；
-7. Context PASS 后注册 Mask、验证 Runtime、启动 localhost Forwarder；
-8. Composite Action 以 `effort: xhigh` 执行一次 Session；
-9. Output Schema 约束 `final-message`，Caller 用 Python 写入 `/tmp/codex-result.json`；
-10. 同一只读 Job 执行 Scope、Targeted Gate、Secret Audit 和 Manifest；
-11. Handoff 同时包含 `context-budget.json`，Publish 必须再次验证；
-12. Secret-free Publish 应用 Patch、重跑 Scope/G1、移除任务描述并推送产品分支；
-13. 显式发送 `devflow_product_gate`；
-14. Product Gate 执行 Scope、Full Gate、必要 rebase 和低风险自动合并；
-15. 显式发送 `devflow_post_merge`；
-16. exact-main PASS 后收尾、通知完成，并派发 Branch GC dry-run。
+1. Reason Code 为 `LOCAL_IMPLEMENTATION_DEFECT`、`LOCAL_TEST_GAP` 或 `BOUNDED_PURE_REFACTOR`；
+2. ChatGPT Web 已分析该任务，并记录当前会话无法实际完成的独特原因；
+3. 独特收益只能是 `LOCAL_ITERATIVE_TOOL_LOOP` 或用户明确要求独立后台 Worker；
+4. 失败由受信任 Pre-model Job 在精确 Source SHA 上真实复现；
+5. 失败文件全部落在 2–5 个普通产品代码/测试文件中；
+6. 不含 Workflow、Devflow、文档、Secret、Schema、迁移、权限或业务语义；
+7. Context Budget 通过；
+8. 同一 Task、Failure Fingerprint 和 Grant 从未使用；
+9. 用户针对该 Task SHA 再次明确授权一次调用。
 
-## Context Budget 失败
+任一条件不满足，继续由 ChatGPT Web 或确定性脚本处理。
 
-```text
-Context Budget FAIL
-→ Secrets不读取
-→ Forwarder不启动
-→ Codex不调用
-→ 不消耗模型额度
-→ 要求缩小允许文件或拆分任务
-```
+## Phase A｜零 Token 候选复核
 
-禁止通过降级推理强度、附加完整聊天历史、复制完整 SOP 或扩大日志来绕过预算。
+1. 从精确 `main` 创建 data-only `task/codex-*` 分支；
+2. Descriptor 使用 schema v2、XHigh、`max_recovery_generations=0`；
+3. 写入 `failure_context.reason_code` 和 `web_resolution_assessment`；
+4. 手工 Dispatch 常驻 `Codex Task`，同时提供精确 Task Commit SHA；
+5. Workflow 分别 Checkout：
+   - `control/`：精确 `main`，提供 Policy 和复核代码；
+   - `workspace/`：精确任务 SHA，只作为数据与产品工作区；
+6. 任务分支中的 `.github/**`、`.devflow/**`、`scripts/devflow/**` 不执行；
+7. 输出只表示候选是否值得提交 Activation PR，模型调用仍为 0。
 
-## XHigh 兼容规则
+## Phase B｜受信任 Pre-model 证据
 
-- 生产 Composite Action 固定 `effort: xhigh`；
-- 新模板和 Recovery Generation 使用 schema-v2/XHigh；
-- schema-v1 `low` Descriptor 只读兼容，`effective_reasoning_effort` 仍为 XHigh；
-- schema-v2 Low 直接拒绝；
-- 已完成历史候选不因元数据迁移无意义重跑模型；
-- Upgrade Compatibility 每次验证该边界。
+一次性 Activation PR 必须先建立不接触 Secret 的 Prepare Job：
 
-## Secret 与输出边界
+1. Checkout 精确控制 SHA、任务 SHA 和 Source SHA；
+2. 从控制平面读取 Gate Profile；
+3. 真实运行 Gate；
+4. Gate 必须稳定失败；已 PASS 时返回 `FAILURE_NOT_REPRODUCIBLE`；
+5. 从受信任输出提取失败文件和 Fingerprint；
+6. 验证 Source Run、Source SHA 与 Artifact Digest；
+7. 生成 `trusted_pre_model_job` 证据；
+8. 验证失败文件完全被 Allowed Files 覆盖。
 
-- Secret-bearing reusable workflow 不受支持；Environment 直接绑定普通 Job；
-- 可复用性由本地 Composite Action提供；
-- 不向第三方 Action 传绝对 `/tmp` output-file；
-- 模型输出不得拼接为 Shell；
-- Context、结果、Patch、Scope、Gate、Secret Audit 和 Manifest 位于工作区外；
-- Publish、Product Gate、Post-Merge 和 Branch GC 不接收 Relay Secret。
+任务分支自报的 `reproduction.json` 不能替代该证据。
 
-## 单 Session Circuit Breaker
+## Phase C｜一次性 Grant
 
-- 每个 Generation 只能进行一次模型 Session，生产 Auto Recovery 不执行 `RETRY_CODEX`；
-- `codex-result.status=BLOCKED` 时禁止相同 Descriptor 自动重跑；
-- Codex 返回 SUCCESS 但测试未验证时禁止相同 Session 重跑；
-- Codex 无结构化可发布结果时停止并要求诊断安全结果包；
-- State Consistency 没有 immutable Task Descriptor 时禁止合成通用修改范围；
-- 只有 Full/Post-Merge 等确定性 Gate 失败且存在原批准 scope 时，才可创建一个新的 schema-v2 XHigh Recovery Generation；
-- Runner、checkout、依赖、网络和 Artifact 等已验证基础设施错误仍可最多三次只重跑失败 Job；
-- Context、Scope、Secret、安全、业务决策、权限或预算耗尽才通知。
-
-## 默认预算
+Grant 必须绑定：
 
 ```yaml
-reasoning_effort: xhigh
-codex_sessions_per_generation: 1
-automatic_second_session: 0
-max_recovery_generations: 1
-infrastructure_retries: 3
-context_budget:
-  max_allowed_files: 5
-  max_task_bytes: 32768
-  max_total_allowed_file_bytes: 262144
-  max_single_file_bytes: 131072
-  max_log_excerpt_lines: 300
+grant_id:
+task_id:
+task_commit_sha:
+descriptor_sha256:
+source_run_id:
+source_commit_sha:
+failure_fingerprint:
+allowed_files_hash:
+approved_by: tyxq428
+approval_source: chatgpt_web
+max_calls: 1
+state: ISSUED
+issued_at_utc:
+expires_at_utc:  # 最长60分钟
 ```
 
-## 人工边界
+模型 Job 前，在按 `grant_id` 序列化的 Workflow 中将 Ledger 原子写为 `RESERVED`。一旦预占，成功、失败、取消、超时或 Artifact 错误均不得再次启动模型；结束时写为 `CONSUMED`。
 
-以下任务不得自动合并：
+## Phase D｜一次性 Activation PR
 
-- `.github/**`、Secrets、Schema 或迁移；
-- 业务语义、官方来源优先级和研究口径；
-- 允许路径超过 5 个或超 Context Budget；
-- 无确定性 Full/Post-Merge Gate；
-- 需要登录、验证码、外部账号配置或不可逆操作。
+- Activation PR 只绑定一个 Grant、Task SHA 和 Descriptor Digest；
+- Secret-bearing Job 从精确控制 SHA加载执行代码；
+- 任务工作区代码不提供 Policy、Eligibility、Gate 或 Secret Audit 实现；
+- 模型 Job：`contents: read`、`persist-credentials: false`、一次 XHigh Session；
+- 模型 Job 不受 `rerun-failed-jobs` 管理；
+- Model 开始后任何失败都消耗 Grant；
+- Patch 只从 Allowed Files 生成并冻结 Hash；
+- Gate 输出写到 `/tmp`，不得污染 Patch；
+- Secret-free Job 重新验证 Patch、Scope、Manifest 和 Gate；
+- Activation 执行后删除模型 Job并恢复 `disabled`。
+
+## 禁止路径
+
+- Product Gate、Post-Merge、State Consistency 或 Auto Recovery 创建 Recovery Generation；
+- `github-actions[bot]` 派发模型；
+- GitHub UI Re-run 重复模型；
+- 未知 Reason Code 因文件数恰好为 2–5 而进入候选；
+- 用降低推理强度代替缩小 Context；
+- 同一 Descriptor、Task、Fingerprint 或 Grant 第二次调用。

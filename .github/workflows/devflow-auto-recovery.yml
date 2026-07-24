@@ -3,7 +3,6 @@ name: Devflow Auto Recovery
 on:
   workflow_run:
     workflows:
-      - Codex Task
       - Devflow Relay Health
       - Devflow Secret Audit
       - Devflow State Consistency
@@ -44,7 +43,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p /tmp/devflow-source-artifacts
-          gh api "repos/${{ github.repository }}/actions/runs/${SOURCE_RUN}/jobs?filter=latest&per_page=100" \
+          gh api \
+            "repos/${{ github.repository }}/actions/runs/${SOURCE_RUN}/jobs?filter=latest&per_page=100" \
             > /tmp/devflow-source-jobs.json
           gh run download "$SOURCE_RUN" --repo "${{ github.repository }}" \
             --dir /tmp/devflow-source-artifacts >/dev/null 2>&1 || true
@@ -70,13 +70,18 @@ jobs:
           python - <<'PY' >> "$GITHUB_OUTPUT"
           import json
           from pathlib import Path
-          value = json.loads(Path('/tmp/devflow-recovery-decision.json').read_text())
+
+          value = json.loads(
+              Path('/tmp/devflow-recovery-decision.json').read_text(
+                  encoding='utf-8'
+              )
+          )
           for key in ('action', 'reason_code', 'fingerprint', 'notification_type'):
               raw = value.get(key)
               print(f"{key}={'' if raw is None else raw}")
           PY
 
-      - name: Retry only verified infrastructure failures
+      - name: Retry only verified pre-model infrastructure failures
         if: steps.decision.outputs.action == 'RETRY'
         shell: bash
         env:
@@ -87,7 +92,8 @@ jobs:
           gh api --method POST \
             "repos/${{ github.repository }}/actions/runs/${SOURCE_RUN}/rerun-failed-jobs"
           echo "AUTO_RECOVERY=INFRASTRUCTURE_ONLY" >> "$GITHUB_STEP_SUMMARY"
-          echo "No Codex task was created or retried." >> "$GITHUB_STEP_SUMMARY"
+          echo "No Codex task was created, observed or retried." \
+            >> "$GITHUB_STEP_SUMMARY"
 
       - name: Escalate terminal, security and Web-repair decisions
         if: >-
@@ -102,18 +108,33 @@ jobs:
           python - <<'PY'
           import json
           from pathlib import Path
-          value = json.loads(Path('/tmp/devflow-recovery-decision.json').read_text())
-          payload = {'event_type': 'devflow_notify', 'client_payload': value}
-          Path('/tmp/devflow-notify-payload.json').write_text(json.dumps(payload))
+
+          value = json.loads(
+              Path('/tmp/devflow-recovery-decision.json').read_text(
+                  encoding='utf-8'
+              )
+          )
+          payload = {
+              'event_type': 'devflow_notify',
+              'client_payload': value,
+          }
+          Path('/tmp/devflow-notify-payload.json').write_text(
+              json.dumps(payload), encoding='utf-8'
+          )
           PY
-          gh api --method POST "repos/${{ github.repository }}/dispatches" \
+          gh api --method POST \
+            "repos/${{ github.repository }}/dispatches" \
             --input /tmp/devflow-notify-payload.json
-          echo "AUTO_RECOVERY=ESCALATED_AFTER_ZERO_MODEL_POLICY" >> "$GITHUB_STEP_SUMMARY"
+          echo "AUTO_RECOVERY=ESCALATED_AFTER_ZERO_MODEL_POLICY" \
+            >> "$GITHUB_STEP_SUMMARY"
 
       - name: Prove automatic Codex paths are absent
         run: |
           set -euo pipefail
-          ! grep -Fq 'codex-task.yml/dispatches' .github/workflows/devflow-auto-recovery.yml
-          ! grep -Fq 'RETRY_CODEX' .github/workflows/devflow-auto-recovery.yml
-          ! grep -Fq 'recovery_task.py' .github/workflows/devflow-auto-recovery.yml
+          ! grep -Fq 'codex-task.yml/dispatches' \
+            .github/workflows/devflow-auto-recovery.yml
+          ! grep -Fq 'RETRY_CODEX' \
+            .github/workflows/devflow-auto-recovery.yml
+          ! grep -Fq 'recovery_task.py' \
+            .github/workflows/devflow-auto-recovery.yml
           echo "AUTOMATIC_CODEX_PATHS=0" >> "$GITHUB_STEP_SUMMARY"

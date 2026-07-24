@@ -4,25 +4,19 @@ on:
   workflow_dispatch:
     inputs:
       task_branch:
-        description: Trusted control branch containing .agent/current_task.yaml
+        description: Data-only task/codex-* branch containing the descriptor
         required: true
         type: string
-      approval_file:
-        description: Task-bound ChatGPT Web approval JSON
-        required: false
+      task_commit_sha:
+        description: Exact task branch commit SHA reviewed by ChatGPT Web
+        required: true
         type: string
-        default: .devflow/codex-approvals/approval.json
-      reproduction_file:
-        description: Deterministic pre-model reproduction JSON
-        required: false
-        type: string
-        default: .agent/reproduction.json
 
 permissions:
   contents: read
 
 concurrency:
-  group: codex-task-${{ inputs.task_branch }}
+  group: codex-candidate-review-${{ inputs.task_commit_sha }}
   cancel-in-progress: false
 
 env:
@@ -30,63 +24,56 @@ env:
   PYTHONUNBUFFERED: "1"
 
 jobs:
-  policy:
-    name: zero-token-policy-and-eligibility
-    if: github.actor == 'tyxq428'
+  review-only:
+    name: zero-token-trusted-control-candidate-review
+    if: github.actor == 'tyxq428' && github.ref_name == 'main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - name: Check out trusted control plane from exact main ref
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: main
+          path: control
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Check out task branch as data-only workspace
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           ref: ${{ inputs.task_branch }}
+          path: workspace
+          fetch-depth: 1
           persist-credentials: false
-      - name: Validate manual actor, policy and immutable task descriptor
+
+      - name: Validate exact refs and run zero-token candidate review
         shell: bash
         env:
-          ACTOR: ${{ github.actor }}
           TASK_BRANCH: ${{ inputs.task_branch }}
-          APPROVAL_FILE: ${{ inputs.approval_file }}
-          REPRODUCTION_FILE: ${{ inputs.reproduction_file }}
+          EXPECTED_TASK_SHA: ${{ inputs.task_commit_sha }}
+          CONTROL_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          [[ "$ACTOR" == "tyxq428" ]]
           [[ "$TASK_BRANCH" == task/codex-* ]]
-          python - <<'PY'
-          import json
-          import os
-          import sys
-          from dataclasses import asdict
-          from pathlib import Path
+          [[ "$EXPECTED_TASK_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$(git -C control rev-parse HEAD)" == "$CONTROL_SHA" ]]
+          [[ "$(git -C workspace rev-parse HEAD)" == "$EXPECTED_TASK_SHA" ]]
+          test -f workspace/.agent/current_task.yaml
+          python control/scripts/devflow/codex_candidate_review.py \
+            --control-root control \
+            --workspace-root workspace \
+            --task-file workspace/.agent/current_task.yaml \
+            --control-commit-sha "$CONTROL_SHA" \
+            --task-commit-sha "$EXPECTED_TASK_SHA" \
+            --output /tmp/codex-candidate-review.json
 
-          sys.path.insert(0, 'scripts/devflow')
-          from task_descriptor import load_task_descriptor
-
-          policy_file = Path('.devflow/codex-policy.yaml')
-          policy = json.loads(policy_file.read_text(encoding='utf-8'))
-          _raw, task = load_task_descriptor(Path('.agent/current_task.yaml'))
-          if policy.get('mode') != 'enabled':
-              print('CODEX_POLICY_DISABLED=PASS')
-              raise SystemExit(0)
-
-          from codex_eligibility import evaluate
-
-          result = evaluate(
-              repo=Path('.').resolve(),
-              task_file=Path('.agent/current_task.yaml').resolve(),
-              policy_file=policy_file.resolve(),
-              approval_file=Path(os.environ['APPROVAL_FILE']).resolve(),
-              ledger_file=Path('docs/implementation/CODEX_USAGE_LEDGER.json').resolve(),
-              reproduction_file=Path(os.environ['REPRODUCTION_FILE']).resolve(),
-              actor=os.environ['ACTOR'],
-          )
-          print(json.dumps(asdict(result), ensure_ascii=False, sort_keys=True))
-          if not result.codex_allowed:
-              raise SystemExit('CODEX_NOT_ELIGIBLE')
-          print(f"CODEX_CANDIDATE_REQUIRES_REVIEWED_WORKFLOW_ENABLEMENT={task.task_id}")
-          PY
       - name: Record hard-disabled execution boundary
         run: |
           echo "CODEX_MODEL_INVOCATION=DISABLED" >> "$GITHUB_STEP_SUMMARY"
-          echo "No Environment Secret, localhost forwarder or model session was started." >> "$GITHUB_STEP_SUMMARY"
-          echo "A separate reviewed PR and explicit user request are required before any model-bearing job can exist." >> "$GITHUB_STEP_SUMMARY"
+          echo "Task branches are data-only; control code came from exact main." \
+            >> "$GITHUB_STEP_SUMMARY"
+          echo "No Environment Secret, forwarder or model session was started." \
+            >> "$GITHUB_STEP_SUMMARY"
+          echo "A separate reviewed one-time Activation PR and new user approval are required." \
+            >> "$GITHUB_STEP_SUMMARY"

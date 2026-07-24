@@ -21,6 +21,22 @@
     "include_chat_history": false,
     "include_full_sop": false
   },
+  "failure_context": {
+    "source_run_id": 123,
+    "source_commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "failure_fingerprint": "fixture-v2-xhigh",
+    "diagnostic_artifact_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "failure_files": ["scripts/example.py", "tests/test_example.py"],
+    "pre_model_gate_profile": "devflow-targeted",
+    "reason_code": "LOCAL_TEST_GAP"
+  },
+  "web_resolution_assessment": {
+    "attempted": true,
+    "can_complete_in_web": false,
+    "reason_code": "LOCAL_ITERATIVE_TOOL_LOOP",
+    "summary": "The fixture represents a bounded runner-side iterative tool loop."
+  },
+  "authorization_id": "fixture-grant",
   "session_limit": 1,
   "automatic_second_session": 0,
   "recovery_generation": 0,

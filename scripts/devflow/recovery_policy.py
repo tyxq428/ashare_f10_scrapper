@@ -7,7 +7,12 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-TERMINAL_INFRA_CONCLUSIONS = {"cancelled", "timed_out", "stale", "startup_failure"}
+TERMINAL_INFRA_CONCLUSIONS = {
+    "cancelled",
+    "timed_out",
+    "stale",
+    "startup_failure",
+}
 INFRA_STEP_MARKERS = (
     "set up job",
     "checkout",
@@ -84,20 +89,37 @@ def _failure_steps(jobs_payload: dict[str, Any]) -> tuple[str, ...]:
         for step in steps:
             if not isinstance(step, dict):
                 continue
-            if step.get("conclusion") in {"failure", "cancelled", "timed_out"}:
+            if step.get("conclusion") in {
+                "failure",
+                "cancelled",
+                "timed_out",
+            }:
                 name = step.get("name")
                 if isinstance(name, str) and name not in names:
                     names.append(name)
     return tuple(names)
 
 
-def _contains_marker(steps: tuple[str, ...], markers: tuple[str, ...]) -> bool:
+def _contains_marker(
+    steps: tuple[str, ...],
+    markers: tuple[str, ...],
+) -> bool:
     lowered = tuple(step.lower() for step in steps)
-    return any(marker in step for step in lowered for marker in markers)
+    return any(
+        marker in step
+        for step in lowered
+        for marker in markers
+    )
 
 
-def _fingerprint(source: str, reason_code: str, steps: tuple[str, ...]) -> str:
-    normalized = "|".join((source, reason_code, *sorted(step.lower() for step in steps)))
+def _fingerprint(
+    source: str,
+    reason_code: str,
+    steps: tuple[str, ...],
+) -> str:
+    normalized = "|".join(
+        (source, reason_code, *sorted(step.lower() for step in steps))
+    )
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:20]
 
 
@@ -119,7 +141,11 @@ def _decision(
         reason=reason,
         minimum_action=minimum_action,
         notification_type=notification_type,
-        fingerprint=_fingerprint(source_workflow, reason_code, failure_steps),
+        fingerprint=_fingerprint(
+            source_workflow,
+            reason_code,
+            failure_steps,
+        ),
         source_workflow=source_workflow,
         source_run_id=source_run_id,
         run_attempt=run_attempt,
@@ -170,17 +196,23 @@ def classify(
 
     secret_audit = _find_summary(artifact_root, "secret-audit.json")
     scope_result = _find_summary(artifact_root, "scope-result.json")
-    runtime_preflight = _find_summary(artifact_root, "runtime-preflight.json")
+    runtime_preflight = _find_summary(
+        artifact_root,
+        "runtime-preflight.json",
+    )
     codex_result = _find_summary(artifact_root, "codex-result.json")
 
     if source_workflow == "Devflow Secret Audit" or (
-        secret_audit is not None and secret_audit.get("status") == "FAIL"
+        secret_audit is not None
+        and secret_audit.get("status") == "FAIL"
     ):
         return _decision(
             action="SECURITY_BLOCKED",
             reason_code="SECRET_AUDIT_FAILED",
             reason="Secret or private endpoint leakage audit did not pass.",
-            minimum_action="Inspect the safe audit summary before any further execution.",
+            minimum_action=(
+                "Inspect the safe audit summary before any further execution."
+            ),
             notification_type="SECURITY_BLOCKED",
             **common,
         )
@@ -190,24 +222,39 @@ def classify(
             action="SECURITY_BLOCKED",
             reason_code="SCOPE_GUARD_FAILED",
             reason="A path outside the approved scope was changed.",
-            minimum_action="Review the bounded changed-path summary in ChatGPT Web.",
+            minimum_action=(
+                "Review the bounded changed-path summary in ChatGPT Web."
+            ),
             notification_type="SECURITY_BLOCKED",
             **common,
         )
 
-    if runtime_preflight is not None and runtime_preflight.get("status") == "FAIL":
+    if (
+        runtime_preflight is not None
+        and runtime_preflight.get("status") == "FAIL"
+    ):
         codes = runtime_preflight.get("failure_codes", [])
-        code_set = {item for item in codes if isinstance(item, str)} if isinstance(codes, list) else set()
+        code_set = (
+            {item for item in codes if isinstance(item, str)}
+            if isinstance(codes, list)
+            else set()
+        )
         reason_code = (
             "AGENT_RUNTIME_SECRETS_MISSING"
-            if code_set & {"MISSING_ENDPOINT", "MISSING_API_KEY", "MISSING_MODEL"}
+            if code_set
+            & {"MISSING_ENDPOINT", "MISSING_API_KEY", "MISSING_MODEL"}
             else "AGENT_RUNTIME_CONFIGURATION_INVALID"
         )
         return _decision(
             action="HUMAN_REQUIRED",
             reason_code=reason_code,
-            reason="The private runtime configuration failed safe validation.",
-            minimum_action="Correct the agent-runtime Environment without posting values in chat or GitHub.",
+            reason=(
+                "The private runtime configuration failed safe validation."
+            ),
+            minimum_action=(
+                "Correct the agent-runtime Environment without posting values "
+                "in chat or GitHub."
+            ),
             notification_type="HUMAN_REQUIRED",
             **common,
         )
@@ -222,9 +269,19 @@ def classify(
         blocked = codex_result.get("status") == "BLOCKED"
         return _decision(
             action="INTERRUPTED",
-            reason_code=("CODEX_BLOCKED_NO_RETRY" if blocked else "CODEX_TERMINAL_NO_RETRY"),
-            reason="The single approved Codex session produced a terminal non-publishable result.",
-            minimum_action="Inspect the immutable evidence in ChatGPT Web; never rerun this task fingerprint.",
+            reason_code=(
+                "CODEX_BLOCKED_NO_RETRY"
+                if blocked
+                else "CODEX_TERMINAL_NO_RETRY"
+            ),
+            reason=(
+                "The single approved Codex session produced a terminal "
+                "non-publishable result."
+            ),
+            minimum_action=(
+                "Inspect the immutable evidence in ChatGPT Web; never rerun "
+                "this task fingerprint."
+            ),
             notification_type="INTERRUPTED",
             **common,
         )
@@ -233,9 +290,67 @@ def classify(
         return _decision(
             action="SECURITY_BLOCKED",
             reason_code="SECURITY_CONTROL_FAILED",
-            reason="A security, secret or changed-path scope control failed.",
-            minimum_action="Review the bounded safe summary before any further execution.",
+            reason=(
+                "A security, secret, manifest or changed-path control failed."
+            ),
+            minimum_action=(
+                "Review the bounded safe summary before any further execution."
+            ),
             notification_type="SECURITY_BLOCKED",
+            **common,
+        )
+
+    if source_workflow == "Codex Task" or _contains_marker(
+        failure_steps,
+        CODEX_STEP_MARKERS,
+    ):
+        return _decision(
+            action="INTERRUPTED",
+            reason_code="CODEX_SESSION_NO_AUTOMATIC_RETRY",
+            reason=(
+                "A model-bearing Codex job is single-use. Checkout, setup, "
+                "timeout, cancellation and artifact failures after dispatch "
+                "cannot rerun the model session."
+            ),
+            minimum_action=(
+                "Return to ChatGPT Web and create a new user-approved Grant "
+                "only if a fresh task remains justified."
+            ),
+            notification_type="INTERRUPTED",
+            **common,
+        )
+
+    if conclusion in TERMINAL_INFRA_CONCLUSIONS or _contains_marker(
+        failure_steps,
+        INFRA_STEP_MARKERS,
+    ):
+        if run_attempt < infrastructure_retry_limit:
+            return _decision(
+                action="RETRY",
+                reason_code="RETRYABLE_INFRASTRUCTURE",
+                reason=(
+                    "A verified runner, setup, dependency or artifact "
+                    "operation may be transient."
+                ),
+                minimum_action=(
+                    "No user action; rerun only failed pre-model "
+                    "infrastructure jobs."
+                ),
+                notification_type=None,
+                **common,
+            )
+        return _decision(
+            action="INTERRUPTED",
+            reason_code="INFRASTRUCTURE_RETRY_EXHAUSTED",
+            reason=(
+                "The same infrastructure class failed after the bounded "
+                "retry budget."
+            ),
+            minimum_action=(
+                "Review GitHub service, dependency and repository permission "
+                "state."
+            ),
+            notification_type="INTERRUPTED",
             **common,
         )
 
@@ -245,47 +360,41 @@ def classify(
         "Devflow Post Merge",
     }:
         if source_workflow == "Devflow Product Gate" and _contains_marker(
-            failure_steps, MERGE_BOUNDARY_STEP_MARKERS
+            failure_steps,
+            MERGE_BOUNDARY_STEP_MARKERS,
         ):
             return _decision(
                 action="HUMAN_REQUIRED",
                 reason_code="AUTO_MERGE_BLOCKED",
-                reason="The merge boundary is blocked by a conflict, branch protection or permission policy.",
-                minimum_action="Review only the merge boundary; no Codex repair is permitted.",
+                reason=(
+                    "The merge boundary is blocked by a conflict, branch "
+                    "protection or permission policy."
+                ),
+                minimum_action=(
+                    "Review only the merge boundary; no Codex repair is "
+                    "permitted."
+                ),
                 notification_type="HUMAN_REQUIRED",
                 **common,
             )
         reason_code = {
-            "Devflow State Consistency": "STATE_CONSISTENCY_WEB_REPAIR_REQUIRED",
+            "Devflow State Consistency": (
+                "STATE_CONSISTENCY_WEB_REPAIR_REQUIRED"
+            ),
             "Devflow Product Gate": "PRODUCT_GATE_WEB_REPAIR_REQUIRED",
             "Devflow Post Merge": "POST_MERGE_WEB_REPAIR_REQUIRED",
         }[source_workflow]
         return _decision(
             action="INTERRUPTED",
             reason_code=reason_code,
-            reason="Framework, state, gate and post-merge failures are handled by ChatGPT Web, not Codex.",
-            minimum_action="Diagnose the actual failing branch and paths in ChatGPT Web, then rerun deterministic gates.",
-            notification_type="INTERRUPTED",
-            **common,
-        )
-
-    if conclusion in TERMINAL_INFRA_CONCLUSIONS or _contains_marker(
-        failure_steps, INFRA_STEP_MARKERS
-    ):
-        if run_attempt < infrastructure_retry_limit:
-            return _decision(
-                action="RETRY",
-                reason_code="RETRYABLE_INFRASTRUCTURE",
-                reason="A verified runner, setup, dependency or artifact operation may be transient.",
-                minimum_action="No user action; rerun only failed infrastructure jobs.",
-                notification_type=None,
-                **common,
-            )
-        return _decision(
-            action="INTERRUPTED",
-            reason_code="INFRASTRUCTURE_RETRY_EXHAUSTED",
-            reason="The same infrastructure class failed after the bounded retry budget.",
-            minimum_action="Review GitHub service, dependency and repository permission state.",
+            reason=(
+                "Framework, state, product gate and post-merge failures are "
+                "handled by ChatGPT Web, not Codex."
+            ),
+            minimum_action=(
+                "Diagnose the actual failing branch and paths in ChatGPT Web, "
+                "then rerun deterministic gates."
+            ),
             notification_type="INTERRUPTED",
             **common,
         )
@@ -294,31 +403,15 @@ def classify(
         return _decision(
             action="HUMAN_REQUIRED",
             reason_code="RELAY_HEALTH_UNAVAILABLE",
-            reason="Relay authentication, balance, model or protocol health is unavailable.",
-            minimum_action="Check the relay account and agent-runtime Environment; no automatic model retry is allowed.",
+            reason=(
+                "Relay authentication, balance, model or protocol health is "
+                "unavailable."
+            ),
+            minimum_action=(
+                "Check the relay account and agent-runtime Environment; no "
+                "automatic model retry is allowed."
+            ),
             notification_type="HUMAN_REQUIRED",
-            **common,
-        )
-
-    if source_workflow == "Codex Task" or _contains_marker(
-        failure_steps, CODEX_STEP_MARKERS
-    ):
-        return _decision(
-            action="INTERRUPTED",
-            reason_code="CODEX_SESSION_NO_AUTOMATIC_RETRY",
-            reason="Codex sessions are single-use and cannot be automatically retried.",
-            minimum_action="Return to ChatGPT Web and decide whether a new task-specific authorization is justified.",
-            notification_type="INTERRUPTED",
-            **common,
-        )
-
-    if _contains_marker(failure_steps, SECURITY_STEP_MARKERS):
-        return _decision(
-            action="SECURITY_BLOCKED",
-            reason_code="SECURITY_CONTROL_FAILED",
-            reason="A security or scope enforcement step failed.",
-            minimum_action="Review the safe summary before any publication.",
-            notification_type="SECURITY_BLOCKED",
             **common,
         )
 
@@ -326,7 +419,10 @@ def classify(
         action="INTERRUPTED",
         reason_code="UNCLASSIFIED_FAILURE",
         reason="The failure could not be safely classified for automatic recovery.",
-        minimum_action="Review bounded job and artifact summaries in ChatGPT Web; do not blindly retry.",
+        minimum_action=(
+            "Review bounded job and artifact summaries in ChatGPT Web; do not "
+            "blindly retry."
+        ),
         notification_type="INTERRUPTED",
         **common,
     )
@@ -357,7 +453,10 @@ def main() -> int:
     )
     payload = asdict(decision)
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    args.output.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     print(f"RECOVERY_ACTION={decision.action}")
     print(f"RECOVERY_REASON_CODE={decision.reason_code}")
     print(f"RECOVERY_FINGERPRINT={decision.fingerprint}")

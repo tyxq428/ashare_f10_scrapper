@@ -14,7 +14,6 @@ from finalize_task import finalize  # noqa: E402
 from gate_profiles import get_gate_profile  # noqa: E402
 from private_responses_forwarder import run_server  # noqa: E402
 from recovery_policy import classify  # noqa: E402
-from recovery_task import build_recovery_descriptor  # noqa: E402
 from runtime_preflight import inspect_runtime  # noqa: E402
 from secret_audit import secret_variants  # noqa: E402
 from state_model import StateError, TaskState, load_json_yaml  # noqa: E402
@@ -302,9 +301,9 @@ def test_notify_completion_requires_auto_merge() -> None:
         TaskDescriptor.from_mapping(data)
 
 
-def test_infrastructure_failure_retries_silently() -> None:
+def test_pre_model_infrastructure_failure_retries_silently() -> None:
     decision = classify(
-        source_workflow="Codex Task",
+        source_workflow="Devflow State Consistency",
         source_run_id=101,
         conclusion="failure",
         run_attempt=1,
@@ -312,6 +311,18 @@ def test_infrastructure_failure_retries_silently() -> None:
     )
     assert decision.action == "RETRY"
     assert decision.notification_type is None
+
+
+def test_codex_checkout_failure_is_never_automatically_rerun() -> None:
+    decision = classify(
+        source_workflow="Codex Task",
+        source_run_id=101,
+        conclusion="failure",
+        run_attempt=1,
+        jobs_payload=failed_jobs("Run actions/checkout@sha"),
+    )
+    assert decision.action == "INTERRUPTED"
+    assert decision.reason_code == "CODEX_SESSION_NO_AUTOMATIC_RETRY"
 
 
 def test_codex_failure_never_reruns_automatically() -> None:
@@ -390,20 +401,11 @@ def test_state_consistency_failure_never_creates_automatic_codex_repair(
     assert decision.notification_type == "INTERRUPTED"
 
 
-def test_recovery_descriptor_preserves_scope_and_increments_generation() -> None:
-    original = valid_task()
-    recovered = build_recovery_descriptor(
-        original,
-        source_run_id=200,
-        reason_code="PRODUCT_FULL_GATE_FAILED",
-        reason="A deterministic test failed.",
-        expected_base_sha="c" * 40,
-    )
-    assert recovered["recovery_generation"] == 1
-    assert recovered["allowed_files"] == original["allowed_files"]
-    assert recovered["auto_merge"] is True
-    assert recovered["notify_completion"] is True
-    assert recovered["parent_run_id"] == 200
+def test_recovery_generation_is_effectively_zero_and_generator_removed() -> None:
+    task = TaskDescriptor.from_mapping(valid_task())
+    assert task.recovery_generation == 0
+    assert task.max_recovery_generations == 0
+    assert not (DEVFLOW / "recovery_task.py").exists()
 
 
 def test_failure_fingerprint_is_stable_for_same_root_cause() -> None:
