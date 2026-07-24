@@ -31,8 +31,8 @@
     {
       "task_id": "codex-trigger-surface-audit-v2",
       "title": "Historical Codex rerun quarantine and paid-probe trigger hardening",
-      "status": "VERIFYING",
-      "branch": "feature/codex-trigger-surface-audit-v2",
+      "status": "DONE",
+      "branch": "main",
       "pull_request": 52,
       "current_stage": "W05",
       "state_path": "docs/implementation/codex-trigger-surface-audit-v2/task_state.yaml"

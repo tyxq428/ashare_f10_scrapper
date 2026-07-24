@@ -1,35 +1,36 @@
 {
   "schema_version": 2,
-  "state_revision": 5,
+  "state_revision": 6,
   "task_id": "codex-trigger-surface-audit-v2",
   "title": "Historical Codex rerun quarantine and paid-probe trigger hardening",
-  "status": "VERIFYING",
-  "execution_status": "RUNNING",
+  "status": "DONE",
+  "execution_status": "COMPLETED",
   "acceptance": {
     "domain": "generic",
-    "status": "PENDING",
+    "status": "PASS",
     "reason_code": null,
-    "details_path": null
+    "details_path": "docs/implementation/codex-trigger-surface-audit-v2/FINAL_REPORT.md"
   },
   "security_status": "PASS",
-  "working_branch": "feature/codex-trigger-surface-audit-v2",
+  "working_branch": "main",
   "pull_request": 52,
   "base_sha_at_start": "fa1427a08bc62b7fdf55a991fec99cb22f442562",
-  "last_product_commit_sha": "fa1427a08bc62b7fdf55a991fec99cb22f442562",
+  "last_product_commit_sha": "f1ff91e1cfa06c945177e7beefc7f16326cb1803",
   "last_state_commit_sha": null,
   "current_stage": "W05",
-  "last_completed_stage": "W04",
-  "last_successful_step": "forced_zero_model_premerge_validation_pass",
-  "next_action": "merge_pr52_then_run_exact_main_closeout",
+  "last_completed_stage": "W05",
+  "last_successful_step": "exact_main_zero_cost_trigger_surface_closeout_pass",
+  "next_action": "none",
   "gate_results": {
     "W00_TRIGGER_SURFACE_AUDIT": "PASS",
     "W01_LEGACY_RERUN_QUARANTINE": "PASS:88_BRANCHES",
     "W02_PAID_PROBE_BOUNDARY": "PASS",
     "W03_PERMANENT_GUARDS": "PASS",
     "W04_PRE_MERGE": "PASS:30066965152",
-    "W05_EXACT_MAIN": "PENDING",
+    "W05_EXACT_MAIN": "PASS:30067491515",
     "CODEX_CALLS_DURING_TASK": "0",
-    "RESPONSES_PAID_PROBES_DURING_TASK": "0"
+    "RESPONSES_PAID_PROBES_DURING_TASK": "0",
+    "HISTORICAL_CODEX_BRANCHES_QUARANTINED": "88"
   },
   "retry_budget": {
     "infrastructure": 3,
@@ -44,15 +45,17 @@
     "resume_from": null
   },
   "post_merge": {
-    "status": "PENDING",
-    "merge_sha": null,
-    "verified_run_ids": []
+    "status": "PASS",
+    "merge_sha": "b02b0c58cb20c72e098b63dbae47ec07c5b6f7c3",
+    "verified_run_ids": [
+      30067491515
+    ]
   },
   "notification": {
-    "generation": 0,
-    "last_type": null,
+    "generation": 1,
+    "last_type": "COMPLETED",
     "acknowledged": true,
     "control_issue_number": null
   },
-  "updated_at_utc": "2026-07-24T04:33:26Z"
+  "updated_at_utc": "2026-07-24T04:44:51Z"
 }
