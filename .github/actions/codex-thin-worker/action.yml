@@ -1,32 +1,34 @@
 name: Codex Thin Worker
-description: Run one bounded Codex session through the localhost-only Responses forwarder.
+description: Repository-wide disabled-mode circuit breaker; never invokes a model while the policy is frozen.
 
 inputs:
   api-key:
-    description: Private API key supplied by the secret-bearing caller job.
+    description: Unused while the repository Codex policy is disabled.
     required: true
   model:
-    description: Private model identifier supplied by the secret-bearing caller job.
+    description: Unused while the repository Codex policy is disabled.
     required: true
   prompt-file:
-    description: Repository-relative trusted task descriptor.
+    description: Trusted task descriptor retained only for a safe blocked result.
     required: true
-  output-file:
-    description: Absolute path for the structured Codex result.
-    required: true
+
+outputs:
+  final-message:
+    description: Structured BLOCKED result emitted before any model invocation.
+    value: ${{ steps.policy.outputs.final-message }}
 
 runs:
   using: composite
   steps:
-    - name: Run one bounded Codex Thin Worker session
-      uses: openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56
-      with:
-        openai-api-key: ${{ inputs.api-key }}
-        responses-api-endpoint: http://127.0.0.1:8787/v1/responses
-        model: ${{ inputs.model }}
-        effort: low
-        prompt-file: ${{ inputs.prompt-file }}
-        output-file: ${{ inputs.output-file }}
-        output-schema-file: docs/process/templates/codex_result.schema.json
-        sandbox: workspace-write
-        safety-strategy: drop-sudo
+    - id: policy
+      name: Stop before Codex model invocation
+      shell: bash
+      run: |
+        set -euo pipefail
+        delimiter="CODEX_POLICY_RESULT_${RANDOM}_${RANDOM}"
+        {
+          echo "final-message<<${delimiter}"
+          echo '{"status":"BLOCKED","changed_files":[],"commands_run":[],"tests_passed":false,"summary":"Codex is disabled by repository policy.","blocking_reason":"CODEX_POLICY_DISABLED"}'
+          echo "${delimiter}"
+        } >> "$GITHUB_OUTPUT"
+        echo "CODEX_MODEL_INVOCATION=DISABLED" >> "$GITHUB_STEP_SUMMARY"
