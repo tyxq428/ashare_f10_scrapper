@@ -58,10 +58,10 @@
     {
       "task_id": "devflow-bark-delivery-receipt-v1",
       "title": "Devflow Bark delivery receipt artifact and live verification",
-      "status": "RUNNING",
+      "status": "VERIFYING",
       "branch": "feature/devflow-bark-delivery-receipt-v1",
       "pull_request": 56,
-      "current_stage": "W03",
+      "current_stage": "W04",
       "state_path": "docs/implementation/devflow-bark-delivery-receipt-v1/task_state.yaml"
     }
   ]
