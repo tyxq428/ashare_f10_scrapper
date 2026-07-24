@@ -119,10 +119,14 @@ def validate() -> dict[str, Any]:
         "github.run_attempt == 1",
         "continue-on-error: true",
         "--retry 0",
+        "--proto '=https'",
+        "--tlsv1.2",
         "--output /dev/null",
         "BARK_DELIVERY=FAILED_FAIL_OPEN",
         "BARK_AUTOMATIC_RETRIES=0",
         "BARK_REQUESTS_PER_LOGICAL_NOTIFICATION_MAX=1",
+        "BARK_RESPONSE_BODY_STORED=0",
+        "BARK_ENDPOINT_DIAGNOSTICS_PRINTED=0",
     )
     for fragment in required_incident:
         if fragment not in incident_text:
@@ -131,6 +135,7 @@ def validate() -> dict[str, Any]:
         errors.append("Devflow Incident must contain exactly one Bark POST location")
     for forbidden in (
         "workflow_run:",
+        "--show-error",
         "agent-runtime",
         "secrets.AGENT_",
         "openai/codex-action@",
