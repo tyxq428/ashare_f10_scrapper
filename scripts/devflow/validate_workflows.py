@@ -19,7 +19,6 @@ WORKFLOW_TARGETS = (
     "devflow-secret-audit.yml",
     "devflow-legacy-codex-rerun-audit.yml",
     "devflow-incident.yml",
-    "devflow-bark-all-status-live-test.yml",
     "devflow-post-merge.yml",
 )
 ACTION_TARGETS = (Path(".github/actions/codex-thin-worker/action.yml"),)
@@ -427,58 +426,6 @@ def _validate_incident(path: Path, text: str, errors: list[str]) -> None:
         errors.append(f"{path}: exactly one Bark POST location is allowed")
 
 
-
-def _validate_bark_all_status_live_test(
-    path: Path,
-    text: str,
-    errors: list[str],
-) -> None:
-    _require_fragments(
-        path,
-        text,
-        (
-            "push:",
-            "      - main",
-            ".devflow/bark-all-status-live-test-activation.json",
-            "github.event_name == 'push'",
-            "github.ref_name == 'main'",
-            "github.run_attempt == 1",
-            "name: notification-runtime",
-            "${{ secrets.BARK_PUSH_URL }}",
-            "STATUSES=(COMPLETED INTERRUPTED HUMAN_REQUIRED SECURITY_BLOCKED)",
-            "render_bark_message",
-            "BARK_TITLE_MISSING_STATUS",
-            "EXPECTED_REAL_BARK_REQUESTS=4",
-            "ACTUAL_REAL_BARK_REQUESTS=",
-            "--retry 0",
-            "--output /dev/null",
-            "BARK_ALL_STATUS_LIVE_TEST=DELIVERED",
-            "gh issue comment 61",
-            "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
-        ),
-        errors,
-    )
-    _forbid(
-        path,
-        text,
-        (
-            "repository_dispatch:",
-            "workflow_run:",
-            "agent-runtime",
-            "secrets.AGENT_",
-            "openai/codex-action@",
-            "private_responses_forwarder.py",
-            "relay_health.py",
-            "--show-error",
-        ),
-        errors,
-        message="one-time Bark live test contains a forbidden path",
-    )
-    if text.count("--request POST") != 1:
-        errors.append(f"{path}: exactly one bounded POST loop is required")
-    if text.count("actions/upload-artifact@") != 1:
-        errors.append(f"{path}: exactly one safe result Artifact is required")
-
 def _validate_post_merge(path: Path, text: str, errors: list[str]) -> None:
     _require_fragments(
         path,
@@ -529,9 +476,6 @@ def validate_file(path: Path) -> list[str]:
         "devflow-secret-audit.yml": _validate_secret_audit,
         "devflow-legacy-codex-rerun-audit.yml": _validate_legacy_audit,
         "devflow-incident.yml": _validate_incident,
-        "devflow-bark-all-status-live-test.yml": (
-            _validate_bark_all_status_live_test
-        ),
         "devflow-post-merge.yml": _validate_post_merge,
     }
     validator = validators.get(path.name)
