@@ -1,33 +1,44 @@
 # 状态：Devflow Terminal Notification Recovery v1
 
 ```yaml
-status: VERIFYING
-execution_status: RUNNING
-acceptance: PENDING
+status: DONE
+execution_status: COMPLETED
+acceptance: PASS
 security_status: PASS
 current_stage: W05
-last_completed_stage: W04
-branch: feature/devflow-terminal-notification-recovery-v1
+last_completed_stage: W05
+branch: main
 pull_request: 58
-next_action: run_final_exact_head_gates_mark_PR58_ready_and_merge
+implementation_merge_sha: 1f20a6531329ce957d9a3d5a0478071b92d11496
+closeout_pull_request: pending
+next_action: none
+human_intervention_required: false
 codex_calls: 0
 responses_paid_probes: 0
 relay_secret_reads: 0
 historical_codex_reruns: 0
 synthetic_bark_tests: 0
-bark_live_requests: 0
+bark_live_requests_before_closeout: 0
+bark_live_requests_for_closeout_max: 1
+bark_automatic_retries: 0
 ```
 
 ## 已完成
 
 - W00完成事件缺失对账与恢复设计；
-- W01独立State Consistency成功后继producer；
-- W02跨generation稳定task completion marker；
-- W03机器清单、永久Validator、测试、Policy与Runbook；
-- W04精确head `f7431c16262cd98e790038316af11ef10e126f2c` 的四个Gate全部PASS。
+- W01将完成事件生产拆为独立 `Devflow Terminal State Notification` Workflow；
+- W02增加跨generation稳定任务完成marker，阻止重复完成Bark；
+- W03完成机器清单、永久Validator、测试、Policy与Runbook；
+- W04与W05精确head Gate全部通过；
+- PR #58已合并，Merge SHA为 `1f20a6531329ce957d9a3d5a0478071b92d11496`；
+- merge commit相对已验证head无文件差异；
+- exact-main Codex Policy仍为 `disabled`；
+- canonical closeout已准备为新的 `COMPLETED` generation 1。
 
-## 当前阶段
+## 真实投递观察
 
-W05对包含全部实现、结果文档和合并状态的最终精确PR head再次运行完整Gate。通过后PR #58转Ready并合并；实现合并不会发送Bark，真实请求只在独立DONE closeout后发生。
+本closeout进入main后，将由main上的State Consistency成功Run触发独立producer。随后最多发起一次Bark请求，并生成一个安全单JSON回执Artifact及canonical Issue回执索引。
+
+Bark、producer、Artifact或Issue索引失败均不撤销本任务的DONE事实，也不会触发自动重试。
 
 冲突时以 `task_state.yaml` 为准。
