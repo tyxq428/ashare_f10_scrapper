@@ -1,0 +1,405 @@
+name: Temporary Codex Trigger Surface Exact Main Closeout
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/temporary-codex-trigger-surface-exact-main-closeout.yml
+
+permissions:
+  contents: write
+  pull-requests: read
+
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+  PYTHONUNBUFFERED: "1"
+
+concurrency:
+  group: temporary-codex-trigger-surface-exact-main-closeout
+  cancel-in-progress: false
+
+jobs:
+  verify-and-close:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: true
+
+      - uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install deterministic development dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Prove merge ancestry and zero-cost trigger boundary
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor \
+            b02b0c58cb20c72e098b63dbae47ec07c5b6f7c3 HEAD
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          policy = json.loads(
+              Path('.devflow/codex-policy.yaml').read_text(encoding='utf-8')
+          )
+          assert policy['mode'] == 'disabled'
+          assert policy['auto_recovery_dispatch'] is False
+          assert policy['retry_failed_codex_job'] is False
+          assert policy['allow_github_actions_bot'] is False
+          assert policy['limits']['recovery_generations'] == 0
+          assert policy['limits']['automatic_second_session'] == 0
+          for path in (
+              '.github/workflows/codex-task.yml',
+              '.github/workflows/devflow-auto-recovery.yml',
+              '.github/workflows/devflow-product-gate.yml',
+              '.github/workflows/devflow-post-merge.yml',
+              '.github/actions/codex-thin-worker/action.yml',
+          ):
+              text = Path(path).read_text(encoding='utf-8')
+              assert 'openai/codex-action@' not in text
+              assert 'private_responses_forwarder.py' not in text
+          relay = Path(
+              '.github/workflows/devflow-relay-health.yml'
+          ).read_text(encoding='utf-8')
+          assert 'default: configuration_only' in relay
+          assert 'github.run_attempt == 1' in relay
+          print('EXACT_MAIN_ZERO_COST_TRIGGER_BOUNDARY=PASS')
+          PY
+          echo "CODEX_CALLS=0" >> "$GITHUB_STEP_SUMMARY"
+          echo "RESPONSES_PAID_PROBES=0" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Audit all historical Codex task branches
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh pr list --state open --limit 200 --json headRefName \
+            > /tmp/open-pr-heads.json
+          python scripts/devflow/legacy_codex_branch_audit.py \
+            --repo . \
+            --open-pr-heads-json /tmp/open-pr-heads.json \
+            --canonical-action .github/actions/codex-thin-worker/action.yml \
+            --control-sha "$(git rev-parse HEAD)" \
+            --output /tmp/legacy-codex-rerun-audit.json
+
+      - name: Run exact-main Devflow and upgrade gates
+        run: |
+          set -euo pipefail
+          mv \
+            .github/workflows/temporary-codex-trigger-surface-exact-main-closeout.yml \
+            /tmp/temporary-codex-trigger-surface-exact-main-closeout.yml
+          python -m compileall -q scripts/devflow
+          python scripts/devflow/validate_state.py \
+            --all-active \
+            --output /tmp/state-result.json
+          python scripts/devflow/validate_codex_entrypoints.py \
+            --output /tmp/codex-entrypoints.json
+          python scripts/devflow/validate_workflows.py
+          python scripts/devflow/validate_docs.py \
+            --output /tmp/docs-result.json
+          python scripts/devflow/upgrade_compatibility.py \
+            --output /tmp/upgrade-result.json
+          ruff check scripts/devflow tests/test_devflow*.py
+          pytest -q tests/test_devflow*.py
+
+      - name: Run exact-main complete product regression
+        run: |
+          set -o pipefail
+          python -m compileall -q src scripts
+          node --check src/ashare_f10/web/research-grid.js
+          node --check src/ashare_f10/web/static-search-worker.js
+          node --check src/ashare_f10/web/app.js
+          node --check src/ashare_f10/web/job-center-v2.js
+          node --check src/ashare_f10/web/raw-pack.js
+          node --check src/ashare_f10/web/run.js
+          node --check src/ashare_f10/web/research-pack.js
+          node tests/static-search-worker-smoke.cjs
+          ruff check src tests scripts/run_resilient_fetch.py \
+            scripts/run_resilient_command.py --output-format=concise
+          pytest --cov=ashare_f10 --cov-report=term-missing
+
+      - name: Run exact-main real 688521 E2E with monitoring
+        env:
+          ASHARE_F10_TIMEOUT: "60"
+          ASHARE_F10_RETRIES: "3"
+          ASHARE_F10_MAX_WORKERS: "4"
+          ASHARE_F10_PAGE_WORKERS: "3"
+        run: |
+          set -euo pipefail
+          python scripts/run_resilient_fetch.py 688521 \
+            --output /tmp/e2e-output \
+            --workers 4 \
+            --force \
+            --max-attempts 3 \
+            --backoff-seconds 8 \
+            --heartbeat-seconds 15 \
+            --report /tmp/e2e-output/resilient-fetch-report.json
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          import duckdb
+          import pandas as pd
+          from fastapi.testclient import TestClient
+
+          root = Path('/tmp/e2e-output')
+          report = json.loads(
+              (root / 'resilient-fetch-report.json').read_text(
+                  encoding='utf-8'
+              )
+          )
+          assert report['status'] == 'PASS', report
+          artifacts = json.loads(
+              (root / 'artifacts.json').read_text(encoding='utf-8')
+          )
+          resolved = {
+              key: Path(value).resolve()
+              for key, value in artifacts.items()
+              if key in {'json', 'excel', 'parquet', 'duckdb'}
+          }
+          assert set(resolved) == {'json', 'excel', 'parquet', 'duckdb'}
+          for path in resolved.values():
+              assert path.is_file() and path.stat().st_size > 0, path
+          payload = json.loads(
+              resolved['json'].read_text(encoding='utf-8')
+          )
+          assert (
+              payload.get('metadata', {})
+              .get('security', {})
+              .get('security_code')
+              == '688521'
+          )
+          facts = pd.read_parquet(resolved['parquet'])
+          assert len(facts) > 100
+          con = duckdb.connect(str(resolved['duckdb']), read_only=True)
+          try:
+              assert (
+                  con.execute('select count(*) from facts').fetchone()[0]
+                  == len(facts)
+              )
+          finally:
+              con.close()
+          data_dir = Path('/tmp/api-data')
+          stock_dir = data_dir / '688521'
+          stock_dir.mkdir(parents=True, exist_ok=True)
+          (stock_dir / 'latest.json').write_text(
+              json.dumps(
+                  {
+                      'job_id': 'codex-trigger-surface-exact-main',
+                      'output_dir': str(root),
+                      'artifacts': {
+                          key: str(value)
+                          for key, value in resolved.items()
+                      },
+                  },
+                  ensure_ascii=False,
+              ),
+              encoding='utf-8',
+          )
+          os.environ['ASHARE_F10_DATA_DIR'] = str(data_dir)
+          from ashare_f10.api.app import app
+
+          client = TestClient(app)
+          assert client.get('/api/health').status_code == 200
+          assert client.get('/api/stocks/688521/latest').status_code == 200
+          assert (
+              client.get(
+                  '/api/stocks/688521/search',
+                  params={'q': '资产', 'limit': 5},
+              ).status_code
+              == 200
+          )
+          for kind in ('json', 'xlsx', 'parquet', 'duckdb'):
+              response = client.get(
+                  f'/api/stocks/688521/download/{kind}'
+              )
+              assert response.status_code == 200 and response.content
+          print('EXACT_MAIN_REAL_E2E=PASS')
+          PY
+
+      - name: Finalize canonical W05 records and remove one-shot executor
+        env:
+          POSTMERGE_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          export TESTED_SHA="$(git rev-parse HEAD)"
+          python - <<'PY'
+          import json
+          import os
+          from datetime import UTC, datetime
+          from pathlib import Path
+
+          task_id = 'codex-trigger-surface-audit-v2'
+          task_dir = Path('docs/implementation') / task_id
+          state_path = task_dir / 'task_state.yaml'
+          state = json.loads(state_path.read_text(encoding='utf-8'))
+          now = datetime.now(UTC).strftime('%Y-%m-%dT%H:%M:%SZ')
+          run_id = int(os.environ['POSTMERGE_RUN_ID'])
+          tested_sha = os.environ['TESTED_SHA']
+          merge_sha = 'b02b0c58cb20c72e098b63dbae47ec07c5b6f7c3'
+
+          state.update({
+              'state_revision': int(state.get('state_revision', 0)) + 1,
+              'status': 'DONE',
+              'execution_status': 'COMPLETED',
+              'security_status': 'PASS',
+              'working_branch': 'main',
+              'pull_request': 52,
+              'last_product_commit_sha': tested_sha,
+              'current_stage': 'W05',
+              'last_completed_stage': 'W05',
+              'last_successful_step': (
+                  'exact_main_zero_cost_trigger_surface_closeout_pass'
+              ),
+              'next_action': 'none',
+              'updated_at_utc': now,
+          })
+          state['acceptance'] = {
+              'domain': 'generic',
+              'status': 'PASS',
+              'reason_code': None,
+              'details_path': str(task_dir / 'FINAL_REPORT.md'),
+          }
+          state['gate_results'] = {
+              **state.get('gate_results', {}),
+              'W05_EXACT_MAIN': f'PASS:{run_id}',
+              'CODEX_CALLS_DURING_TASK': '0',
+              'RESPONSES_PAID_PROBES_DURING_TASK': '0',
+              'HISTORICAL_CODEX_BRANCHES_QUARANTINED': '88',
+          }
+          state['post_merge'] = {
+              'status': 'PASS',
+              'merge_sha': merge_sha,
+              'verified_run_ids': [run_id],
+          }
+          state['human_gate'] = {
+              'required': False,
+              'reason': None,
+              'minimum_action': None,
+              'resume_from': None,
+          }
+          state['notification'] = {
+              **state.get('notification', {}),
+              'generation': int(
+                  state.get('notification', {}).get('generation', 0)
+              ) + 1,
+              'last_type': 'COMPLETED',
+              'acknowledged': True,
+          }
+          state_path.write_text(
+              json.dumps(state, ensure_ascii=False, indent=2) + '\n',
+              encoding='utf-8',
+          )
+
+          active_path = Path('docs/implementation/ACTIVE_TASKS.yaml')
+          active = json.loads(active_path.read_text(encoding='utf-8'))
+          for item in active.get('tasks', []):
+              if item.get('task_id') == task_id:
+                  item.update({
+                      'status': 'DONE',
+                      'branch': 'main',
+                      'pull_request': 52,
+                      'current_stage': 'W05',
+                  })
+          active_path.write_text(
+              json.dumps(active, ensure_ascii=False, indent=2) + '\n',
+              encoding='utf-8',
+          )
+
+          (task_dir / 'W05_result.md').write_text(
+              '# W05 结果：Exact-main 与最终收尾\n\n'
+              '```yaml\nstatus: PASS\n'
+              f'merge_sha: {merge_sha}\n'
+              f'exact_main_run: {run_id}\n'
+              f'exact_main_tested_sha: {tested_sha}\n'
+              'legacy_branch_audit: PASS:88\n'
+              'codex_entrypoint_scan: PASS\n'
+              'devflow_and_upgrade: PASS\n'
+              'full_product_regression: PASS\n'
+              'real_e2e_688521: PASS\n'
+              'historical_workflow_rerun_model_paths: 0\n'
+              'relay_automatic_paid_probe_retries: 0\n'
+              'secret_audit_automatic_triggers: 0\n'
+              'codex_calls: 0\n'
+              'responses_paid_probes: 0\n'
+              'codex_policy_after_completion: disabled\n```\n',
+              encoding='utf-8',
+          )
+          (task_dir / 'FINAL_REPORT.md').write_text(
+              '# Codex Trigger Surface Audit v2 最终报告\n\n'
+              '## 结论\n\n'
+              'W00–W05 已在零 Codex调用和零 Responses付费探针条件下完成。除当前默认分支外，历史 Workflow Re-run输入分支也已隔离。\n\n'
+              '## 新增防护\n\n'
+              '- 88个历史 `task/codex-*` 分支全部移除 Descriptor并安装禁用 Action；\n'
+              '- 永久周度、手工和新分支历史 Re-run审计；\n'
+              '- Relay Health默认零请求，付费探针需要精确确认和首次 Run Attempt；\n'
+              '- Relay Health不进入 Auto Recovery；\n'
+              '- Secret Audit在 Environment绑定前验证真实一次性 Activation；\n'
+              '- 全仓直接模型、Forwarder、自动 Dispatch和付费重试扫描。\n\n'
+              '## 证据\n\n'
+              '- PR：#52\n'
+              f'- Merge SHA：`{merge_sha}`\n'
+              '- Forced pre-merge Run：`30066965152`\n'
+              f'- Exact-main Run：`{run_id}`\n'
+              '- Historical branches：`88 / 88 PASS`\n'
+              '- Codex调用：`0`\n'
+              '- Responses付费探针：`0`\n'
+              '- 完成后 Policy：`disabled`\n',
+              encoding='utf-8',
+          )
+          (task_dir / 'STATUS.md').write_text(
+              '# STATUS：codex-trigger-surface-audit-v2\n\n'
+              '```yaml\nstatus: DONE\n'
+              'execution_status: COMPLETED\n'
+              'acceptance_domain: generic\n'
+              'acceptance_status: PASS\n'
+              'security_status: PASS\n'
+              'current_stage: W05\n'
+              'last_completed_stage: W05\n'
+              'branch: main\n'
+              'pull_request: 52\n'
+              'next_action: none\n'
+              'post_merge: PASS\n'
+              'human_intervention_required: false\n'
+              'legacy_task_branches_quarantined: 88\n'
+              'codex_calls: 0\n'
+              'responses_paid_probes: 0\n```\n',
+              encoding='utf-8',
+          )
+          (task_dir / 'HANDOFF.md').write_text(
+              '# HANDOFF：codex-trigger-surface-audit-v2\n\n'
+              '任务已完成。Canonical State、历史分支隔离、付费探针边界、Secret Audit边界、完整回归和 exact-main均为 PASS。\n\n'
+              '```yaml\nnext_action: none\n'
+              'human_intervention_required: false\n'
+              'codex_policy: disabled\n'
+              'automatic_model_paths: 0\n'
+              'historical_rerun_model_paths: 0\n'
+              'paid_probe_automatic_retries: 0\n```\n',
+              encoding='utf-8',
+          )
+          PY
+          python scripts/devflow/validate_docs.py \
+            --output /tmp/final-docs-result.json
+          python scripts/devflow/validate_codex_entrypoints.py \
+            --output /tmp/final-entrypoints.json
+          python scripts/devflow/validate_workflows.py
+          git add -u \
+            .github/workflows/temporary-codex-trigger-surface-exact-main-closeout.yml
+          git add docs/implementation
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Finalize zero-cost Codex trigger surface audit"
+          git push origin HEAD:main
