@@ -11,7 +11,12 @@ LEGACY_REASONING_EFFORTS = {"low", "xhigh"}
 RUNTIME_REASONING_EFFORT = "xhigh"
 BRANCH_RE = re.compile(r"^[A-Za-z0-9._/-]+$")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 RISK_CLASSES = {"low", "medium", "high"}
+WEB_BENEFIT_CODES = {
+    "LOCAL_ITERATIVE_TOOL_LOOP",
+    "BACKGROUND_WORKER_EXPLICITLY_REQUESTED",
+}
 
 DEFAULT_CONTEXT_BUDGET = {
     "max_allowed_files": 5,
@@ -28,14 +33,14 @@ class TaskDescriptorError(ValueError):
     pass
 
 
-def _positive_int_or_zero(value: object, field: str) -> int:
+def _non_negative_int(value: object, field: str) -> int:
     if not isinstance(value, int) or isinstance(value, bool) or value < 0:
         raise TaskDescriptorError(f"{field} must be a non-negative integer")
     return value
 
 
 def _positive_int(value: object, field: str) -> int:
-    result = _positive_int_or_zero(value, field)
+    result = _non_negative_int(value, field)
     if result == 0:
         raise TaskDescriptorError(f"{field} must be positive")
     return result
@@ -55,6 +60,13 @@ def _string_list(
     if non_empty and not value:
         raise TaskDescriptorError(f"{field} must not be empty")
     return tuple(item.strip() for item in value)
+
+
+def _required_string(data: dict[str, Any], field: str) -> str:
+    value = data.get(field)
+    if not isinstance(value, str) or not value.strip():
+        raise TaskDescriptorError(f"{field} must be a non-empty string")
+    return value.strip()
 
 
 @dataclass(frozen=True)
@@ -171,8 +183,6 @@ class TaskDescriptor:
 
     @property
     def effective_reasoning_effort(self) -> str:
-        """Return the versioned runtime policy, never legacy metadata."""
-
         return RUNTIME_REASONING_EFFORT
 
     @classmethod
@@ -187,26 +197,21 @@ class TaskDescriptor:
                 f"unsupported schema_version: {schema_version!r}"
             )
 
-        required_strings = (
-            "task_id",
-            "objective",
-            "base_branch",
-            "publish_branch",
-            "gate_profile",
-            "full_gate_profile",
-            "post_merge_profile",
-            "reasoning_effort",
-            "risk_class",
-            "expected_base_sha",
-        )
-        values: dict[str, str] = {}
-        for field in required_strings:
-            value = data.get(field)
-            if not isinstance(value, str) or not value.strip():
-                raise TaskDescriptorError(
-                    f"{field} must be a non-empty string"
-                )
-            values[field] = value.strip()
+        values = {
+            field: _required_string(data, field)
+            for field in (
+                "task_id",
+                "objective",
+                "base_branch",
+                "publish_branch",
+                "gate_profile",
+                "full_gate_profile",
+                "post_merge_profile",
+                "reasoning_effort",
+                "risk_class",
+                "expected_base_sha",
+            )
+        }
 
         effort = values["reasoning_effort"]
         if schema_version == 1:
@@ -251,20 +256,20 @@ class TaskDescriptor:
                 "allowed_files exceeds context_budget.max_allowed_files"
             )
 
-        session_limit = _positive_int_or_zero(
+        session_limit = _non_negative_int(
             data.get("session_limit"),
             "session_limit",
         )
-        automatic_second_session = _positive_int_or_zero(
+        automatic_second_session = _non_negative_int(
             data.get("automatic_second_session"),
             "automatic_second_session",
         )
-        recovery_generation = _positive_int_or_zero(
+        declared_recovery_generation = _non_negative_int(
             data.get("recovery_generation", 0),
             "recovery_generation",
         )
-        max_recovery_generations = _positive_int_or_zero(
-            data.get("max_recovery_generations", 1),
+        declared_max_recovery = _non_negative_int(
+            data.get("max_recovery_generations", 0),
             "max_recovery_generations",
         )
         if session_limit != 1:
@@ -273,10 +278,14 @@ class TaskDescriptor:
             raise TaskDescriptorError(
                 "automatic_second_session must equal 0"
             )
-        if recovery_generation > max_recovery_generations:
+        if schema_version == 2 and declared_recovery_generation != 0:
+            raise TaskDescriptorError("recovery_generation must equal 0")
+        if schema_version == 2 and declared_max_recovery != 0:
             raise TaskDescriptorError(
-                "recovery_generation exceeds max_recovery_generations"
+                "max_recovery_generations must equal 0"
             )
+        recovery_generation = 0
+        max_recovery_generations = 0
 
         auto_merge = data.get("auto_merge")
         notify_completion = data.get("notify_completion", False)
@@ -315,14 +324,11 @@ class TaskDescriptor:
             )
         parent_run_id = data.get("parent_run_id")
         if parent_run_id is not None:
-            parent_run_id = _positive_int_or_zero(
-                parent_run_id,
-                "parent_run_id",
-            )
-            if parent_run_id == 0:
-                raise TaskDescriptorError(
-                    "parent_run_id must be positive or null"
-                )
+            parent_run_id = _positive_int(parent_run_id, "parent_run_id")
+
+        if schema_version == 2:
+            _validate_failure_context(data.get("failure_context"))
+            _validate_web_assessment(data.get("web_resolution_assessment"))
 
         return cls(
             schema_version=schema_version,
@@ -349,6 +355,54 @@ class TaskDescriptor:
             parent_task_id=parent_task_id,
             parent_run_id=parent_run_id,
         )
+
+
+def _validate_failure_context(value: object) -> None:
+    if not isinstance(value, dict):
+        raise TaskDescriptorError(
+            "schema_version 2 requires failure_context"
+        )
+    source_run_id = value.get("source_run_id")
+    if _positive_int(source_run_id, "failure_context.source_run_id") <= 0:
+        raise TaskDescriptorError("failure_context.source_run_id must be positive")
+    source_sha = _required_string(value, "source_commit_sha")
+    if not SHA_RE.fullmatch(source_sha):
+        raise TaskDescriptorError(
+            "failure_context.source_commit_sha must be a 40-character SHA"
+        )
+    _required_string(value, "failure_fingerprint")
+    digest = _required_string(value, "diagnostic_artifact_digest")
+    if not DIGEST_RE.fullmatch(digest):
+        raise TaskDescriptorError(
+            "failure_context.diagnostic_artifact_digest must be sha256 plus 64 hex"
+        )
+    files = _string_list(value, "failure_files")
+    if not 1 <= len(files) <= 5:
+        raise TaskDescriptorError(
+            "failure_context.failure_files must contain one to five paths"
+        )
+    _required_string(value, "pre_model_gate_profile")
+    _required_string(value, "reason_code")
+
+
+def _validate_web_assessment(value: object) -> None:
+    if not isinstance(value, dict):
+        raise TaskDescriptorError(
+            "schema_version 2 requires web_resolution_assessment"
+        )
+    if value.get("attempted") is not True:
+        raise TaskDescriptorError(
+            "web_resolution_assessment.attempted must be true"
+        )
+    if value.get("can_complete_in_web") is not False:
+        raise TaskDescriptorError(
+            "web_resolution_assessment.can_complete_in_web must be false"
+        )
+    if value.get("reason_code") not in WEB_BENEFIT_CODES:
+        raise TaskDescriptorError(
+            "web_resolution_assessment.reason_code is not approved"
+        )
+    _required_string(value, "summary")
 
 
 def load_task_descriptor(
