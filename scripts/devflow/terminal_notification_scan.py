@@ -115,7 +115,7 @@ def scan_terminal_completions(
             ),
             "minimum_action": "No action is required.",
             "fingerprint": f"task-completed:{task_id}:g{current_generation}",
-            "source_workflow": "Devflow Terminal State Notification",
+            "source_workflow": "Devflow State Consistency",
             "source_run_id": source_run_id,
             "failure_steps": [],
             "target_url": target_url,
