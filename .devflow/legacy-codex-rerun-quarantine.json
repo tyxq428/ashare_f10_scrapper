@@ -1,0 +1,10 @@
+{
+  "branch": "task/codex-resilient-command-terminal-status-v1-r2",
+  "control_sha": "3b37d16a237ec22d17b325370a55fcbb5f24cdac",
+  "historical_workflow_rerun": "BLOCKED_BEFORE_SECRET_JOB",
+  "model_invocation": false,
+  "quarantined_at_utc": "2026-07-24T04:08:25Z",
+  "reason": "Prevent historical Codex Task workflow re-runs from reaching a secret-bearing model job.",
+  "schema_version": 1,
+  "status": "QUARANTINED"
+}
