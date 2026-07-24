@@ -2,76 +2,85 @@
 
 ## 总原则
 
-Codex **默认禁用**。ChatGPT Web Supervisor 和确定性 GitHub Actions 是正常执行路径。仓库级总开关位于：
+Codex 默认禁用。ChatGPT Web Supervisor 和确定性 GitHub Actions 是正常执行路径。仓库级总开关：
 
 ```text
 .devflow/codex-policy.yaml
 ```
 
-只要 `mode: disabled`：
+`mode: disabled` 时，常驻入口不得包含模型 Job、`agent-runtime`、Relay Secret、Forwarder 或 `openai/codex-action`。重新启用不能只改 Policy；必须由用户针对具体任务明确要求，并通过独立受审的一次性 Activation PR。
 
-- `codex-task.yml` 不得包含模型 Job；
-- 不得声明 `agent-runtime`；
-- 不得读取 Relay Secret；
-- 不得启动 localhost Forwarder；
-- 不得引用 `openai/codex-action`；
-- 只能输出 `CODEX_MODEL_INVOCATION=DISABLED`。
+## 唯一允许的潜在入口
 
-本仓库在本轮优化完成后仍保持禁用。重新启用必须同时具备用户明确要求和独立受审 PR。
-
-## Secret 边界
-
-中转站 URL、hostname、API Key 和模型 ID 全部视为 Secret，只能存入 GitHub Environment `agent-runtime`：
+机器清单位于：
 
 ```text
-AGENT_RESPONSES_ENDPOINT
-AGENT_API_KEY
-AGENT_MODEL
+.devflow/codex-entrypoints.yaml
 ```
 
-它们不得进入仓库、Variables、日志、Issue、PR、Artifact、Failure Bundle 或异常正文。任何未来模型 Job 必须：
+唯一允许项为 `manual_one_time_executor`。常驻 `codex-task.yml` 仅做零 Token 候选复核，不调用模型。
 
-- `contents: read`；
-- `persist-credentials: false`；
-- 与 Publish Job 权限分离；
-- 通过 localhost-only、无日志 Forwarder；
-- 扫描完整值、hostname、URL 编码、Base64 和 Base64URL 变体。
+永久禁止：
 
-当前禁用状态下，Codex Task 在该边界之前终止，因此不会接触这些 Secret。
+- Product Gate、Post-Merge、State Consistency 或 Auto Recovery Dispatch Codex；
+- `github-actions[bot]` 调用模型；
+- `rerun-failed-jobs`、GitHub UI Re-run 或重复 Dispatch 重复模型会话；
+- Recovery Generation；
+- Issue 评论、Fork PR 或自由文本触发 Secret Job；
+- 自动扩大 Allowed Files；
+- 同一 Task、Fingerprint、Descriptor 或 Grant 第二次调用。
 
-## 默认执行路由
+## 可信控制平面
 
-下列任务禁止使用 Codex，必须由 ChatGPT Web、确定性脚本或人工处理：
+未来所有资格和模型执行必须使用双 Checkout：
 
-- `.github/**`、Devflow Core、状态模型和恢复分类；
-- `AGENTS.md`、Policies、Runbooks、Templates 和任务状态文档；
-- Ruff、格式、Import、Fixture、路径和 Schema 兼容问题；
-- Secret、权限、安全、Branch Protection 和 Merge Boundary；
-- 业务口径、数据源优先级、研究语义和架构决策；
-- State Consistency、Product Gate 和 Post-Merge 失败；
-- 已经返回 `BLOCKED / NO_CHANGES / UNVERIFIED / FAILURE / TIMEOUT` 的任务；
-- 失败无法在模型调用前稳定复现的任务。
+```text
+control/
+  exact main SHA
+  Policy、Eligibility、Gate、Scope、Secret Audit、Grant逻辑
 
-## 将来候选的必要条件
+workspace/
+  exact task SHA
+  Descriptor与允许的产品代码
+```
 
-只有同时满足以下条件，任务才可被标记为 Codex 候选；候选并不自动执行：
+任务分支只能作为 data-only 工作区。任务分支中的 `.github/**`、`.devflow/**`、`scripts/devflow/**` 不得成为执行控制代码。
 
-1. 用户针对该任务明确授权；
-2. Task Descriptor 不可变，并绑定 SHA-256；
-3. 失败在零 Token 的 `pre_model_gate` 中可复现；
-4. 失败指纹与授权完全一致；
-5. 失败文件全部包含在 2–5 个 `allowed_files` 中；
-6. 允许范围不包含 Workflow、Devflow、文档、Secret、Schema、迁移或业务语义；
-7. Context Budget 通过；
-8. Usage Ledger 中该任务和指纹均未使用；
-9. `session_limit=1`、`automatic_second_session=0`、`recovery_generations=0`；
-10. 独立受审 PR 恢复模型 Job，且用户再次明确要求执行。
+## 正向候选 Allowlist
 
-任一条件失败时路由为 `CHATGPT_WEB`，不得“先让 Codex 试试”。
+仅以下 Reason Code 可进入候选：
+
+```text
+LOCAL_IMPLEMENTATION_DEFECT
+LOCAL_TEST_GAP
+BOUNDED_PURE_REFACTOR
+```
+
+并必须有 ChatGPT Web 必要性评估：
+
+```yaml
+attempted: true
+can_complete_in_web: false
+reason_code: LOCAL_ITERATIVE_TOOL_LOOP | BACKGROUND_WORKER_EXPLICITLY_REQUESTED
+summary: 非空说明
+```
+
+未知原因、单文件简单修改、超过 5 个文件、机械问题、Workflow/Devflow、Full Gate、Post-Merge、Secret、安全、权限、业务语义和无法复现的失败全部路由 ChatGPT Web。
+
+## 受信任 Pre-model 复现
+
+任务分支自报 JSON 不能作为最终证据。Prepare Job 必须从精确控制 SHA 运行受信 Gate，绑定：
+
+- Source Run ID 和 Source Commit SHA；
+- 实际 Artifact SHA-256；
+- Task Commit SHA；
+- Gate Profile；
+- 失败 Fingerprint；
+- 真实 Failure Files。
+
+Gate 已 PASS、证据不匹配或失败文件不被 Allowed Files 覆盖时，模型不得启动。
 
 ## Context Budget
-
-若将来启用 XHigh，会话必须使用固定预算：
 
 ```yaml
 max_allowed_files: 5
@@ -83,47 +92,41 @@ include_chat_history: false
 include_full_sop: false
 ```
 
-不得通过降低推理强度来解决成本问题；应缩小任务、文件和失败证据。Schema v1 的 `low` 只作为历史只读元数据，运行时不得降级。
+不得以降低推理强度绕过预算。若未来执行模型，只允许一次 XHigh Session。
 
-## 自动化禁止项
+## 一次性 Grant
 
-永久禁止：
+Grant 必须：
 
-- `github-actions[bot]` 派发 Codex；
-- Auto Recovery 创建或 Dispatch Codex Recovery Generation；
-- `rerun-failed-jobs` 重跑 Codex Session；
-- State Consistency 根据固定文件列表合成任务；
-- Post-Merge 自动调用模型修复；
-- Issue 评论、Fork PR 或自由文本直接触发 Secret Job；
-- `pull_request_target` 执行不可信代码；
-- 自动扩大 `allowed_files`；
-- 无限模型循环。
+- 由 `tyxq428` 通过 ChatGPT Web 明确批准；
+- 绑定 Task SHA、Descriptor Digest、Source Run/SHA、Failure Fingerprint 与 Allowed Files Hash；
+- `max_calls=1`；
+- TTL 不超过 60 分钟；
+- 初始状态为 `ISSUED`。
 
-## 结构化终态
+模型 Job 前，在按 Grant ID 序列化的 Workflow 中将 Ledger 写为 `RESERVED`；进入 `RESERVED` 后即视为调用名额已消耗。模型结束、失败、取消或超时后写为 `CONSUMED`。任何 Re-run 均返回 `GRANT_ALREADY_CONSUMED`。
 
-以下模型结果全部是当前 Generation 的终态：
+## Secret 边界
 
-```text
-BLOCKED
-NO_CHANGES
-UNVERIFIED
-FAILURE
-TIMEOUT
-```
+Relay URL、hostname、API Key 和模型 ID 只能存在于 GitHub Environment `agent-runtime`，不得进入仓库、日志、Issue、PR 或 Artifact。一次性模型 Job必须：
 
-出现后不得重跑相同 Job、相同指纹或相同 Descriptor。ChatGPT Web 读取不可变证据后，可以直接修复，或在用户重新授权后创建全新的任务。
+- `contents: read`；
+- `persist-credentials: false`；
+- localhost-only 无日志 Forwarder；
+- 与 Publish、Product Gate 和 Post-Merge 权限分离；
+- 扫描完整值、hostname、URL 编码、Base64 和 Base64URL 变体。
 
 ## Patch 与 Gate 隔离
 
-若未来恢复模型调用：
+未来一次性 Activation 必须：
 
-1. 模型结束后立即只对 `allowed_files` 生成 Patch；
+1. 模型结束后立即仅对 Allowed Files 生成 Patch；
 2. 保存 Patch Hash；
-3. Gate 输出全部写到 `/tmp`；
-4. Gate 后再次确认 Patch Hash 未变化；
-5. 结构化 `changed_files`、实际 Patch 文件和允许范围必须一致；
+3. Gate 输出全部写入 `/tmp`；
+4. Gate 后确认 Patch Hash 未变化；
+5. 结构化 Changed Files、实际 Patch 与 Allowed Files 一致；
 6. Scope、Secret、Manifest 或 Gate 任一失败均不得 Publish。
 
-## 低风险合并
+## 终态
 
-当前禁用状态下不会产生新的 Codex Candidate。未来即使重新启用，也只有显式批准的低风险任务、最多 5 个安全文件、全部 Gate 通过且 exact-main Post-Merge 通过时才可受控合并。冲突、权限或分支保护必须 `HUMAN_REQUIRED`，不得强推。
+`BLOCKED / NO_CHANGES / UNVERIFIED / FAILURE / TIMEOUT` 都会消耗当前 Grant，并且不得重跑。后续只能由 ChatGPT Web直接处理，或在新的事实、新 Task SHA 和新的用户授权下创建全新一次性 Activation。
