@@ -1,0 +1,103 @@
+name: Normalize Bark HTTP Retest Final State
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+    paths:
+      - scripts/devflow/finalize_bark_http_retest_v2.py
+      - .github/workflows/temporary-finalize-bark-http-retest-v2.yml
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: normalize-bark-http-retest-final-state-v2
+  cancel-in-progress: false
+
+jobs:
+  normalize:
+    if: >-
+      github.run_attempt == 1 &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'chore/finalize-bark-http-retest-v2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: chore/finalize-bark-http-retest-v2
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Fetch the immutable safe retest result
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api --paginate \
+            "repos/${{ github.repository }}/issues/61/comments?per_page=100" \
+            > /tmp/issue61-comments.json
+          jq -e \
+            '([.[] | select((.body // "") | contains("[BARK][ALL_STATUS_HTTP_RETEST]"))] | length) == 1' \
+            /tmp/issue61-comments.json > /dev/null
+
+      - name: Build the exact permanent state
+        shell: bash
+        env:
+          SOURCE_MAIN_SHA: ${{ github.event.pull_request.base.sha }}
+          FINALIZER_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          python scripts/devflow/finalize_bark_http_retest_v2.py
+          python -m compileall -q scripts/devflow
+          python scripts/devflow/validate_notification_channels.py
+          python scripts/devflow/validate_workflows.py
+          pytest -q \
+            tests/test_devflow_bark_notification.py \
+            tests/test_devflow_bark_workflow.py
+
+      - name: Finalize Issue 61 from the safe result
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ALL_DELIVERED="$(jq -r '.all_delivered' /tmp/bark-http-final-result.json)"
+          RUN_ID="$(jq -r '.run_id' /tmp/bark-http-final-result.json)"
+          if [[ "$ALL_DELIVERED" == "true" ]]; then
+            gh issue edit 61 --repo "${{ github.repository }}" \
+              --title "[BARK LIVE TEST][COMPLETED] HTTP/HTTPS all-status retest"
+            gh issue close 61 --repo "${{ github.repository }}" --reason completed
+          else
+            gh issue edit 61 --repo "${{ github.repository }}" \
+              --title "[BARK LIVE TEST][HUMAN_REQUIRED] HTTP/HTTPS all-status retest failed"
+          fi
+          cat > /tmp/bark-http-final-comment.md <<EOF
+          [BARK][HTTP_RETEST_FINAL_STATE]
+
+          - Source Run: https://github.com/${{ github.repository }}/actions/runs/${RUN_ID}
+          - All delivered: \`${ALL_DELIVERED}\`
+          - Production allowed protocols: \`http\`, \`https\`
+          - One-time test surfaces remaining after this PR: \`0\`
+          - Automatic retries: \`0\`
+          - Report: \`docs/process/BARK_HTTP_ALL_STATUS_RETEST_REPORT.md\`
+          EOF
+          gh issue comment 61 --repo "${{ github.repository }}" \
+            --body-file /tmp/bark-http-final-comment.md
+
+      - name: Commit the exact permanent state
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Finalize Bark HTTP all-status retest state"
+          git push origin HEAD:chore/finalize-bark-http-retest-v2
