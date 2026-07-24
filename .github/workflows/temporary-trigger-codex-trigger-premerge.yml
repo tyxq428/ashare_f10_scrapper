@@ -1,3 +1,4 @@
+# Direct trigger after the launcher exists; zero model and zero relay access.
 name: Temporary Trigger Codex Trigger Surface Pre-Merge
 
 on:
