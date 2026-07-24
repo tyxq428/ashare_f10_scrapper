@@ -7,7 +7,7 @@ from typing import Any
 MANIFEST = Path(".devflow/notification-channels.yaml")
 WORKFLOW_ROOT = Path(".github/workflows")
 INCIDENT = WORKFLOW_ROOT / "devflow-incident.yml"
-TERMINAL_STATE = WORKFLOW_ROOT / "devflow-terminal-state-notify.yml"
+STATE_CONSISTENCY = WORKFLOW_ROOT / "devflow-state-consistency.yml"
 AUTO_RECOVERY = WORKFLOW_ROOT / "devflow-auto-recovery.yml"
 
 
@@ -78,10 +78,12 @@ def validate() -> dict[str, Any]:
     if not isinstance(producer, dict):
         errors.append("completion producer policy is missing")
     else:
-        if producer.get("workflow") != TERMINAL_STATE.as_posix():
+        if producer.get("workflow") != STATE_CONSISTENCY.as_posix():
             errors.append("completion producer workflow mismatch")
         if producer.get("strict_done_required") is not True:
             errors.append("completion producer must require strict DONE")
+        if producer.get("state_consistency_pass_required") is not True:
+            errors.append("completion producer must require State Consistency PASS")
 
     workflow_text: dict[Path, str] = {}
     for path in sorted(WORKFLOW_ROOT.glob("*.yml")):
@@ -138,20 +140,23 @@ def validate() -> dict[str, Any]:
         if forbidden in incident_text:
             errors.append(f"Devflow Incident contains forbidden path: {forbidden}")
 
-    terminal_text = workflow_text.get(TERMINAL_STATE, "")
+    consistency_text = workflow_text.get(STATE_CONSISTENCY, "")
     for fragment in (
-        "push:",
-        "      - main",
-        "docs/implementation/*/task_state.yaml",
+        "notify-terminal-state:",
+        "needs: consistency",
+        "github.event_name == 'push' && github.ref_name == 'main'",
+        "permissions:",
+        "contents: write",
+        "ref: ${{ github.sha }}",
+        "fetch-depth: 0",
         "terminal_notification_scan.py",
         "devflow_notify",
-        "persist-credentials: false",
+        "STATE_CONSISTENCY_REQUIRED_BEFORE_COMPLETION=YES",
         "BARK_REQUESTS_IN_THIS_WORKFLOW=0",
     ):
-        if fragment not in terminal_text:
-            errors.append(f"terminal state producer missing guard: {fragment}")
+        if fragment not in consistency_text:
+            errors.append(f"State Consistency completion producer missing guard: {fragment}")
     for forbidden in (
-        "workflow_run:",
         "notification-runtime",
         "BARK_PUSH_URL",
         "agent-runtime",
@@ -159,8 +164,8 @@ def validate() -> dict[str, Any]:
         "openai/codex-action@",
         "--request POST",
     ):
-        if forbidden in terminal_text:
-            errors.append(f"terminal state producer contains forbidden path: {forbidden}")
+        if forbidden in consistency_text:
+            errors.append(f"State Consistency completion producer contains forbidden path: {forbidden}")
 
     auto_text = workflow_text.get(AUTO_RECOVERY, "")
     for forbidden in (
@@ -184,6 +189,7 @@ def validate() -> dict[str, Any]:
         "status": "PASS" if not errors else "FAIL",
         "notification_runtime_workflows": environment_users,
         "bark_secret_workflows": secret_users,
+        "completion_producer": STATE_CONSISTENCY.as_posix(),
         "bark_post_locations": incident_text.count("--request POST"),
         "raw_workflow_run_notifications": 0 if not errors else None,
         "automatic_bark_retries": 0 if not errors else None,
