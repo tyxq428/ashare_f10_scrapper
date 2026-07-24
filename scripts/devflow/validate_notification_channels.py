@@ -145,17 +145,21 @@ def validate() -> dict[str, Any]:
         "notify-terminal-state:",
         "needs: consistency",
         "github.event_name == 'push' && github.ref_name == 'main'",
-        "permissions:",
+        "continue-on-error: true",
         "contents: write",
         "ref: ${{ github.sha }}",
         "fetch-depth: 0",
         "terminal_notification_scan.py",
         "devflow_notify",
+        "TERMINAL_NOTIFICATION_FAILURE=FAIL_OPEN",
         "STATE_CONSISTENCY_REQUIRED_BEFORE_COMPLETION=YES",
         "BARK_REQUESTS_IN_THIS_WORKFLOW=0",
+        "NOTIFICATION_FAILURE_AUTO_RECOVERY=0",
     ):
         if fragment not in consistency_text:
-            errors.append(f"State Consistency completion producer missing guard: {fragment}")
+            errors.append(
+                f"State Consistency completion producer missing guard: {fragment}"
+            )
     for forbidden in (
         "notification-runtime",
         "BARK_PUSH_URL",
@@ -165,7 +169,10 @@ def validate() -> dict[str, Any]:
         "--request POST",
     ):
         if forbidden in consistency_text:
-            errors.append(f"State Consistency completion producer contains forbidden path: {forbidden}")
+            errors.append(
+                "State Consistency completion producer contains forbidden path: "
+                f"{forbidden}"
+            )
 
     auto_text = workflow_text.get(AUTO_RECOVERY, "")
     for forbidden in (
@@ -175,7 +182,9 @@ def validate() -> dict[str, Any]:
         "BARK_PUSH_URL",
     ):
         if forbidden in auto_text:
-            errors.append(f"Auto Recovery contains forbidden notification retry path: {forbidden}")
+            errors.append(
+                f"Auto Recovery contains forbidden notification retry path: {forbidden}"
+            )
     for fragment in (
         "notification_event.py resolve-task",
         "value['task_id'] = resolved['task_id']",
@@ -183,13 +192,16 @@ def validate() -> dict[str, Any]:
         "AUTOMATIC_BARK_RETRIES=0",
     ):
         if fragment not in auto_text:
-            errors.append(f"Auto Recovery missing terminal task binding: {fragment}")
+            errors.append(
+                f"Auto Recovery missing terminal task binding: {fragment}"
+            )
 
     summary = {
         "status": "PASS" if not errors else "FAIL",
         "notification_runtime_workflows": environment_users,
         "bark_secret_workflows": secret_users,
         "completion_producer": STATE_CONSISTENCY.as_posix(),
+        "completion_delivery_fail_open": not errors,
         "bark_post_locations": incident_text.count("--request POST"),
         "raw_workflow_run_notifications": 0 if not errors else None,
         "automatic_bark_retries": 0 if not errors else None,
