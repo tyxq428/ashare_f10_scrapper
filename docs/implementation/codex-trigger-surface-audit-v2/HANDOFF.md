@@ -3,25 +3,26 @@
 ## 当前事实
 
 - 默认分支 Codex 入口仍为 eligibility-only，Policy 为 disabled；
-- 默认分支不存在直接 `openai/codex-action` 调用；
-- Product Gate、Post-Merge、State Consistency 和 Auto Recovery 不派发 Codex；
-- 新发现的剩余风险是历史 Workflow Re-run 与仍存在的 `task/codex-*` 分支；
-- Relay Health 会真实发送 Responses 请求，且当前被 Auto Recovery 监听；
-- 本任务 Codex 调用为 0。
+- Product Gate、Post-Merge、State Consistency和 Auto Recovery不派发 Codex；
+- 88个远端 `task/codex-*` 历史分支已全部隔离：Descriptor不存在、禁用 Action存在、模型引用不存在、Marker有效；
+- Relay Health默认 `configuration_only`，发送 0 个 Responses请求；
+- 付费 Relay探针必须人工精确确认，且已从 Auto Recovery监听范围移除；
+- Secret Audit在绑定 Environment前验证真实一次性 Activation Run；
+- 永久 Trigger Surface扫描和历史分支审计 Workflow已实现；
+- 本任务 Codex调用为 0，Responses付费探针为 0。
 
 ## 恢复入口
 
 ```text
 feature/codex-trigger-surface-audit-v2
-→ W01 legacy task branch quarantine
-→ W02 paid probe and Secret Audit boundary
-→ W03 permanent guard
+→ W04 pre-merge zero-model validation
+→ W05 exact-main closeout
 ```
 
 ## 下一动作
 
-执行一次性零模型 Workflow：枚举并隔离历史任务分支，随后提交永久审计器和付费探针守卫。
+创建正式 PR，运行 State Consistency、Upgrade Compatibility、完整 Test、真实 688521 E2E和历史分支审计；失败时由 ChatGPT Web读取确定性诊断并修复。
 
 ## 人工门槛
 
-无。若发现历史任务分支存在开放 PR，则停止该分支的隔离并记录具体 PR，不自动覆盖。
+无。整个验证过程不得触发 Codex、Relay付费探针或 Secret-bearing模型 Job。
