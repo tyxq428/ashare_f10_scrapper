@@ -269,9 +269,24 @@ def classify(
             **common,
         )
 
-    if conclusion in TERMINAL_INFRA_CONCLUSIONS or _contains_marker(
-        failure_steps, INFRA_STEP_MARKERS
-    ):
+    if source_workflow == "Codex Task" or _contains_marker(failure_steps, CODEX_STEP_MARKERS):
+        return _decision(
+            action="INTERRUPTED",
+            reason_code="CODEX_SESSION_NO_AUTOMATIC_RETRY",
+            reason=(
+                "A model-bearing Codex job is single-use. Checkout, setup, "
+                "timeout, cancellation and artifact failures after dispatch "
+                "cannot rerun the model session."
+            ),
+            minimum_action=(
+                "Return to ChatGPT Web and create a new user-approved Grant "
+                "only if a fresh task remains justified."
+            ),
+            notification_type="INTERRUPTED",
+            **common,
+        )
+
+    if conclusion in TERMINAL_INFRA_CONCLUSIONS or _contains_marker(failure_steps, INFRA_STEP_MARKERS):
         if run_attempt < infrastructure_retry_limit:
             return _decision(
                 action="RETRY",
@@ -297,18 +312,6 @@ def classify(
             reason="Relay authentication, balance, model or protocol health is unavailable.",
             minimum_action="Check the relay account and agent-runtime Environment; no automatic model retry is allowed.",
             notification_type="HUMAN_REQUIRED",
-            **common,
-        )
-
-    if source_workflow == "Codex Task" or _contains_marker(
-        failure_steps, CODEX_STEP_MARKERS
-    ):
-        return _decision(
-            action="INTERRUPTED",
-            reason_code="CODEX_SESSION_NO_AUTOMATIC_RETRY",
-            reason="Codex sessions are single-use and cannot be automatically retried.",
-            minimum_action="Return to ChatGPT Web and decide whether a new task-specific authorization is justified.",
-            notification_type="INTERRUPTED",
             **common,
         )
 
