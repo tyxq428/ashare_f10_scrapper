@@ -6,10 +6,12 @@ on:
       - main
       - "feature/chatgpt-web-codex-devflow-*"
       - "feature/devflow-*"
+      - "feature/codex-entrypoint-*"
       - "fix/codex-environment-secret-*"
     paths:
       - AGENTS.md
       - "**/AGENTS.md"
+      - ".devflow/**"
       - "docs/process/**"
       - "docs/implementation/**"
       - "scripts/devflow/**"
@@ -23,6 +25,7 @@ on:
     paths:
       - AGENTS.md
       - "**/AGENTS.md"
+      - ".devflow/**"
       - "docs/process/**"
       - "docs/implementation/**"
       - "scripts/devflow/**"
@@ -77,11 +80,14 @@ jobs:
             --output devflow-state-result.json \
             "${EXTRA_ARGS[@]}"
 
-      - name: Validate Devflow workflows, docs and tests
+      - name: Validate Devflow, Codex entrypoints, docs and tests
         shell: bash
         run: |
           set -o pipefail
           python -m compileall -q scripts/devflow
+          python scripts/devflow/validate_codex_entrypoints.py \
+            --output devflow-codex-entrypoints.json \
+            2>&1 | tee devflow-codex-entrypoints.log
           python scripts/devflow/validate_workflows.py \
             2>&1 | tee devflow-workflow-validation.log
           python scripts/devflow/validate_docs.py \
@@ -99,6 +105,8 @@ jobs:
           name: devflow-state-diagnostics-${{ github.run_id }}
           path: |
             devflow-state-result.json
+            devflow-codex-entrypoints.json
+            devflow-codex-entrypoints.log
             devflow-workflow-validation.json
             devflow-workflow-validation.log
             devflow-docs-validation.json
