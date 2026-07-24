@@ -1,3 +1,4 @@
+# Direct zero-model trigger after the one-shot workflow exists.
 name: Temporary Quarantine Legacy Codex Branches
 
 on:
