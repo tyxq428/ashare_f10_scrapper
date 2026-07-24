@@ -19,7 +19,7 @@
   "last_state_commit_sha": null,
   "current_stage": "W05",
   "last_completed_stage": "W05",
-  "last_successful_step": "independent_terminal_producer_merged_exact_main_verified_and_atomic_closeout_prepared",
+  "last_successful_step": "independent_terminal_producer_merged_exact_main_verified_and_atomic_closeout_PR59_opened",
   "next_action": "none",
   "gate_results": {
     "PREVIOUS_TASK_CANONICAL_DONE": "PASS",
@@ -36,7 +36,7 @@
     "W05_E2E_688521": "PASS:30096957087",
     "IMPLEMENTATION_PR": "58",
     "IMPLEMENTATION_MERGE_SHA": "1f20a6531329ce957d9a3d5a0478071b92d11496",
-    "CLOSEOUT_PR": "PENDING",
+    "CLOSEOUT_PR": "59",
     "EXACT_MAIN_TREE_EQUIVALENCE": "PASS:NO_FILE_DIFF_FROM_TESTED_HEAD",
     "EXACT_MAIN_CODEX_POLICY": "PASS:DISABLED",
     "EXACT_MAIN_STATE_CONSISTENCY_VALIDATION_ONLY": "PASS",
@@ -86,5 +86,5 @@
     "acknowledged": false,
     "control_issue_number": null
   },
-  "updated_at_utc": "2026-07-24T13:39:00Z"
+  "updated_at_utc": "2026-07-24T13:41:00Z"
 }
