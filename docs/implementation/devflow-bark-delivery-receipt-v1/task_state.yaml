@@ -1,0 +1,73 @@
+{
+  "schema_version": 2,
+  "state_revision": 6,
+  "task_id": "devflow-bark-delivery-receipt-v1",
+  "title": "Devflow Bark delivery receipt artifact and live verification",
+  "status": "VERIFYING",
+  "execution_status": "RUNNING",
+  "acceptance": {
+    "domain": "generic",
+    "status": "PENDING",
+    "reason_code": null,
+    "details_path": "docs/implementation/devflow-bark-delivery-receipt-v1/W04_result.md"
+  },
+  "security_status": "PASS",
+  "working_branch": "feature/devflow-bark-delivery-receipt-v1",
+  "pull_request": 56,
+  "base_sha_at_start": "20b9a866a8d7ed8d839ef86416ac22d876167cec",
+  "last_product_commit_sha": "1c3e1eca154df833a9cd1724dc4ae036af1b29cc",
+  "last_state_commit_sha": null,
+  "current_stage": "W05",
+  "last_completed_stage": "W04",
+  "last_successful_step": "final_premerge_exact_head_gates_pass_and_no_parallel_PR_overlap",
+  "next_action": "run_resumed_exact_head_gates_mark_PR56_ready_and_merge",
+  "gate_results": {
+    "W00_OBSERVABILITY_INVENTORY": "PASS",
+    "W01_RECEIPT_MODEL": "PASS",
+    "W02_INCIDENT_RECEIPT_INTEGRATION": "PASS",
+    "W03_RECEIPT_GUARDS_AND_DOCS": "PASS",
+    "W04_EXACT_PR_HEAD": "PASS:fd12abe80c52396a3dd91e7e2149e93011ef3715",
+    "W04_UPGRADE_COMPATIBILITY": "PASS:30093710989",
+    "W04_TEST": "PASS:30093710936",
+    "W04_STATE_CONSISTENCY": "PASS:30093710984",
+    "W04_E2E_688521": "PASS:30093710983",
+    "W04_OPEN_PULL_REQUESTS": "1:PR56_ONLY",
+    "W04_PARALLEL_PATH_OVERLAP": "0",
+    "BARK_POST_LOCATIONS": "1",
+    "DELIVERY_RECEIPT_ARTIFACT_UPLOADS": "1",
+    "DELIVERY_RECEIPT_ARTIFACT_FILES_MAX": "1",
+    "DELIVERY_RECEIPT_RETENTION_DAYS": "14",
+    "DELIVERY_RECEIPT_ISSUE_INDEX": "ENABLED",
+    "CODEX_CALLS": "0",
+    "RESPONSES_PAID_PROBES": "0",
+    "RELAY_SECRET_READS": "0",
+    "HISTORICAL_CODEX_RERUNS": "0",
+    "SYNTHETIC_BARK_TESTS": "0",
+    "BARK_LIVE_REQUESTS": "0",
+    "BARK_SECRET_VALUE_READS_BY_CHATGPT": "0"
+  },
+  "retry_budget": {
+    "infrastructure": 3,
+    "codex_sessions": 0,
+    "codex_recovery_generations": 0,
+    "replans": 2
+  },
+  "human_gate": {
+    "required": false,
+    "reason": null,
+    "minimum_action": null,
+    "resume_from": null
+  },
+  "post_merge": {
+    "status": "PENDING",
+    "merge_sha": null,
+    "verified_run_ids": []
+  },
+  "notification": {
+    "generation": 0,
+    "last_type": null,
+    "acknowledged": true,
+    "control_issue_number": null
+  },
+  "updated_at_utc": "2026-07-24T12:40:00Z"
+}

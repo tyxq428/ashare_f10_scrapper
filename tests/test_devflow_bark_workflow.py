@@ -18,6 +18,7 @@ PRODUCT_GATE = ROOT / ".github/workflows/devflow-product-gate.yml"
 POST_MERGE = ROOT / ".github/workflows/devflow-post-merge.yml"
 STATE_CONSISTENCY = ROOT / ".github/workflows/devflow-state-consistency.yml"
 OBSOLETE_TERMINAL = ROOT / ".github/workflows/devflow-terminal-state-notify.yml"
+RECEIPT_COMMENT = DEVFLOW / "bark_delivery_receipt_comment.py"
 
 
 def test_incident_uses_task_level_dispatch_not_raw_workflow_completion() -> None:
@@ -45,10 +46,33 @@ def test_bark_transport_is_single_attempt_fail_open_and_secret_isolated() -> Non
     assert "BARK_AUTOMATIC_RETRIES=0" in text
     assert "BARK_REQUESTS_PER_LOGICAL_NOTIFICATION_MAX=1" in text
     assert "BARK_RESPONSE_BODY_STORED=0" in text
+    assert "BARK_RESPONSE_HEADERS_STORED=0" in text
     assert "BARK_ENDPOINT_DIAGNOSTICS_PRINTED=0" in text
+    assert "BARK_SECRET_VALUE_STORED=0" in text
     assert "agent-runtime" not in text
     assert "secrets.AGENT_" not in text
     assert "openai/codex-action@" not in text
+
+
+def test_bark_receipt_artifact_and_issue_index_are_bounded_and_fail_open() -> None:
+    text = INCIDENT.read_text(encoding="utf-8")
+    comment_script = RECEIPT_COMMENT.read_text(encoding="utf-8")
+    assert "bark_delivery_result.py build" in text
+    assert "bark_delivery_result.py validate" in text
+    assert "bark_delivery_receipt_comment.py" in text
+    assert text.count("actions/upload-artifact@") == 1
+    assert "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02" in text
+    assert "path: /tmp/bark-delivery-result.json" in text
+    assert "bark-delivery-receipt-${{" in text
+    assert "if-no-files-found: error" in text
+    assert "retention-days: 14" in text
+    assert "compression-level: 0" in text
+    assert "BARK_RECEIPT_ARTIFACT=UPLOADED" in text
+    assert "BARK_RECEIPT_ARTIFACT=FAILED_FAIL_OPEN" in text
+    assert "BARK_RECEIPT_ISSUE_INDEX=RECORDED_OR_DEDUPLICATED" in text
+    assert "BARK_RECEIPT_ISSUE_INDEX=FAILED_FAIL_OPEN" in text
+    assert "devflow-bark-delivery-receipt:" in comment_script
+    assert "issues: write" in text
 
 
 def test_auto_recovery_binds_terminal_events_without_retrying_bark() -> None:
@@ -115,3 +139,9 @@ def test_notification_channel_manifest_matches_workflow_surface() -> None:
     assert summary["completion_delivery_fail_open"] is True
     assert summary["bark_post_locations"] == 1
     assert summary["automatic_bark_retries"] == 0
+    assert summary["bark_receipt_workflows"] == [
+        ".github/workflows/devflow-incident.yml"
+    ]
+    assert summary["bark_receipt_artifact_uploads"] == 1
+    assert summary["bark_receipt_retention_days"] == 14
+    assert summary["bark_receipt_issue_index"] is True

@@ -192,9 +192,10 @@ jobs:
       needs.valuable-notification.outputs.should_push == 'true' &&
       github.run_attempt == 1
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     permissions:
       contents: read
+      issues: write
     environment:
       name: notification-runtime
       deployment: false
@@ -225,33 +226,147 @@ jobs:
         env:
           BARK_PUSH_URL: ${{ secrets.BARK_PUSH_URL }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
           set +x
-          if [[ -z "$BARK_PUSH_URL" ]]; then
-            echo "BARK_DELIVERY=SKIPPED_MISSING_CONFIGURATION" \
-              >> "$GITHUB_STEP_SUMMARY"
+          DELIVERY_STATUS="SKIPPED_MISSING_CONFIGURATION"
+          REQUEST_INITIATED="false"
+          REQUEST_ATTEMPTS="0"
+          CURL_EXIT_CODE="null"
+          HTTP_STATUS="null"
+
+          if [[ -n "${BARK_PUSH_URL:-}" ]]; then
+            echo "::add-mask::${BARK_PUSH_URL}"
+            REQUEST_INITIATED="true"
+            REQUEST_ATTEMPTS="1"
+            HTTP_STATUS_RAW="$(curl \
+              --silent \
+              --fail \
+              --retry 0 \
+              --proto '=https' \
+              --tlsv1.2 \
+              --connect-timeout 10 \
+              --max-time 20 \
+              --request POST \
+              --header 'Content-Type: application/json; charset=utf-8' \
+              --data-binary @/tmp/bark-message.json \
+              --output /dev/null \
+              --write-out '%{http_code}' \
+              "$BARK_PUSH_URL")"
+            CURL_RC=$?
+            CURL_EXIT_CODE="$CURL_RC"
+            if [[ "$HTTP_STATUS_RAW" =~ ^[1-5][0-9][0-9]$ ]]; then
+              HTTP_STATUS="$((10#$HTTP_STATUS_RAW))"
+            fi
+            if [[ "$CURL_RC" -eq 0 && "$HTTP_STATUS_RAW" =~ ^2[0-9][0-9]$ ]]; then
+              DELIVERY_STATUS="DELIVERED"
+            else
+              DELIVERY_STATUS="FAILED"
+            fi
+          fi
+
+          {
+            echo "delivery_status=${DELIVERY_STATUS}"
+            echo "request_initiated=${REQUEST_INITIATED}"
+            echo "request_attempts=${REQUEST_ATTEMPTS}"
+            echo "curl_exit_code=${CURL_EXIT_CODE}"
+            echo "http_status=${HTTP_STATUS}"
+          } >> "$GITHUB_OUTPUT"
+          echo "BARK_DELIVERY=${DELIVERY_STATUS}" >> "$GITHUB_STEP_SUMMARY"
+          echo "BARK_REQUEST_INITIATED=${REQUEST_INITIATED}" \
+            >> "$GITHUB_STEP_SUMMARY"
+          echo "BARK_REQUEST_ATTEMPTS=${REQUEST_ATTEMPTS}" \
+            >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$HTTP_STATUS" != "null" ]]; then
+            echo "BARK_HTTP_STATUS=${HTTP_STATUS}" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [[ "$DELIVERY_STATUS" == "FAILED" ]]; then
+            exit 1
+          fi
+
+      - name: Build the safe Bark delivery receipt
+        id: receipt
+        if: always()
+        continue-on-error: true
+        shell: bash
+        env:
+          DELIVERY_STATUS: ${{ steps.bark_delivery.outputs.delivery_status }}
+          REQUEST_INITIATED: ${{ steps.bark_delivery.outputs.request_initiated }}
+          REQUEST_ATTEMPTS: ${{ steps.bark_delivery.outputs.request_attempts }}
+          CURL_EXIT_CODE: ${{ steps.bark_delivery.outputs.curl_exit_code }}
+          HTTP_STATUS: ${{ steps.bark_delivery.outputs.http_status }}
+          ISSUE_NUMBER: ${{ needs.valuable-notification.outputs.issue_number }}
+        run: |
+          set -euo pipefail
+          COMPLETED_AT_UTC="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          python scripts/devflow/bark_delivery_result.py build \
+            --validated-notification /tmp/validated-notification.json \
+            --incident-run-id "${{ github.run_id }}" \
+            --incident-run-attempt "${{ github.run_attempt }}" \
+            --canonical-issue-number "$ISSUE_NUMBER" \
+            --delivery-status "${DELIVERY_STATUS:-FAILED}" \
+            --request-initiated "${REQUEST_INITIATED:-false}" \
+            --request-attempts "${REQUEST_ATTEMPTS:-0}" \
+            --curl-exit-code "${CURL_EXIT_CODE:-null}" \
+            --http-status "${HTTP_STATUS:-null}" \
+            --completed-at-utc "$COMPLETED_AT_UTC" \
+            --output /tmp/bark-delivery-result.json
+          python scripts/devflow/bark_delivery_result.py validate \
+            --input /tmp/bark-delivery-result.json
+
+      - name: Upload the safe Bark delivery receipt
+        id: upload_receipt
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: >-
+            bark-delivery-receipt-${{
+              needs.valuable-notification.outputs.task_id
+            }}-${{ github.run_id }}
+          path: /tmp/bark-delivery-result.json
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Record the Bark delivery receipt index in the canonical Issue
+        id: receipt_index
+        if: always() && steps.receipt.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ needs.valuable-notification.outputs.issue_number }}
+          UPLOAD_OUTCOME: ${{ steps.upload_receipt.outcome }}
+          ARTIFACT_ID: ${{ steps.upload_receipt.outputs.artifact-id }}
+          ARTIFACT_URL: ${{ steps.upload_receipt.outputs.artifact-url }}
+        run: |
+          set -euo pipefail
+          UPLOAD_STATUS="FAILED"
+          ARGS=(
+            --receipt /tmp/bark-delivery-result.json
+            --repository "${{ github.repository }}"
+            --output /tmp/bark-delivery-receipt-comment.md
+          )
+          if [[ "$UPLOAD_OUTCOME" == "success" ]]; then
+            UPLOAD_STATUS="UPLOADED"
+            ARGS+=(--artifact-id "$ARTIFACT_ID" --artifact-url "$ARTIFACT_URL")
+          fi
+          ARGS+=(--artifact-upload-status "$UPLOAD_STATUS")
+          python scripts/devflow/bark_delivery_receipt_comment.py "${ARGS[@]}"
+          RECEIPT_MARKER="$(tail -n 1 /tmp/bark-delivery-receipt-comment.md)"
+          if gh api --paginate \
+            "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments?per_page=100" \
+            --jq '.[].body' | grep -Fq -- "$RECEIPT_MARKER"; then
+            echo "BARK_RECEIPT_INDEX=ALREADY_RECORDED" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          echo "::add-mask::${BARK_PUSH_URL}"
-          HTTP_STATUS="$(curl \
-            --silent \
-            --fail \
-            --retry 0 \
-            --proto '=https' \
-            --tlsv1.2 \
-            --connect-timeout 10 \
-            --max-time 20 \
-            --request POST \
-            --header 'Content-Type: application/json; charset=utf-8' \
-            --data-binary @/tmp/bark-message.json \
-            --output /dev/null \
-            --write-out '%{http_code}' \
-            "$BARK_PUSH_URL")"
-          [[ "$HTTP_STATUS" =~ ^2[0-9][0-9]$ ]]
-          echo "BARK_DELIVERY=ACCEPTED_HTTP_${HTTP_STATUS}" \
+          gh issue comment "$ISSUE_NUMBER" --repo "${{ github.repository }}" \
+            --body-file /tmp/bark-delivery-receipt-comment.md
+          echo "BARK_RECEIPT_INDEX=RECORDED" >> "$GITHUB_STEP_SUMMARY"
+          echo "BARK_RECEIPT_ARTIFACT_UPLOAD=${UPLOAD_STATUS}" \
             >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Preserve the task result when Bark is unavailable
+      - name: Preserve the task result and summarize receipt observability
         if: always()
         shell: bash
         run: |
@@ -264,8 +379,29 @@ jobs:
             echo "BARK_DELIVERY_STEP=COMPLETED_OR_SAFELY_SKIPPED" \
               >> "$GITHUB_STEP_SUMMARY"
           fi
+          if [[ "${{ steps.receipt.outcome }}" == "success" ]]; then
+            echo "BARK_DELIVERY_RECEIPT=VALID" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "BARK_DELIVERY_RECEIPT=FAILED_FAIL_OPEN" \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [[ "${{ steps.upload_receipt.outcome }}" == "success" ]]; then
+            echo "BARK_RECEIPT_ARTIFACT=UPLOADED" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "BARK_RECEIPT_ARTIFACT=FAILED_FAIL_OPEN" \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [[ "${{ steps.receipt_index.outcome }}" == "success" ]]; then
+            echo "BARK_RECEIPT_ISSUE_INDEX=RECORDED_OR_DEDUPLICATED" \
+              >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "BARK_RECEIPT_ISSUE_INDEX=FAILED_FAIL_OPEN" \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
           echo "BARK_AUTOMATIC_RETRIES=0" >> "$GITHUB_STEP_SUMMARY"
           echo "BARK_REQUESTS_PER_LOGICAL_NOTIFICATION_MAX=1" \
             >> "$GITHUB_STEP_SUMMARY"
           echo "BARK_RESPONSE_BODY_STORED=0" >> "$GITHUB_STEP_SUMMARY"
+          echo "BARK_RESPONSE_HEADERS_STORED=0" >> "$GITHUB_STEP_SUMMARY"
           echo "BARK_ENDPOINT_DIAGNOSTICS_PRINTED=0" >> "$GITHUB_STEP_SUMMARY"
+          echo "BARK_SECRET_VALUE_STORED=0" >> "$GITHUB_STEP_SUMMARY"

@@ -24,7 +24,24 @@
       "github_rerun_resend": false,
       "run_attempt_must_equal": 1,
       "maximum_requests_per_notification": 1,
-      "failure_changes_task_state": false
+      "failure_changes_task_state": false,
+      "receipt": {
+        "enabled": true,
+        "builder": "scripts/devflow/bark_delivery_result.py",
+        "issue_comment_renderer": "scripts/devflow/bark_delivery_receipt_comment.py",
+        "artifact_name_prefix": "bark-delivery-receipt-",
+        "artifact_file": "/tmp/bark-delivery-result.json",
+        "retention_days": 14,
+        "maximum_files": 1,
+        "issue_index_enabled": true,
+        "artifact_upload_fail_open": true,
+        "issue_index_fail_open": true,
+        "response_body_stored": false,
+        "response_headers_stored": false,
+        "endpoint_stored": false,
+        "raw_error_stored": false,
+        "secret_value_stored": false
+      }
     }
   },
   "completion_producer": {
