@@ -70,7 +70,7 @@
       "status": "VERIFYING",
       "branch": "feature/devflow-terminal-notification-recovery-v1",
       "pull_request": 58,
-      "current_stage": "W04",
+      "current_stage": "W05",
       "state_path": "docs/implementation/devflow-terminal-notification-recovery-v1/task_state.yaml"
     }
   ]
