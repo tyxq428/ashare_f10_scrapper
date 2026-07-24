@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "state_revision": 1,
+  "state_revision": 2,
   "task_id": "devflow-bark-terminal-notification-v1",
   "title": "Devflow Bark terminal notification channel",
   "status": "RUNNING",
@@ -9,19 +9,23 @@
     "domain": "generic",
     "status": "PENDING",
     "reason_code": null,
-    "details_path": null
+    "details_path": "docs/implementation/devflow-bark-terminal-notification-v1/W01_result.md"
   },
   "security_status": "PENDING",
   "working_branch": "feature/devflow-bark-terminal-notification-v1",
   "pull_request": null,
   "base_sha_at_start": "379aac1ac439f1277e211984ef1acdfa2d5cdc07",
-  "last_product_commit_sha": "379aac1ac439f1277e211984ef1acdfa2d5cdc07",
+  "last_product_commit_sha": "621935cde6290030ac7943c874aae8ebd65d573c",
   "last_state_commit_sha": null,
-  "current_stage": "W00",
-  "last_completed_stage": null,
-  "last_successful_step": "task_contract_master_plan_and_W00_plan_created",
-  "next_action": "inventory_terminal_notification_producers_and_persist_event_contract",
+  "current_stage": "W02",
+  "last_completed_stage": "W01",
+  "last_successful_step": "deterministic_notification_validation_rendering_and_completion_scan_pass",
+  "next_action": "implement_generic_incident_and_single_attempt_bark_transport",
   "gate_results": {
+    "W00_TERMINAL_NOTIFICATION_INVENTORY": "PASS",
+    "W01_NOTIFICATION_EVENT_CORE": "PASS:7_TESTS",
+    "W01_PYTHON_COMPILE": "PASS",
+    "RAW_WORKFLOW_RUN_DIRECT_NOTIFICATIONS": "0",
     "CODEX_CALLS": "0",
     "RESPONSES_PAID_PROBES": "0",
     "RELAY_SECRET_READS": "0",
@@ -51,5 +55,5 @@
     "acknowledged": true,
     "control_issue_number": null
   },
-  "updated_at_utc": "2026-07-24T10:15:57Z"
+  "updated_at_utc": "2026-07-24T10:25:16Z"
 }
