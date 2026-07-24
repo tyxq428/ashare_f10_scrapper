@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "state_revision": 1,
+  "state_revision": 2,
   "task_id": "devflow-bark-delivery-receipt-v1",
   "title": "Devflow Bark delivery receipt artifact and live verification",
   "status": "RUNNING",
@@ -9,7 +9,7 @@
     "domain": "generic",
     "status": "PENDING",
     "reason_code": null,
-    "details_path": null
+    "details_path": "docs/implementation/devflow-bark-delivery-receipt-v1/W00_result.md"
   },
   "security_status": "PENDING",
   "working_branch": "feature/devflow-bark-delivery-receipt-v1",
@@ -17,11 +17,13 @@
   "base_sha_at_start": "20b9a866a8d7ed8d839ef86416ac22d876167cec",
   "last_product_commit_sha": "20b9a866a8d7ed8d839ef86416ac22d876167cec",
   "last_state_commit_sha": null,
-  "current_stage": "W00",
-  "last_completed_stage": null,
-  "last_successful_step": "task_contract_master_plan_and_W00_plan_created",
-  "next_action": "inventory_current_Bark_observability_and_persist_receipt_schema",
+  "current_stage": "W01",
+  "last_completed_stage": "W00",
+  "last_successful_step": "delivery_receipt_gap_and_schema_persisted",
+  "next_action": "implement_deterministic_bark_delivery_result_model_and_tests",
   "gate_results": {
+    "W00_OBSERVABILITY_INVENTORY": "PASS",
+    "CURRENT_DELIVERY_RECEIPT_ARTIFACTS": "0",
     "CODEX_CALLS": "0",
     "RESPONSES_PAID_PROBES": "0",
     "RELAY_SECRET_READS": "0",
@@ -53,5 +55,5 @@
     "acknowledged": true,
     "control_issue_number": null
   },
-  "updated_at_utc": "2026-07-24T12:12:15Z"
+  "updated_at_utc": "2026-07-24T12:15:00Z"
 }
