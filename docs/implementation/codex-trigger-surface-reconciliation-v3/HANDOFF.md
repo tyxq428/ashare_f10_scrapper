@@ -1,10 +1,23 @@
 # Handoff：Codex Trigger Surface Reconciliation v3
 
-## 当前状态
+## 最终状态
 
-W00 差异对账和 W01 GitHub Environment 平台配置确认均已完成。PR #52 已覆盖 lockdown-v2 的全部仓库代码与历史分支安全目标；没有需要重复实施的代码缺口。PR #53 已恢复到 W02 文档与合并收尾阶段。
+W00 差异对账、W01 GitHub Environment平台配置确认和 W02 合并收尾均已完成。任务已结束，不存在待恢复执行阶段。
 
-## 已确认的平台状态
+```yaml
+status: DONE
+execution_status: COMPLETED
+pull_request: 53
+merge_sha: 49f39ce2ff5eed1ac06be8dbd5de1cc3949530b7
+next_action: none
+codex_policy: disabled
+codex_calls: 0
+responses_paid_probes: 0
+relay_secret_reads: 0
+historical_codex_reruns: 0
+```
+
+## 最终平台状态
 
 ```yaml
 codex_task_platform_state: active
@@ -20,30 +33,21 @@ deployment_branches:
 secret_values_opened_or_modified: false
 ```
 
-## 不要执行
+## 已完成
 
-- 不运行 Codex Task；
-- 不运行 Relay Health；
-- 不运行 Secret Audit；
-- 不执行 Responses paid probe；
-- 不读取或修改 Environment Secrets；
-- 不重跑历史 Codex Workflow；
-- 不继续实施旧 lockdown-v2 的 W01–W08；
-- 不删除 eligibility-only `codex-task.yml`。
+- 旧 lockdown-v2 任务已在其分支标记为由 PR #52 替代；
+- PR #53 只包含差异对账和状态文档，没有实现代码；
+- `codex-task.yml` 保留为零模型、零 Secret的 eligibility-only入口；
+- Environment人工保护证据已记录；
+- PR head的 Test、真实 E2E 688521和 State Consistency均通过；
+- exact main上的 Codex Policy仍为 `disabled`；
+- `W02_result.md` 与 `FINAL_REPORT.md` 已完成。
 
-## 当前恢复入口
+## 后续约束
 
-```yaml
-branch: feature/codex-trigger-surface-reconciliation-v3
-pull_request: 53
-stage: W02
-next_action:
-  - wait_for_exact_pr_head_checks
-  - mark_pr_ready
-  - merge_pr_53
-  - record_exact_main_runs
-  - write_W02_result_and_FINAL_REPORT
-  - set_task_DONE
-```
-
-W02 只允许文档和 canonical state 收尾。任何模型、Relay、Responses 或历史 Workflow 重跑都不属于恢复步骤。
+- 不从 lockdown-v2 继续 W01–W08；
+- 不把常驻 `codex-task.yml` 改回模型执行器；
+- 不把 Relay Health纳入自动恢复；
+- 不通过历史 Workflow Re-run测试安全边界；
+- 未来真正模型调用必须使用新的受审一次性 Activation PR；
+- 若未来要求双人分离审批，再启用 `Prevent self-review`。
