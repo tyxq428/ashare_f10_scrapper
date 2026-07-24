@@ -1,14 +1,14 @@
 {
   "schema_version": 2,
-  "state_revision": 6,
+  "state_revision": 7,
   "task_id": "devflow-bark-terminal-notification-v1",
   "title": "Devflow Bark terminal notification channel",
-  "status": "WAITING_HUMAN",
-  "execution_status": "BLOCKED",
+  "status": "VERIFYING",
+  "execution_status": "RUNNING",
   "acceptance": {
     "domain": "generic",
     "status": "PENDING",
-    "reason_code": "PLATFORM_CONFIGURATION_REQUIRED",
+    "reason_code": null,
     "details_path": "docs/implementation/devflow-bark-terminal-notification-v1/W04_result.md"
   },
   "security_status": "PASS",
@@ -19,8 +19,8 @@
   "last_state_commit_sha": null,
   "current_stage": "W05",
   "last_completed_stage": "W04",
-  "last_successful_step": "final_exact_PR_head_deterministic_gates_pass",
-  "next_action": "configure_notification_runtime_and_BARK_PUSH_URL_in_GitHub_UI",
+  "last_successful_step": "notification_runtime_platform_configuration_confirmed_by_user",
+  "next_action": "mark_PR54_ready_and_verify_resumed_exact_head",
   "gate_results": {
     "W00_TERMINAL_NOTIFICATION_INVENTORY": "PASS",
     "W01_NOTIFICATION_EVENT_CORE": "PASS",
@@ -31,6 +31,12 @@
     "W04_TEST": "PASS:30088891203",
     "W04_STATE_CONSISTENCY": "PASS:30088891196",
     "W04_E2E_688521": "PASS:30088891241",
+    "W05_PLATFORM_CONFIGURATION": "PASS:USER_ATTESTATION",
+    "NOTIFICATION_RUNTIME_REQUIRED_REVIEWERS": "NONE",
+    "NOTIFICATION_RUNTIME_ADMIN_BYPASS": "DISABLED",
+    "NOTIFICATION_RUNTIME_DEPLOYMENT_BRANCHES": "MAIN_ONLY",
+    "BARK_PUSH_URL_CONFIGURED": "PASS:USER_ATTESTATION_NO_SECRET_READ",
+    "BARK_SECRET_VALUE_READS": "0",
     "RAW_WORKFLOW_RUN_DIRECT_NOTIFICATIONS": "0",
     "NOTIFICATION_RUNTIME_WORKFLOWS": "1:DEVFLOW_INCIDENT",
     "BARK_SECRET_WORKFLOWS": "1:DEVFLOW_INCIDENT",
@@ -53,10 +59,10 @@
     "replans": 2
   },
   "human_gate": {
-    "required": true,
-    "reason": "The current connector cannot create or verify notification-runtime Environment protection metadata or the presence of BARK_PUSH_URL without accessing platform configuration.",
-    "minimum_action": "In GitHub UI create or confirm notification-runtime with no Required Reviewer, administrator bypass disabled, main-only deployment branches, and add HTTPS BARK_PUSH_URL as an Environment Secret without sharing its value.",
-    "resume_from": "docs/implementation/devflow-bark-terminal-notification-v1/W05_plan.md"
+    "required": false,
+    "reason": null,
+    "minimum_action": null,
+    "resume_from": null
   },
   "post_merge": {
     "status": "PENDING",
@@ -64,10 +70,10 @@
     "verified_run_ids": []
   },
   "notification": {
-    "generation": 1,
-    "last_type": "HUMAN_REQUIRED",
-    "acknowledged": false,
+    "generation": 2,
+    "last_type": "RESUMED",
+    "acknowledged": true,
     "control_issue_number": null
   },
-  "updated_at_utc": "2026-07-24T11:16:53Z"
+  "updated_at_utc": "2026-07-24T11:36:55Z"
 }
