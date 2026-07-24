@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "state_revision": 3,
+  "state_revision": 4,
   "task_id": "devflow-bark-delivery-receipt-v1",
   "title": "Devflow Bark delivery receipt artifact and live verification",
   "status": "RUNNING",
@@ -9,27 +9,29 @@
     "domain": "generic",
     "status": "PENDING",
     "reason_code": null,
-    "details_path": "docs/implementation/devflow-bark-delivery-receipt-v1/W01_result.md"
+    "details_path": "docs/implementation/devflow-bark-delivery-receipt-v1/W02_result.md"
   },
   "security_status": "PENDING",
   "working_branch": "feature/devflow-bark-delivery-receipt-v1",
   "pull_request": 56,
   "base_sha_at_start": "20b9a866a8d7ed8d839ef86416ac22d876167cec",
-  "last_product_commit_sha": "ba3147ebe0b63912888368d3b147b1702aa5acd8",
+  "last_product_commit_sha": "48c526ed439c261a4ccd4accb2a21e08f8012ba9",
   "last_state_commit_sha": null,
-  "current_stage": "W02",
-  "last_completed_stage": "W01",
-  "last_successful_step": "deterministic_delivery_receipt_model_and_exact_head_gates_pass",
-  "next_action": "wire_receipt_artifact_and_issue_index_into_Devflow_Incident",
+  "current_stage": "W03",
+  "last_completed_stage": "W02",
+  "last_successful_step": "incident_receipt_artifact_and_issue_index_exact_head_gates_pass",
+  "next_action": "persist_notification_receipt_guards_manifest_validators_and_docs",
   "gate_results": {
     "W00_OBSERVABILITY_INVENTORY": "PASS",
     "W01_RECEIPT_MODEL": "PASS",
-    "W01_UPGRADE_COMPATIBILITY": "PASS:30092606655",
-    "W01_TEST": "PASS:30092606672",
-    "W01_STATE_CONSISTENCY": "PASS:30092606665",
-    "W01_E2E_688521": "PASS:30092606661",
-    "W01_VERIFIED_HEAD_SHA": "ba3147ebe0b63912888368d3b147b1702aa5acd8",
-    "PR_CREATED": "56",
+    "W02_INCIDENT_RECEIPT_INTEGRATION": "PASS",
+    "W02_UPGRADE_COMPATIBILITY": "PASS:30093003450",
+    "W02_TEST": "PASS:30093003437",
+    "W02_STATE_CONSISTENCY": "PASS:30093003436",
+    "W02_E2E_688521": "PASS:30093003398",
+    "W02_VERIFIED_HEAD_SHA": "48c526ed439c261a4ccd4accb2a21e08f8012ba9",
+    "DELIVERY_RECEIPT_ARTIFACT_FILES_MAX": "1",
+    "DELIVERY_RECEIPT_RETENTION_DAYS": "14",
     "CODEX_CALLS": "0",
     "RESPONSES_PAID_PROBES": "0",
     "RELAY_SECRET_READS": "0",
@@ -61,5 +63,5 @@
     "acknowledged": true,
     "control_issue_number": null
   },
-  "updated_at_utc": "2026-07-24T12:19:55Z"
+  "updated_at_utc": "2026-07-24T12:26:52Z"
 }
