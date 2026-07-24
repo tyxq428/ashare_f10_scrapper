@@ -37,10 +37,15 @@ def test_bark_transport_is_single_attempt_fail_open_and_secret_isolated() -> Non
     assert "continue-on-error: true" in text
     assert text.count("--request POST") == 1
     assert "--retry 0" in text
+    assert "--proto '=https'" in text
+    assert "--tlsv1.2" in text
+    assert "--show-error" not in text
     assert "--output /dev/null" in text
     assert "BARK_DELIVERY=FAILED_FAIL_OPEN" in text
     assert "BARK_AUTOMATIC_RETRIES=0" in text
     assert "BARK_REQUESTS_PER_LOGICAL_NOTIFICATION_MAX=1" in text
+    assert "BARK_RESPONSE_BODY_STORED=0" in text
+    assert "BARK_ENDPOINT_DIAGNOSTICS_PRINTED=0" in text
     assert "agent-runtime" not in text
     assert "secrets.AGENT_" not in text
     assert "openai/codex-action@" not in text
@@ -58,17 +63,20 @@ def test_auto_recovery_binds_terminal_events_without_retrying_bark() -> None:
     assert validate_auto_recovery(AUTO_RECOVERY) == []
 
 
-def test_completion_dispatch_waits_for_state_consistency_pass() -> None:
+def test_completion_dispatch_waits_for_state_consistency_and_fails_open() -> None:
     text = STATE_CONSISTENCY.read_text(encoding="utf-8")
     assert "notify-terminal-state:" in text
     assert "needs: consistency" in text
     assert "github.event_name == 'push' && github.ref_name == 'main'" in text
+    assert "continue-on-error: true" in text
     assert "contents: write" in text
     assert "ref: ${{ github.sha }}" in text
     assert "fetch-depth: 0" in text
     assert "terminal_notification_scan.py" in text
     assert "devflow_notify" in text
+    assert "TERMINAL_NOTIFICATION_FAILURE=FAIL_OPEN" in text
     assert "STATE_CONSISTENCY_REQUIRED_BEFORE_COMPLETION=YES" in text
+    assert "NOTIFICATION_FAILURE_AUTO_RECOVERY=0" in text
     assert "notification-runtime" not in text
     assert "BARK_PUSH_URL" not in text
     assert "--request POST" not in text
@@ -104,5 +112,6 @@ def test_notification_channel_manifest_matches_workflow_surface() -> None:
     assert summary["completion_producer"].endswith(
         "devflow-state-consistency.yml"
     )
+    assert summary["completion_delivery_fail_open"] is True
     assert summary["bark_post_locations"] == 1
     assert summary["automatic_bark_retries"] == 0
