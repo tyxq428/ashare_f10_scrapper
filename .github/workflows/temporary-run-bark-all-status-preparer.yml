@@ -75,6 +75,7 @@ jobs:
           output.write_text('\n'.join(program) + '\n', encoding='utf-8')
           PY
           python /tmp/prepare-bark-all-status-live-test.py
+          rm -f .github/workflows/temporary-run-bark-all-status-preparer.yml
 
           python -m compileall -q scripts/devflow
           python scripts/devflow/validate_notification_channels.py
