@@ -55,11 +55,18 @@ jobs:
           if start is None:
               raise SystemExit('PATCH_PROGRAM_START_NOT_FOUND')
           for index in range(start, len(source)):
-              if source[index] == '          PY':
+              if source[index] != '          PY':
+                  continue
+              next_nonempty = ''
+              for candidate in source[index + 1:]:
+                  if candidate.strip():
+                      next_nonempty = candidate
+                      break
+              if next_nonempty == '          python -m compileall -q scripts/devflow':
                   end = index
                   break
           if end is None:
-              raise SystemExit('PATCH_PROGRAM_END_NOT_FOUND')
+              raise SystemExit('PATCH_PROGRAM_OUTER_END_NOT_FOUND')
           program = []
           for line in source[start:end]:
               if line.startswith('          '):
