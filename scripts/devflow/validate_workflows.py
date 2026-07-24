@@ -14,6 +14,7 @@ WORKFLOW_TARGETS = (
     "devflow-auto-recovery.yml",
     "devflow-product-gate.yml",
     "devflow-state-consistency.yml",
+    "devflow-terminal-state-notify.yml",
     "devflow-relay-health.yml",
     "devflow-secret-audit.yml",
     "devflow-legacy-codex-rerun-audit.yml",
@@ -242,17 +243,8 @@ def _validate_state_consistency(path: Path, text: str, errors: list[str]) -> Non
             "validate_codex_entrypoints.py",
             "pytest -q",
             "tests/test_devflow",
-            "notify-terminal-state:",
-            "needs: consistency",
-            "github.event_name == 'push' && github.ref_name == 'main'",
-            "contents: write",
-            "ref: ${{ github.sha }}",
-            "fetch-depth: 0",
+            "contents: read",
             "persist-credentials: false",
-            "terminal_notification_scan.py",
-            "devflow_notify",
-            "STATE_CONSISTENCY_REQUIRED_BEFORE_COMPLETION=YES",
-            "BARK_REQUESTS_IN_THIS_WORKFLOW=0",
         ),
         errors,
     )
@@ -260,15 +252,61 @@ def _validate_state_consistency(path: Path, text: str, errors: list[str]) -> Non
         path,
         text,
         (
-            "environment: agent-runtime",
-            "secrets.AGENT_",
+            "notify-terminal-state:",
+            "terminal_notification_scan.py",
+            "devflow_notify",
+            "contents: write",
             "notification-runtime",
             "BARK_PUSH_URL",
             "openai/codex-action@",
             "--request POST",
         ),
         errors,
-        message="State Consistency completion producer must be secret-free",
+        message="State Consistency must not produce terminal notifications",
+    )
+
+
+def _validate_terminal_producer(path: Path, text: str, errors: list[str]) -> None:
+    _require_fragments(
+        path,
+        text,
+        (
+            "workflow_run:",
+            "      - Devflow State Consistency",
+            "github.event.workflow_run.conclusion == 'success'",
+            "github.event.workflow_run.event == 'push'",
+            "github.event.workflow_run.head_branch == 'main'",
+            "ref: ${{ github.event.workflow_run.head_sha }}",
+            "fetch-depth: 2",
+            "persist-credentials: false",
+            "git merge-base --is-ancestor",
+            'git rev-parse "${SOURCE_HEAD_SHA}^1"',
+            "terminal_notification_scan.py",
+            "devflow_notify",
+            "TERMINAL_NOTIFICATION_FAILURE=FAIL_OPEN",
+            "STATE_CONSISTENCY_SUCCESS_REQUIRED=YES",
+            "SOURCE_EVENT_REQUIRED=PUSH",
+            "SOURCE_BRANCH_REQUIRED=MAIN",
+            "RAW_WORKFLOW_FAILURE_NOTIFICATIONS=0",
+            "BARK_REQUESTS_IN_THIS_WORKFLOW=0",
+            "NOTIFICATION_FAILURE_AUTO_RECOVERY=0",
+        ),
+        errors,
+    )
+    _forbid(
+        path,
+        text,
+        (
+            "notification-runtime",
+            "BARK_PUSH_URL",
+            "agent-runtime",
+            "secrets.AGENT_",
+            "openai/codex-action@",
+            "--request POST",
+            "issues: write",
+        ),
+        errors,
+        message="terminal completion producer must remain bus-only and secret-free",
     )
 
 
@@ -353,12 +391,17 @@ def _validate_incident(path: Path, text: str, errors: list[str]) -> None:
             "devflow_notify",
             "notification_event.py prepare",
             "control_issue_number",
+            "devflow-task-completed:${TASK_ID}",
+            "devflow-task-completed:{value['task_id']}",
+            "TASK_COMPLETION=ALREADY_RECORDED",
             "name: notification-runtime",
             "${{ secrets.BARK_PUSH_URL }}",
             "github.run_attempt == 1",
             "continue-on-error: true",
             "--retry 0",
             "--output /dev/null",
+            "bark_delivery_result.py build",
+            "bark_delivery_receipt_comment.py",
             "BARK_DELIVERY=FAILED_FAIL_OPEN",
             "BARK_AUTOMATIC_RETRIES=0",
             "does **not** trigger repair",
@@ -428,6 +471,7 @@ def validate_file(path: Path) -> list[str]:
         "devflow-auto-recovery.yml": _validate_auto_recovery,
         "devflow-product-gate.yml": _validate_product_gate,
         "devflow-state-consistency.yml": _validate_state_consistency,
+        "devflow-terminal-state-notify.yml": _validate_terminal_producer,
         "devflow-relay-health.yml": _validate_relay_health,
         "devflow-secret-audit.yml": _validate_secret_audit,
         "devflow-legacy-codex-rerun-audit.yml": _validate_legacy_audit,
@@ -488,6 +532,9 @@ def main() -> int:
         ),
         "bark_post_locations": notification_summary.get(
             "bark_post_locations"
+        ),
+        "completion_producer": notification_summary.get(
+            "completion_producer"
         ),
         "errors": errors,
     }
