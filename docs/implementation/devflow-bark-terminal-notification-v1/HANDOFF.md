@@ -2,53 +2,60 @@
 
 ## 当前检查点
 
-- W00–W04已完成并有计划/结果文档；
-- Incident已泛化到任意登记任务，canonical Issue marker去重和单次Bark Transport已实现；
-- canonical完成事件只在State Consistency全部Gate PASS后产生；
-- 通知扫描、dispatch和Bark发送失败均为fail-open，不改变canonical任务结果，也不触发Auto Recovery；
-- 失败类终态由Auto Recovery集中分类，Product Gate和Post Merge不再重复通知；
-- 通知机器清单、永久Validator、策略和Runbook已完成；
-- 精确PR head `16bb730900412d05adf9e634b4526629975d0f4a` 的四个确定性Gate全部PASS；
-- Draft PR #54保持开放且未合并；
-- Codex Policy保持 `disabled`；
-- 未调用Codex、Responses、Relay或Bark；
-- 未读取或配置任何Secret。
+- W00–W04 已完成并有计划/结果文档；
+- Incident 已泛化到任意登记任务，canonical Issue marker 去重和单次 Bark Transport 已实现；
+- canonical 完成事件只在 State Consistency 全部 Gate PASS 后产生；
+- 通知扫描、dispatch 和 Bark 发送失败均为 fail-open，不改变 canonical 任务结果，也不触发 Auto Recovery；
+- 失败类终态由 Auto Recovery 集中分类，Product Gate 和 Post Merge 不再重复通知；
+- 通知机器清单、永久 Validator、策略和 Runbook 已完成；
+- 精确 PR head `16bb730900412d05adf9e634b4526629975d0f4a` 的四个确定性 Gate 全部 PASS；
+- 用户已完成 `notification-runtime` 平台配置并在 GitHub UI 添加 `BARK_PUSH_URL`；
+- Secret 值未被读取、显示、复制到聊天、仓库、PR、Issue、日志或 Artifact；
+- Draft PR #54 保持开放，等待恢复后的精确 head Gate；
+- Codex Policy 保持 `disabled`；
+- Codex、Responses、Relay、历史模型 Workflow 和真实 Bark调用仍为 0。
+
+## 已确认的平台状态
+
+```yaml
+notification_runtime:
+  required_reviewers: none
+  administrator_bypass: disabled
+  deployment_branches:
+    - main
+  BARK_PUSH_URL: configured_in_GitHub_UI
+  secret_value_read_or_displayed: false
+```
 
 ## 当前状态
 
 ```yaml
-status: WAITING_HUMAN
-execution_status: BLOCKED
+status: VERIFYING
+execution_status: RUNNING
 stage: W05
 last_completed_stage: W04
 pull_request: 54
-next_action: configure_notification_runtime_and_BARK_PUSH_URL_in_GitHub_UI
-resume_from: docs/implementation/devflow-bark-terminal-notification-v1/W05_plan.md
+next_action:
+  - mark_PR54_ready
+  - wait_for_resumed_exact_head_checks
+  - merge_PR54
+  - wait_for_exact_main_checks
+  - write_W05_result_and_FINAL_REPORT
+  - update_canonical_state_to_DONE
+  - observe_single_real_completion_Bark_delivery
 ```
-
-## 唯一人工动作
-
-在GitHub UI完成：
-
-1. 创建或确认Environment `notification-runtime`；
-2. 不设置Required Reviewer；
-3. 关闭可用的管理员绕过；
-4. Selected branches and tags仅允许 `main`；
-5. 添加Environment Secret `BARK_PUSH_URL`；
-6. Secret值使用Bark App复制的完整HTTPS推送URL；
-7. 不在聊天、PR、Issue、日志或截图中显示该值。
 
 ## 不要执行
 
-- 不监听所有 `workflow_run: completed`并直接通知；
-- 不把 `BARK_PUSH_URL`写入仓库、Issue、PR、Artifact、聊天或日志；
+- 不监听所有 `workflow_run: completed` 并直接通知；
+- 不读取、输出或复制 `BARK_PUSH_URL`；
 - 不复用 `agent-runtime`；
-- 不为通知失败触发Auto Recovery；
-- 不自动重试Bark；
-- 不在平台配置完成前发送真实Bark；
-- 不在平台配置完成前合并PR #54；
-- 不调用或测试Codex、Responses、Relay或历史模型Workflow。
+- 不为通知失败触发 Auto Recovery；
+- 不自动重试 Bark；
+- 不创建 synthetic 测试 Workflow；
+- 不通过 GitHub UI Re-run 补发 Bark；
+- 不调用或测试 Codex、Responses、Relay 或历史模型 Workflow。
 
-## 恢复后的真实验证
+## 真实验证
 
-不创建synthetic测试Workflow。本任务在合并和exact-main验证完成后更新为新的canonical DONE generation；随后State Consistency PASS触发唯一真实完成事件、canonical Issue和最多一条Bark。
+PR #54 合并和 exact-main Gate 完成后，任务将更新为新的 canonical DONE generation。随后 State Consistency PASS 触发唯一真实 `COMPLETED` 事件、canonical Issue 和最多一条 Bark。Bark HTTP 失败仍为 fail-open，不撤销 DONE。
