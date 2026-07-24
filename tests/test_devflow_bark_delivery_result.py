@@ -110,6 +110,21 @@ def test_missing_configuration_receipt_records_zero_requests() -> None:
     assert value["http_status"] is None
 
 
+
+
+def test_invalid_configuration_receipt_records_zero_requests() -> None:
+    value = _build(
+        delivery_status="SKIPPED_INVALID_CONFIGURATION",
+        request_initiated=False,
+        request_attempts=0,
+        curl_exit_code=None,
+        http_status=None,
+    )
+    assert value["delivery_status"] == "SKIPPED_INVALID_CONFIGURATION"
+    assert value["request_initiated"] is False
+    assert value["request_attempts"] == 0
+
+
 @pytest.mark.parametrize(
     "overrides",
     [

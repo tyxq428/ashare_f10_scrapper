@@ -10,6 +10,7 @@ INCIDENT = WORKFLOW_ROOT / "devflow-incident.yml"
 STATE_CONSISTENCY = WORKFLOW_ROOT / "devflow-state-consistency.yml"
 TERMINAL_PRODUCER = WORKFLOW_ROOT / "devflow-terminal-state-notify.yml"
 AUTO_RECOVERY = WORKFLOW_ROOT / "devflow-auto-recovery.yml"
+LIVE_RETEST = WORKFLOW_ROOT / "bark-all-status-live-retest-v2.yml"
 RECEIPT_BUILDER = Path("scripts/devflow/bark_delivery_result.py")
 RECEIPT_COMMENT = Path("scripts/devflow/bark_delivery_receipt_comment.py")
 UPLOAD_ARTIFACT_REF = (
@@ -92,6 +93,9 @@ def validate() -> dict[str, Any]:
         "run_attempt_must_equal": 1,
         "maximum_requests_per_notification": 1,
         "failure_changes_task_state": False,
+        "allowed_schemes": ["http", "https"],
+        "https_minimum_tls": "1.2",
+        "http_transport_is_unencrypted": True,
     }
     for key, expected in expected_bark.items():
         if bark.get(key) != expected:
@@ -145,6 +149,30 @@ def validate() -> dict[str, Any]:
             if producer.get(key) != expected:
                 errors.append(f"completion producer policy mismatch for {key}")
 
+
+    live_retest = manifest.get("one_time_live_retest")
+    expected_live_retest = {
+        "test_id": "bark-all-status-live-retest-v3-http-20260724",
+        "workflow": LIVE_RETEST.as_posix(),
+        "issue_number": 61,
+        "reservation_marker": (
+            "bark-all-status-live-retest-v3-http-reservation:20260724"
+        ),
+        "result_marker": "[BARK][ALL_STATUS_LIVE_RETEST_V3_HTTP]",
+        "statuses": expected_types,
+        "expected_requests": 4,
+        "allowed_schemes": ["http", "https"],
+        "run_attempt_must_equal": 1,
+        "automatic_retry": False,
+        "response_body_stored": False,
+        "response_headers_stored": False,
+        "endpoint_stored": False,
+        "raw_error_stored": False,
+        "secret_value_stored": False,
+    }
+    if live_retest != expected_live_retest:
+        errors.append("one-time Bark HTTP/HTTPS live-retest policy mismatch")
+
     workflow_text: dict[Path, str] = {}
     for path in sorted(WORKFLOW_ROOT.glob("*.yml")):
         workflow_text[path] = path.read_text(encoding="utf-8")
@@ -154,9 +182,14 @@ def validate() -> dict[str, Any]:
         for path, text in workflow_text.items()
         if "notification-runtime" in text
     ]
-    if environment_users != [INCIDENT.as_posix()]:
+    expected_environment_users = [
+        LIVE_RETEST.as_posix(),
+        INCIDENT.as_posix(),
+    ]
+    if environment_users != expected_environment_users:
         errors.append(
-            "notification-runtime must be referenced only by Devflow Incident: "
+            "notification-runtime may be referenced only by Incident and the "
+            "owner-approved HTTP/HTTPS live retest: "
             f"{environment_users}"
         )
 
@@ -165,9 +198,14 @@ def validate() -> dict[str, Any]:
         for path, text in workflow_text.items()
         if "${{ secrets.BARK_PUSH_URL }}" in text
     ]
-    if secret_users != [INCIDENT.as_posix()]:
+    expected_secret_users = [
+        LIVE_RETEST.as_posix(),
+        INCIDENT.as_posix(),
+    ]
+    if secret_users != expected_secret_users:
         errors.append(
-            "BARK_PUSH_URL must be referenced only by Devflow Incident: "
+            "BARK_PUSH_URL may be referenced only by Incident and the "
+            "owner-approved HTTP/HTTPS live retest: "
             f"{secret_users}"
         )
 
@@ -193,7 +231,7 @@ def validate() -> dict[str, Any]:
             f"{scanner_users}"
         )
 
-    for path in (INCIDENT, STATE_CONSISTENCY, TERMINAL_PRODUCER):
+    for path in (INCIDENT, STATE_CONSISTENCY, TERMINAL_PRODUCER, LIVE_RETEST):
         if not path.is_file():
             errors.append(f"missing notification workflow: {path}")
     for script in (RECEIPT_BUILDER, RECEIPT_COMMENT):
@@ -211,8 +249,12 @@ def validate() -> dict[str, Any]:
         "devflow-task-completed:{value['task_id']}",
         "TASK_COMPLETION=ALREADY_RECORDED",
         "--retry 0",
-        "--proto '=https'",
-        "--tlsv1.2",
+        "--proto '=http,https'",
+        'BARK_ENDPOINT="${BARK_ENDPOINT%/}"',
+        'BARK_ENDPOINT" != http://*',
+        'BARK_ENDPOINT" != https://*',
+        "CURL_PROTOCOL_ARGS+=(--tlsv1.2)",
+        "SKIPPED_INVALID_CONFIGURATION",
         "--output /dev/null",
         "bark_delivery_result.py build",
         "bark_delivery_result.py validate",
@@ -264,6 +306,58 @@ def validate() -> dict[str, Any]:
     ):
         if forbidden in incident_text:
             errors.append(f"Devflow Incident contains forbidden path: {forbidden}")
+
+
+    live_retest_text = workflow_text.get(LIVE_RETEST, "")
+    required_live_retest = (
+        "issues:",
+        "      - assigned",
+        "github.event.issue.number == 61",
+        "github.event.assignee.login == 'tyxq428'",
+        "github.run_attempt == 1",
+        "name: notification-runtime",
+        "${{ secrets.BARK_PUSH_URL }}",
+        "bark-all-status-live-retest-v3-http-reservation:20260724",
+        "[BARK][ALL_STATUS_LIVE_RETEST_V3_HTTP]",
+        "STATUSES=(COMPLETED INTERRUPTED HUMAN_REQUIRED SECURITY_BLOCKED)",
+        "render_bark_message",
+        "BARK_TITLE_MISSING_STATUS",
+        "--retry 0",
+        "--proto '=http,https'",
+        "VALID_HTTP",
+        "VALID_HTTPS",
+        "CURL_PROTOCOL_ARGS+=(--tlsv1.2)",
+        "--output /dev/null",
+        "EXPECTED_REAL_BARK_REQUESTS=4",
+        "BARK_ALL_STATUS_LIVE_RETEST_V3_HTTP=DELIVERED",
+        "gh issue comment 61",
+        UPLOAD_ARTIFACT_REF,
+        "bark-all-status-live-retest-v3-${{ github.run_id }}",
+        "retention-days: 14",
+        "compression-level: 0",
+    )
+    for fragment in required_live_retest:
+        if fragment not in live_retest_text:
+            errors.append(f"Bark HTTP/HTTPS live retest missing guard: {fragment}")
+    if live_retest_text.count("--request POST") != 1:
+        errors.append("Bark HTTP/HTTPS live retest must contain exactly one POST loop")
+    if live_retest_text.count("actions/upload-artifact@") != 1:
+        errors.append("Bark HTTP/HTTPS live retest must upload exactly one result Artifact")
+    for forbidden in (
+        "repository_dispatch:",
+        "workflow_run:",
+        "agent-runtime",
+        "secrets.AGENT_",
+        "openai/codex-action@",
+        "private_responses_forwarder.py",
+        "relay_health.py",
+        "--show-error",
+        "--proto '=https'",
+    ):
+        if forbidden in live_retest_text:
+            errors.append(
+                f"Bark HTTP/HTTPS live retest contains forbidden path: {forbidden}"
+            )
 
     comment_text = (
         RECEIPT_COMMENT.read_text(encoding="utf-8")
@@ -391,6 +485,8 @@ def validate() -> dict[str, Any]:
         "bark_receipt_issue_index": receipt.get("issue_index_enabled"),
         "raw_workflow_failure_notifications": 0 if not errors else None,
         "automatic_bark_retries": 0 if not errors else None,
+        "allowed_bark_schemes": bark.get("allowed_schemes"),
+        "one_time_live_retest": live_retest,
         "errors": errors,
     }
     return summary

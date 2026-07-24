@@ -17,6 +17,7 @@ ALLOWED_DELIVERY_STATUSES = {
     "DELIVERED",
     "FAILED",
     "SKIPPED_MISSING_CONFIGURATION",
+    "SKIPPED_INVALID_CONFIGURATION",
 }
 TASK_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{2,119}$")
 MARKER_RE = re.compile(r"^devflow-root:[A-Za-z0-9][A-Za-z0-9._:-]{7,159}:(?:COMPLETED|INTERRUPTED|HUMAN_REQUIRED|SECURITY_BLOCKED)$")
@@ -232,14 +233,17 @@ def validate_delivery_result(value: dict[str, Any]) -> dict[str, Any]:
             raise BarkDeliveryResultError(
                 "FAILED must contain a curl failure or non-2xx HTTP status"
             )
-    else:
+    elif delivery_status in {
+        "SKIPPED_MISSING_CONFIGURATION",
+        "SKIPPED_INVALID_CONFIGURATION",
+    }:
         if request_initiated or request_attempts != 0:
             raise BarkDeliveryResultError(
-                "SKIPPED_MISSING_CONFIGURATION requires zero requests"
+                f"{delivery_status} requires zero requests"
             )
         if curl_exit_code is not None or http_status is not None:
             raise BarkDeliveryResultError(
-                "SKIPPED_MISSING_CONFIGURATION cannot contain transport status"
+                f"{delivery_status} cannot contain transport status"
             )
 
     return {

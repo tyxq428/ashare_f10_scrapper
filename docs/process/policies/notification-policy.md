@@ -130,7 +130,10 @@ failure_changes_task_state: false
 
 - `notification-runtime` 与 `agent-runtime` 完全分离；
 - Bark完整推送URL只存放在Environment Secret，不得出现在仓库、Issue、PR、日志或Artifact；
-- 只有 `Devflow Incident` 可以引用该Environment和Secret；
+- 生产Bark Transport只允许显式 `http` 或 `https` scheme，其他scheme在请求前以 `SKIPPED_INVALID_CONFIGURATION` 拒绝；
+- HTTPS至少使用TLS 1.2；HTTP不提供传输加密，仅适用于用户明确接受该风险的自托管链路；
+- 基础URL可以有或没有末尾 `/`；Workflow会去除一个末尾 `/`，并直接向device-key基础URL发送JSON POST，不拼接消息路径；
+- 只有 `Devflow Incident` 可以引用该Environment和Secret；受审的一次性真实Transport测试可在独立Workflow中临时引用，测试后必须删除；
 - Bark Job从可信 `main` 重新验证payload并生成裁剪后的JSON；
 - 每条逻辑通知只有一个HTTP POST位置，响应正文不输出、不归档；
 - GitHub UI Re-run因 `run_attempt != 1`不能重新发送；
@@ -151,7 +154,7 @@ bark-delivery-receipt-<task-id>-<incident-run-id>
 - task ID、notification type和逻辑marker；
 - Incident Run ID/attempt与来源Run ID；
 - canonical Issue编号；
-- `DELIVERED / FAILED / SKIPPED_MISSING_CONFIGURATION`；
+- `DELIVERED / FAILED / SKIPPED_MISSING_CONFIGURATION / SKIPPED_INVALID_CONFIGURATION`；
 - request initiated、request attempts；
 - 数值型curl exit code和HTTP status；
 - 秒精度UTC时间；
@@ -178,6 +181,10 @@ FAILED:
   curl_or_http_failure: true
 
 SKIPPED_MISSING_CONFIGURATION:
+  request_initiated: false
+  request_attempts: 0
+
+SKIPPED_INVALID_CONFIGURATION:
   request_initiated: false
   request_attempts: 0
 ```

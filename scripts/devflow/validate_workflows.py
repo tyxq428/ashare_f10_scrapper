@@ -10,6 +10,7 @@ from validate_notification_channels import validate as validate_notification_cha
 ACTION_REF = re.compile(r"^\s*-?\s*uses:\s*([^\s#]+)", re.MULTILINE)
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 WORKFLOW_TARGETS = (
+    "bark-all-status-live-retest-v2.yml",
     "codex-task.yml",
     "devflow-auto-recovery.yml",
     "devflow-product-gate.yml",
@@ -399,6 +400,9 @@ def _validate_incident(path: Path, text: str, errors: list[str]) -> None:
             "github.run_attempt == 1",
             "continue-on-error: true",
             "--retry 0",
+            "--proto '=http,https'",
+            "CURL_PROTOCOL_ARGS+=(--tlsv1.2)",
+            "SKIPPED_INVALID_CONFIGURATION",
             "--output /dev/null",
             "bark_delivery_result.py build",
             "bark_delivery_receipt_comment.py",
@@ -424,6 +428,59 @@ def _validate_incident(path: Path, text: str, errors: list[str]) -> None:
     )
     if text.count("--request POST") != 1:
         errors.append(f"{path}: exactly one Bark POST location is allowed")
+
+
+
+
+def _validate_bark_http_live_retest(
+    path: Path,
+    text: str,
+    errors: list[str],
+) -> None:
+    _require_fragments(
+        path,
+        text,
+        (
+            "issues:",
+            "      - assigned",
+            "github.event.issue.number == 61",
+            "github.event.assignee.login == 'tyxq428'",
+            "github.run_attempt == 1",
+            "name: notification-runtime",
+            "${{ secrets.BARK_PUSH_URL }}",
+            "bark-all-status-live-retest-v3-http-reservation:20260724",
+            "[BARK][ALL_STATUS_LIVE_RETEST_V3_HTTP]",
+            "STATUSES=(COMPLETED INTERRUPTED HUMAN_REQUIRED SECURITY_BLOCKED)",
+            "--proto '=http,https'",
+            "VALID_HTTP",
+            "VALID_HTTPS",
+            "CURL_PROTOCOL_ARGS+=(--tlsv1.2)",
+            "--retry 0",
+            "--output /dev/null",
+            "EXPECTED_REAL_BARK_REQUESTS=4",
+            "BARK_ALL_STATUS_LIVE_RETEST_V3_HTTP=DELIVERED",
+        ),
+        errors,
+    )
+    _forbid(
+        path,
+        text,
+        (
+            "workflow_run:",
+            "repository_dispatch:",
+            "agent-runtime",
+            "secrets.AGENT_",
+            "openai/codex-action@",
+            "private_responses_forwarder.py",
+            "relay_health.py",
+            "--show-error",
+            "--proto '=https'",
+        ),
+        errors,
+        message="Bark HTTP/HTTPS live retest contains a forbidden path",
+    )
+    if text.count("--request POST") != 1:
+        errors.append(f"{path}: exactly one bounded POST loop is allowed")
 
 
 def _validate_post_merge(path: Path, text: str, errors: list[str]) -> None:
@@ -467,6 +524,7 @@ def validate_file(path: Path) -> list[str]:
     _check_action_pins(path, text, errors)
 
     validators = {
+        "bark-all-status-live-retest-v2.yml": _validate_bark_http_live_retest,
         "codex-task.yml": _validate_codex_task,
         "devflow-auto-recovery.yml": _validate_auto_recovery,
         "devflow-product-gate.yml": _validate_product_gate,
