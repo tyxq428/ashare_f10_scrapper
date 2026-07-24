@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "state_revision": 3,
+  "state_revision": 4,
   "task_id": "devflow-bark-terminal-notification-v1",
   "title": "Devflow Bark terminal notification channel",
   "status": "RUNNING",
@@ -13,14 +13,14 @@
   },
   "security_status": "PENDING",
   "working_branch": "feature/devflow-bark-terminal-notification-v1",
-  "pull_request": null,
+  "pull_request": 54,
   "base_sha_at_start": "379aac1ac439f1277e211984ef1acdfa2d5cdc07",
-  "last_product_commit_sha": "7fc977986087a5d1189da5b2147c4dae795ae02f",
+  "last_product_commit_sha": "43d31171f0fa6f82147d5c48af5d0a9004f1a249",
   "last_state_commit_sha": null,
   "current_stage": "W03",
   "last_completed_stage": "W02",
-  "last_successful_step": "generic_incident_issue_deduplication_and_single_attempt_bark_transport_pass",
-  "next_action": "wire_terminal_producers_and_add_permanent_notification_surface_guards",
+  "last_successful_step": "terminal_producers_notification_guards_and_PR54_created",
+  "next_action": "run_exact_PR_head_deterministic_gates_and_fix_failures",
   "gate_results": {
     "W00_TERMINAL_NOTIFICATION_INVENTORY": "PASS",
     "W01_NOTIFICATION_EVENT_CORE": "PASS:7_TESTS",
@@ -30,6 +30,7 @@
     "W02_LOCAL_TESTS": "PASS:10",
     "W02_YAML_PARSE": "PASS",
     "W02_BASH_SYNTAX": "PASS",
+    "PR_CREATED": "54",
     "RAW_WORKFLOW_RUN_DIRECT_NOTIFICATIONS": "0",
     "BARK_AUTOMATIC_RETRIES": "0",
     "CODEX_CALLS": "0",
@@ -61,5 +62,5 @@
     "acknowledged": true,
     "control_issue_number": null
   },
-  "updated_at_utc": "2026-07-24T10:31:11Z"
+  "updated_at_utc": "2026-07-24T10:39:18Z"
 }
