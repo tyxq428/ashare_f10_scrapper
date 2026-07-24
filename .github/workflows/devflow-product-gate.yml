@@ -49,10 +49,11 @@ jobs:
           import os
           import sys
           from pathlib import Path
+
           sys.path.insert(0, 'scripts/devflow')
           from task_descriptor import TaskDescriptor
 
-          raw = json.loads(Path('/tmp/devflow-task.yaml').read_text())
+          raw = json.loads(Path('/tmp/devflow-task.yaml').read_text(encoding='utf-8'))
           task = TaskDescriptor.from_mapping(raw)
           if task.task_id != os.environ['TASK_ID']:
               raise SystemExit('task_id payload mismatch')
@@ -68,8 +69,6 @@ jobs:
               'auto_merge': str(task.auto_merge).lower(),
               'notify_completion': str(task.notify_completion).lower(),
               'risk_class': task.risk_class,
-              'recovery_generation': task.recovery_generation,
-              'max_recovery_generations': task.max_recovery_generations,
           }
           for key, value in values.items():
               print(f'{key}={value}')
@@ -89,7 +88,8 @@ jobs:
           EXPECTED_BASE_SHA: ${{ steps.task.outputs.expected_base_sha }}
         run: |
           set -euo pipefail
-          git switch -C devflow-product-candidate "refs/remotes/origin/${PUBLISH_BRANCH}"
+          git switch -C devflow-product-candidate \
+            "refs/remotes/origin/${PUBLISH_BRANCH}"
           git merge-base --is-ancestor "$EXPECTED_BASE_SHA" HEAD
           MERGE_BASE="$(git merge-base origin/main HEAD)"
           [[ "$MERGE_BASE" =~ ^[0-9a-f]{40}$ ]]
@@ -123,52 +123,8 @@ jobs:
             "${{ steps.task.outputs.full_gate_profile }}" \
             --output /tmp/product-gate-result.json
 
-      - name: Dispatch one constrained Codex recovery generation
-        id: recovery
+      - name: Stop and route failed full gate to ChatGPT Web
         if: steps.full_gate.outcome != 'success'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SOURCE_RUN: ${{ github.run_id }}
-          PUBLISH_BRANCH: ${{ steps.task.outputs.publish_branch }}
-          RECOVERY_GENERATION: ${{ steps.task.outputs.recovery_generation }}
-          MAX_RECOVERY_GENERATIONS: ${{ steps.task.outputs.max_recovery_generations }}
-        run: |
-          set -euo pipefail
-          if (( RECOVERY_GENERATION >= MAX_RECOVERY_GENERATIONS )); then
-            echo "dispatched=false" >> "$GITHUB_OUTPUT"
-            echo "exhausted=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          MAIN_SHA="$(git rev-parse origin/main)"
-          python scripts/devflow/recovery_task.py \
-            --original-task /tmp/devflow-task.yaml \
-            --source-run-id "$SOURCE_RUN" \
-            --reason-code PRODUCT_FULL_GATE_FAILED \
-            --reason "The trusted full gate failed; repair only the approved files and preserve semantics." \
-            --expected-base-sha "$MAIN_SHA" \
-            --output /tmp/devflow-recovery-task.yaml
-          RECOVERY_TASK_ID="$(python -c 'import json; print(json.load(open("/tmp/devflow-recovery-task.yaml"))["task_id"])')"
-          RECOVERY_BRANCH="task/codex-${RECOVERY_TASK_ID}"
-          git switch -C "$RECOVERY_BRANCH" "refs/remotes/origin/${PUBLISH_BRANCH}"
-          mkdir -p .agent
-          cp /tmp/devflow-recovery-task.yaml .agent/current_task.yaml
-          git add .agent/current_task.yaml
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Create bounded product-gate recovery task ${RECOVERY_TASK_ID}"
-          git push origin "HEAD:refs/heads/${RECOVERY_BRANCH}"
-          gh api --method POST \
-            "repos/${{ github.repository }}/actions/workflows/codex-task.yml/dispatches" \
-            -f ref=main \
-            -f "inputs[task_branch]=${RECOVERY_BRANCH}"
-          echo "dispatched=true" >> "$GITHUB_OUTPUT"
-          echo "exhausted=false" >> "$GITHUB_OUTPUT"
-          echo "PRODUCT_GATE_RECOVERY=${RECOVERY_TASK_ID}" >> "$GITHUB_STEP_SUMMARY"
-          echo "No task-control notification was emitted." >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Notify only when product recovery budget is exhausted
-        if: steps.full_gate.outcome != 'success' && steps.recovery.outputs.dispatched != 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -177,33 +133,44 @@ jobs:
           python - <<'PY'
           import json
           from pathlib import Path
+
           payload = {
               'event_type': 'devflow_notify',
               'client_payload': {
                   'action': 'INTERRUPTED',
                   'notification_type': 'INTERRUPTED',
-                  'reason_code': 'PRODUCT_GATE_REPAIR_EXHAUSTED',
-                  'reason': 'The full product gate still fails after the approved Codex recovery budget.',
-                  'minimum_action': 'Review the bounded gate result and decide whether to widen scope or change the plan.',
-                  'fingerprint': 'product-gate-repair-exhausted-${{ steps.task.outputs.task_id }}',
+                  'reason_code': 'PRODUCT_GATE_WEB_REPAIR_REQUIRED',
+                  'reason': (
+                      'The deterministic full product gate failed. Automatic '
+                      'Codex recovery and failed-job model reruns are forbidden.'
+                  ),
+                  'minimum_action': (
+                      'Inspect the bounded gate result in ChatGPT Web, identify '
+                      'the real failing files, and repair deterministically.'
+                  ),
+                  'fingerprint': (
+                      'product-gate-web-repair-'
+                      '${{ steps.task.outputs.task_id }}'
+                  ),
                   'source_workflow': 'Devflow Product Gate',
                   'source_run_id': int('${{ github.run_id }}'),
                   'failure_steps': ['Run full product gate'],
               },
           }
-          Path('/tmp/devflow-notify.json').write_text(json.dumps(payload))
+          Path('/tmp/devflow-notify.json').write_text(
+              json.dumps(payload), encoding='utf-8'
+          )
           PY
-          gh api --method POST "repos/${{ github.repository }}/dispatches" \
+          gh api --method POST \
+            "repos/${{ github.repository }}/dispatches" \
             --input /tmp/devflow-notify.json
-          echo "PRODUCT_GATE=BLOCKED_AFTER_RECOVERY_BUDGET" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Stop this generation after recovery dispatch
-        if: steps.full_gate.outcome != 'success' && steps.recovery.outputs.dispatched == 'true'
-        run: |
-          echo "A bounded Codex recovery generation was dispatched; no user notification was emitted."
+          echo "PRODUCT_GATE=WEB_REPAIR_REQUIRED" >> "$GITHUB_STEP_SUMMARY"
+          exit 1
 
       - name: Notify when a task is not approved for automatic merge
-        if: steps.full_gate.outcome == 'success' && steps.task.outputs.auto_merge != 'true'
+        if: >-
+          steps.full_gate.outcome == 'success' &&
+          steps.task.outputs.auto_merge != 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -212,23 +179,35 @@ jobs:
           python - <<'PY'
           import json
           from pathlib import Path
+
           payload = {
               'event_type': 'devflow_notify',
               'client_payload': {
                   'action': 'HUMAN_REQUIRED',
                   'notification_type': 'HUMAN_REQUIRED',
                   'reason_code': 'AUTO_MERGE_NOT_APPROVED',
-                  'reason': 'All automatic gates passed, but this task descriptor does not authorize automatic merge.',
-                  'minimum_action': 'Review the candidate branch and approve or merge it.',
-                  'fingerprint': 'auto-merge-not-approved-${{ steps.task.outputs.task_id }}',
+                  'reason': (
+                      'All automatic gates passed, but this task descriptor '
+                      'does not authorize automatic merge.'
+                  ),
+                  'minimum_action': (
+                      'Review the candidate branch and approve or merge it.'
+                  ),
+                  'fingerprint': (
+                      'auto-merge-not-approved-'
+                      '${{ steps.task.outputs.task_id }}'
+                  ),
                   'source_workflow': 'Devflow Product Gate',
                   'source_run_id': int('${{ github.run_id }}'),
                   'failure_steps': [],
               },
           }
-          Path('/tmp/devflow-notify.json').write_text(json.dumps(payload))
+          Path('/tmp/devflow-notify.json').write_text(
+              json.dumps(payload), encoding='utf-8'
+          )
           PY
-          gh api --method POST "repos/${{ github.repository }}/dispatches" \
+          gh api --method POST \
+            "repos/${{ github.repository }}/dispatches" \
             --input /tmp/devflow-notify.json
 
       - name: Reconcile latest main, re-run gate if needed, and merge low-risk candidate
@@ -246,10 +225,12 @@ jobs:
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch --no-tags origin main
           CURRENT_MAIN="$(git rev-parse origin/main)"
-          git switch -C devflow-product-candidate "refs/remotes/origin/${PUBLISH_BRANCH}"
+          git switch -C devflow-product-candidate \
+            "refs/remotes/origin/${PUBLISH_BRANCH}"
           if [[ "$CURRENT_MAIN" != "$EXPECTED_BASE_SHA" ]]; then
             git rebase origin/main
             python scripts/devflow/verify_changed_paths.py \
@@ -286,6 +267,7 @@ jobs:
           python - <<'PY'
           import json
           from pathlib import Path
+
           payload = {
               'event_type': 'devflow_post_merge',
               'client_payload': {
@@ -293,14 +275,19 @@ jobs:
                   'task_branch': '${{ github.event.client_payload.task_branch }}',
                   'publish_branch': '${{ steps.task.outputs.publish_branch }}',
                   'merge_sha': '${{ steps.merge.outputs.merge_sha }}',
-                  'post_merge_profile': '${{ steps.task.outputs.post_merge_profile }}',
+                  'post_merge_profile': (
+                      '${{ steps.task.outputs.post_merge_profile }}'
+                  ),
                   'product_gate_run_id': int('${{ github.run_id }}'),
-                  'notify_completion': '${{ steps.task.outputs.notify_completion }}',
-                  'recovery_generation': int('${{ steps.task.outputs.recovery_generation }}'),
-                  'max_recovery_generations': int('${{ steps.task.outputs.max_recovery_generations }}'),
+                  'notify_completion': (
+                      '${{ steps.task.outputs.notify_completion }}'
+                  ),
               },
           }
-          Path('/tmp/devflow-post-merge.json').write_text(json.dumps(payload))
+          Path('/tmp/devflow-post-merge.json').write_text(
+              json.dumps(payload), encoding='utf-8'
+          )
           PY
-          gh api --method POST "repos/${{ github.repository }}/dispatches" \
+          gh api --method POST \
+            "repos/${{ github.repository }}/dispatches" \
             --input /tmp/devflow-post-merge.json
