@@ -49,8 +49,8 @@
     {
       "task_id": "devflow-bark-terminal-notification-v1",
       "title": "Devflow Bark terminal notification channel",
-      "status": "VERIFYING",
-      "branch": "feature/devflow-bark-terminal-notification-v1",
+      "status": "DONE",
+      "branch": "main",
       "pull_request": 54,
       "current_stage": "W05",
       "state_path": "docs/implementation/devflow-bark-terminal-notification-v1/task_state.yaml"
