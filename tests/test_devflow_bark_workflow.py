@@ -139,3 +139,9 @@ def test_notification_channel_manifest_matches_workflow_surface() -> None:
     assert summary["completion_delivery_fail_open"] is True
     assert summary["bark_post_locations"] == 1
     assert summary["automatic_bark_retries"] == 0
+    assert summary["bark_receipt_workflows"] == [
+        ".github/workflows/devflow-incident.yml"
+    ]
+    assert summary["bark_receipt_artifact_uploads"] == 1
+    assert summary["bark_receipt_retention_days"] == 14
+    assert summary["bark_receipt_issue_index"] is True
