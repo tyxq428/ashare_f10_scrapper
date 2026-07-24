@@ -49,6 +49,7 @@ jobs:
           MODE: ${{ inputs.mode }}
           CONFIRM: ${{ inputs.confirm_paid_probe }}
           PURPOSE: ${{ inputs.purpose }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           set -euo pipefail
           case "$MODE" in
@@ -58,11 +59,13 @@ jobs:
                 >> "$GITHUB_STEP_SUMMARY"
               ;;
             paid_responses_probe)
+              test "$RUN_ATTEMPT" = "1"
               test "$CONFIRM" = "I_ACCEPT_ONE_PAID_RESPONSES_PROBE"
               test -n "${PURPOSE// }"
               echo "RELAY_HEALTH_MODE=ONE_EXPLICIT_PAID_REQUEST" \
                 >> "$GITHUB_STEP_SUMMARY"
               echo "PAID_PROBE_PURPOSE_RECORDED=YES" >> "$GITHUB_STEP_SUMMARY"
+              echo "PAID_PROBE_RUN_ATTEMPT=1" >> "$GITHUB_STEP_SUMMARY"
               ;;
             *)
               echo "UNSUPPORTED_RELAY_HEALTH_MODE"
@@ -70,6 +73,8 @@ jobs:
               ;;
           esac
           echo "This workflow is never automatically retried." \
+            >> "$GITHUB_STEP_SUMMARY"
+          echo "A GitHub UI rerun of paid mode is blocked before the request." \
             >> "$GITHUB_STEP_SUMMARY"
 
       - name: Register private value masks
@@ -119,7 +124,7 @@ jobs:
           echo "RESPONSES_REQUESTS_SENT=0" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Run one explicitly approved paid streaming Responses probe
-        if: inputs.mode == 'paid_responses_probe'
+        if: inputs.mode == 'paid_responses_probe' && github.run_attempt == 1
         env:
           AGENT_RESPONSES_ENDPOINT: ${{ secrets.AGENT_RESPONSES_ENDPOINT }}
           AGENT_API_KEY: ${{ secrets.AGENT_API_KEY }}
