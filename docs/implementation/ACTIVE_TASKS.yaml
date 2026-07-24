@@ -40,10 +40,10 @@
     {
       "task_id": "codex-trigger-surface-reconciliation-v3",
       "title": "Codex trigger-surface reconciliation and Environment protection confirmation",
-      "status": "WAITING_HUMAN",
+      "status": "VERIFYING",
       "branch": "feature/codex-trigger-surface-reconciliation-v3",
       "pull_request": 53,
-      "current_stage": "W01",
+      "current_stage": "W02",
       "state_path": "docs/implementation/codex-trigger-surface-reconciliation-v3/task_state.yaml"
     }
   ]
