@@ -18,6 +18,7 @@ PRODUCT_GATE = ROOT / ".github/workflows/devflow-product-gate.yml"
 POST_MERGE = ROOT / ".github/workflows/devflow-post-merge.yml"
 STATE_CONSISTENCY = ROOT / ".github/workflows/devflow-state-consistency.yml"
 OBSOLETE_TERMINAL = ROOT / ".github/workflows/devflow-terminal-state-notify.yml"
+RECEIPT_COMMENT = DEVFLOW / "bark_delivery_receipt_comment.py"
 
 
 def test_incident_uses_task_level_dispatch_not_raw_workflow_completion() -> None:
@@ -55,6 +56,7 @@ def test_bark_transport_is_single_attempt_fail_open_and_secret_isolated() -> Non
 
 def test_bark_receipt_artifact_and_issue_index_are_bounded_and_fail_open() -> None:
     text = INCIDENT.read_text(encoding="utf-8")
+    comment_script = RECEIPT_COMMENT.read_text(encoding="utf-8")
     assert "bark_delivery_result.py build" in text
     assert "bark_delivery_result.py validate" in text
     assert "bark_delivery_receipt_comment.py" in text
@@ -69,7 +71,7 @@ def test_bark_receipt_artifact_and_issue_index_are_bounded_and_fail_open() -> No
     assert "BARK_RECEIPT_ARTIFACT=FAILED_FAIL_OPEN" in text
     assert "BARK_RECEIPT_ISSUE_INDEX=RECORDED_OR_DEDUPLICATED" in text
     assert "BARK_RECEIPT_ISSUE_INDEX=FAILED_FAIL_OPEN" in text
-    assert "devflow-bark-delivery-receipt:" in text
+    assert "devflow-bark-delivery-receipt:" in comment_script
     assert "issues: write" in text
 
 
