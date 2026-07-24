@@ -1,8 +1,8 @@
 name: One-Shot Canonical Completion Recovery
 
-# The first commit installs this branch-local workflow; this second immutable
-# change is the intentional one-shot trigger. Incident task markers make any
-# delayed duplicate dispatch safe and unable to send a second Bark request.
+# This branch-local workflow validates an immutable canonical completion before
+# dispatch. The branch filter, exact-main SHA, run-attempt guard and Incident
+# task markers make the connector actor safe without relying on actor naming.
 on:
   push:
     branches:
@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   dispatch-canonical-completion:
-    if: github.actor == 'tyxq428' && github.run_attempt == 1
+    if: github.run_attempt == 1
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
