@@ -1,29 +1,40 @@
 {
   "schema_version": 2,
-  "state_revision": 1,
+  "state_revision": 2,
   "task_id": "devflow-terminal-notification-recovery-v1",
   "title": "Reliable terminal completion producer and Bark live verification",
-  "status": "RUNNING",
+  "status": "VERIFYING",
   "execution_status": "RUNNING",
   "acceptance": {
     "domain": "generic",
     "status": "PENDING",
     "reason_code": null,
-    "details_path": null
+    "details_path": "docs/implementation/devflow-terminal-notification-recovery-v1/W03_result.md"
   },
-  "security_status": "PENDING",
+  "security_status": "PASS",
   "working_branch": "feature/devflow-terminal-notification-recovery-v1",
-  "pull_request": null,
+  "pull_request": 58,
   "base_sha_at_start": "5afbb17a574bb850e93d6134719b621e3fdfd10c",
-  "last_product_commit_sha": "5afbb17a574bb850e93d6134719b621e3fdfd10c",
+  "last_product_commit_sha": "6f068f4d5b368b70faf5dfc12bc69c9f4f0aae69",
   "last_state_commit_sha": null,
-  "current_stage": "W00",
-  "last_completed_stage": null,
-  "last_successful_step": "task_contract_and_recovery_design_persisted",
-  "next_action": "confirm_missing_completion_event_and_implement_independent_success_producer",
+  "current_stage": "W04",
+  "last_completed_stage": "W03",
+  "last_successful_step": "independent_producer_stable_marker_guards_and_docs_pass",
+  "next_action": "run_exact_PR_head_gates_and_prepare_W05_merge_state",
   "gate_results": {
     "PREVIOUS_TASK_CANONICAL_DONE": "PASS",
     "PREVIOUS_TASK_CONTROL_ISSUE": "ABSENT",
+    "W00_RECOVERY_DESIGN": "PASS",
+    "W01_INDEPENDENT_PRODUCER": "PASS",
+    "W02_STABLE_COMPLETION_DEDUP": "PASS",
+    "W03_MANIFEST_VALIDATORS_DOCS": "PASS",
+    "W03_UPGRADE_COMPATIBILITY": "PASS:30096468658",
+    "W03_TEST": "PASS:30096468735",
+    "W03_STATE_CONSISTENCY": "PASS:30096468742",
+    "W03_E2E_688521": "PASS:30096468719",
+    "W03_VERIFIED_HEAD_SHA": "6f068f4d5b368b70faf5dfc12bc69c9f4f0aae69",
+    "COMPLETION_PRODUCER_WORKFLOWS": "1",
+    "STABLE_COMPLETION_MARKER": "ENABLED",
     "CODEX_CALLS": "0",
     "RESPONSES_PAID_PROBES": "0",
     "RELAY_SECRET_READS": "0",
@@ -55,5 +66,5 @@
     "acknowledged": true,
     "control_issue_number": null
   },
-  "updated_at_utc": "2026-07-24T13:12:00Z"
+  "updated_at_utc": "2026-07-24T13:25:00Z"
 }
