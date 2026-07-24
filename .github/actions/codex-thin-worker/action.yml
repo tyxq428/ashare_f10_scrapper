@@ -1,39 +1,34 @@
 name: Codex Thin Worker
-
-description: >-
-  Emergency circuit breaker: do not invoke the model until the recovery
-  classification and immutable failure-context handoff are repaired.
+description: Repository-wide disabled-mode circuit breaker; never invokes a model while the policy is frozen.
 
 inputs:
   api-key:
-    description: Private API key supplied by the secret-bearing caller job.
+    description: Unused while the repository Codex policy is disabled.
     required: true
   model:
-    description: Private model identifier supplied by the secret-bearing caller job.
+    description: Unused while the repository Codex policy is disabled.
     required: true
   prompt-file:
-    description: Repository-relative trusted task descriptor.
+    description: Trusted task descriptor retained only for a safe blocked result.
     required: true
 
 outputs:
   final-message:
-    description: Structured blocked result while the circuit breaker is open.
-    value: ${{ steps.circuit-breaker.outputs.final-message }}
+    description: Structured BLOCKED result emitted before any model invocation.
+    value: ${{ steps.policy.outputs.final-message }}
 
 runs:
   using: composite
   steps:
-    - id: circuit-breaker
+    - id: policy
       name: Stop before Codex model invocation
       shell: bash
       run: |
         set -euo pipefail
-        delimiter="CODEX_RESULT_$(date +%s)_${RANDOM}"
+        delimiter="CODEX_POLICY_RESULT_${RANDOM}_${RANDOM}"
         {
           echo "final-message<<${delimiter}"
-          cat <<'JSON'
-        {"status":"BLOCKED","changed_files":[],"commands_run":[],"tests_passed":false,"summary":"Codex execution is temporarily disabled by the repository circuit breaker.","blocking_reason":"CODEX_CIRCUIT_BREAKER_OPEN_PENDING_RECOVERY_ROOT_CAUSE_FIX"}
-        JSON
+          echo '{"status":"BLOCKED","changed_files":[],"commands_run":[],"tests_passed":false,"summary":"Codex is disabled by repository policy.","blocking_reason":"CODEX_POLICY_DISABLED"}'
           echo "${delimiter}"
         } >> "$GITHUB_OUTPUT"
         echo "CODEX_MODEL_INVOCATION=DISABLED" >> "$GITHUB_STEP_SUMMARY"
