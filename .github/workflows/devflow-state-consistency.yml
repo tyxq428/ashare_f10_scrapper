@@ -121,6 +121,7 @@ jobs:
     if: github.event_name == 'push' && github.ref_name == 'main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    continue-on-error: true
     permissions:
       contents: write
     steps:
@@ -131,6 +132,8 @@ jobs:
           persist-credentials: false
 
       - name: Scan only new canonical completed generations
+        id: scan
+        continue-on-error: true
         shell: bash
         env:
           BEFORE_SHA: ${{ github.event.before }}
@@ -146,6 +149,9 @@ jobs:
             --output /tmp/devflow-terminal-events.json
 
       - name: Dispatch each first canonical completion through the notification bus
+        id: dispatch
+        if: steps.scan.outcome == 'success'
+        continue-on-error: true
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -181,7 +187,24 @@ jobs:
           done
           echo "TERMINAL_NOTIFICATION_DISPATCHES=${#PAYLOADS[@]}" \
             >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Preserve the validated task result when notification delivery fails
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ steps.scan.outcome }}" == "failure" || \
+                "${{ steps.dispatch.outcome }}" == "failure" ]]; then
+            echo "TERMINAL_NOTIFICATION_FAILURE=FAIL_OPEN" \
+              >> "$GITHUB_STEP_SUMMARY"
+            echo "Canonical state and State Consistency remain authoritative." \
+              >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "TERMINAL_NOTIFICATION_PIPELINE=COMPLETED_OR_SAFELY_SKIPPED" \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
           echo "STATE_CONSISTENCY_REQUIRED_BEFORE_COMPLETION=YES" \
             >> "$GITHUB_STEP_SUMMARY"
           echo "RAW_WORKFLOW_RUN_NOTIFICATIONS=0" >> "$GITHUB_STEP_SUMMARY"
           echo "BARK_REQUESTS_IN_THIS_WORKFLOW=0" >> "$GITHUB_STEP_SUMMARY"
+          echo "NOTIFICATION_FAILURE_AUTO_RECOVERY=0" >> "$GITHUB_STEP_SUMMARY"
