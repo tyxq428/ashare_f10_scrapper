@@ -21,7 +21,12 @@ from terminal_notification_scan import scan_terminal_completions  # noqa: E402
 REPOSITORY = "tyxq428/ashare_f10_scrapper"
 
 
-def _state(*, status: str = "RUNNING", generation: int = 0, acknowledged: bool = True) -> dict[str, object]:
+def _state(
+    *,
+    status: str = "RUNNING",
+    generation: int = 0,
+    acknowledged: bool = True,
+) -> dict[str, object]:
     done = status == "DONE"
     return {
         "schema_version": 2,
@@ -75,7 +80,9 @@ def _write_repo(repo: Path, states: list[dict[str, object]]) -> None:
         task_id = str(state["task_id"])
         task_dir = repo / "docs/implementation" / task_id
         task_dir.mkdir(parents=True, exist_ok=True)
-        (task_dir / "task_state.yaml").write_text(json.dumps(state), encoding="utf-8")
+        (task_dir / "task_state.yaml").write_text(
+            json.dumps(state), encoding="utf-8"
+        )
         tasks.append(
             {
                 "task_id": task_id,
@@ -103,7 +110,7 @@ def _completed_payload() -> dict[str, object]:
         "reason": "All deterministic gates passed.",
         "minimum_action": "No action is required.",
         "fingerprint": "task-completed:sample-task:g1",
-        "source_workflow": "Devflow Terminal State Notification",
+        "source_workflow": "Devflow State Consistency",
         "source_run_id": 123,
         "failure_steps": [],
     }
@@ -130,11 +137,18 @@ def test_missing_task_id_fails_when_multiple_tasks_are_active(tmp_path: Path) ->
 def test_completed_event_requires_strict_done_state(tmp_path: Path) -> None:
     _write_repo(tmp_path, [_state()])
     with pytest.raises(NotificationValidationError, match="canonical DONE"):
-        validate_notification(repo=tmp_path, repository=REPOSITORY, payload=_completed_payload())
+        validate_notification(
+            repo=tmp_path,
+            repository=REPOSITORY,
+            payload=_completed_payload(),
+        )
 
 
 def test_completed_event_and_bark_rendering(tmp_path: Path) -> None:
-    _write_repo(tmp_path, [_state(status="DONE", generation=1, acknowledged=False)])
+    _write_repo(
+        tmp_path,
+        [_state(status="DONE", generation=1, acknowledged=False)],
+    )
     validated = validate_notification(
         repo=tmp_path,
         repository=REPOSITORY,
@@ -142,7 +156,10 @@ def test_completed_event_and_bark_rendering(tmp_path: Path) -> None:
     )
     bark = render_bark_message(validated, repository=REPOSITORY)
     assert validated["control_issue_number"] == 7
-    assert validated["marker"] == "devflow-root:task-completed:sample-task:g1:COMPLETED"
+    assert (
+        validated["marker"]
+        == "devflow-root:task-completed:sample-task:g1:COMPLETED"
+    )
     assert bark["level"] == "active"
     assert bark["group"] == "ashare-f10-scrapper-devflow"
     assert bark["url"].endswith("/pull/99")
@@ -150,10 +167,63 @@ def test_completed_event_and_bark_rendering(tmp_path: Path) -> None:
 
 
 def test_target_url_must_stay_inside_repository(tmp_path: Path) -> None:
-    _write_repo(tmp_path, [_state(status="DONE", generation=1, acknowledged=False)])
+    _write_repo(
+        tmp_path,
+        [_state(status="DONE", generation=1, acknowledged=False)],
+    )
     payload = _completed_payload()
     payload["target_url"] = "https://example.com/secret"
     with pytest.raises(NotificationValidationError, match="github.com"):
+        validate_notification(repo=tmp_path, repository=REPOSITORY, payload=payload)
+
+
+def test_completed_event_rejects_forged_generation_fingerprint(
+    tmp_path: Path,
+) -> None:
+    _write_repo(
+        tmp_path,
+        [_state(status="DONE", generation=1, acknowledged=False)],
+    )
+    payload = _completed_payload()
+    payload["fingerprint"] = "task-completed:sample-task:g999"
+    with pytest.raises(NotificationValidationError, match="canonical generation"):
+        validate_notification(repo=tmp_path, repository=REPOSITORY, payload=payload)
+
+
+def test_completed_event_requires_unacknowledged_generation(
+    tmp_path: Path,
+) -> None:
+    _write_repo(
+        tmp_path,
+        [_state(status="DONE", generation=1, acknowledged=True)],
+    )
+    with pytest.raises(NotificationValidationError, match="unacknowledged"):
+        validate_notification(
+            repo=tmp_path,
+            repository=REPOSITORY,
+            payload=_completed_payload(),
+        )
+
+
+def test_non_completion_event_is_rejected_after_task_done(
+    tmp_path: Path,
+) -> None:
+    _write_repo(
+        tmp_path,
+        [_state(status="DONE", generation=1, acknowledged=False)],
+    )
+    payload = _completed_payload()
+    payload.update(
+        {
+            "action": "INTERRUPTED",
+            "notification_type": "INTERRUPTED",
+            "reason_code": "POST_MERGE_WEB_REPAIR_REQUIRED",
+            "fingerprint": "post-merge-web-repair-sample-task",
+            "source_workflow": "Devflow Auto Recovery",
+            "failure_steps": ["Run exact-main regression profile"],
+        }
+    )
+    with pytest.raises(NotificationValidationError, match="DONE task"):
         validate_notification(repo=tmp_path, repository=REPOSITORY, payload=payload)
 
 
@@ -193,10 +263,13 @@ def test_terminal_scan_emits_one_new_done_generation(tmp_path: Path) -> None:
     assert len(events) == 1
     assert events[0]["task_id"] == "sample-task"
     assert events[0]["notification_type"] == "COMPLETED"
+    assert events[0]["source_workflow"] == "Devflow State Consistency"
     assert events[0]["source_run_id"] == 555
 
 
-def test_terminal_scan_is_silent_for_acknowledged_completion(tmp_path: Path) -> None:
+def test_terminal_scan_is_silent_for_acknowledged_completion(
+    tmp_path: Path,
+) -> None:
     _git(tmp_path, "init")
     _git(tmp_path, "config", "user.email", "test@example.com")
     _git(tmp_path, "config", "user.name", "Test")
@@ -206,10 +279,13 @@ def test_terminal_scan_is_silent_for_acknowledged_completion(tmp_path: Path) -> 
         _state(status="DONE", generation=1, acknowledged=True),
         "done acknowledged",
     )
-    assert scan_terminal_completions(
-        repo=tmp_path,
-        before=before,
-        after=after,
-        repository=REPOSITORY,
-        source_run_id=556,
-    ) == []
+    assert (
+        scan_terminal_completions(
+            repo=tmp_path,
+            before=before,
+            after=after,
+            repository=REPOSITORY,
+            source_run_id=556,
+        )
+        == []
+    )
