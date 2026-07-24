@@ -26,16 +26,23 @@
 - Bark、回执生成、Artifact 上传或回执评论失败均不改变 canonical task state；
 - 不把响应正文、响应头、Endpoint 或 Secret 放入任何输出。
 
-## W03｜永久守卫、文档与 PR Gate
+## W03｜永久守卫与文档
 
 - 扩展 `.devflow/notification-channels.yaml`；
 - 扩展 `validate_notification_channels.py` 和 `validate_workflows.py`；
 - 扩展静态 Workflow 测试；
 - 更新通知 Policy 和 Incident Runbook；
-- 创建实现 PR；
-- 运行 Upgrade Compatibility、Test、State Consistency 和真实 688521 E2E。
+- 固化 Artifact 名称、单文件范围、14天保留期和Issue索引语义。
 
-## W04｜实现合并、原子 closeout 与真实 Bark 验证
+## W04｜精确 PR Head 验证与合并准备
+
+- 完成W02/W03结果文档；
+- 将canonical state推进到 `VERIFYING / W05`，使实现合并后的main状态合法；
+- 对最终精确PR head运行Upgrade Compatibility、Test、State Consistency和真实688521 E2E；
+- 审计并行PR路径交集；
+- PR转为Ready。
+
+## W05｜实现合并、原子 closeout 与真实 Bark 验证
 
 1. 合并实现 PR；
 2. 验证 exact-main 源码和确定性 Gate；
@@ -81,6 +88,6 @@ Artifact 只允许包含：
 - request initiated/count；
 - safe numeric curl exit code和HTTP status；
 - UTC时间；
--固定安全布尔值。
+- 固定安全布尔值。
 
 不得包含 Secret、URL、hostname、IP、响应正文、响应头、Bark返回消息、异常原文或环境快照。
