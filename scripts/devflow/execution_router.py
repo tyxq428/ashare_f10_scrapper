@@ -5,6 +5,7 @@ import fnmatch
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Any
 
 DEVFLOW_OR_SECURITY_PATTERNS = (
     ".github/**",
@@ -39,6 +40,18 @@ WEB_ONLY_REASON_CODES = {
     "SOURCE_CONFLICT",
     "ARCHITECTURE_DECISION",
     "DOCUMENTATION_POLICY",
+    "PRODUCT_FULL_GATE_FAILED",
+    "POST_MERGE_GATE_FAILED",
+    "MERGE_BOUNDARY",
+}
+ALLOWED_CODEX_REASON_CODES = {
+    "LOCAL_IMPLEMENTATION_DEFECT",
+    "LOCAL_TEST_GAP",
+    "BOUNDED_PURE_REFACTOR",
+}
+ALLOWED_UNIQUE_BENEFITS = {
+    "LOCAL_ITERATIVE_TOOL_LOOP",
+    "BACKGROUND_WORKER_EXPLICITLY_REQUESTED",
 }
 
 
@@ -54,7 +67,24 @@ def _matches(path: str, patterns: tuple[str, ...]) -> bool:
     return any(path == pattern or fnmatch.fnmatch(path, pattern) for pattern in patterns)
 
 
-def route_failure(reason_code: str, failure_files: list[str]) -> RouteDecision:
+def _valid_web_assessment(value: object) -> bool:
+    if not isinstance(value, dict):
+        return False
+    return (
+        value.get("attempted") is True
+        and value.get("can_complete_in_web") is False
+        and value.get("reason_code") in ALLOWED_UNIQUE_BENEFITS
+        and isinstance(value.get("summary"), str)
+        and bool(value["summary"].strip())
+    )
+
+
+def route_failure(
+    reason_code: str,
+    failure_files: list[str],
+    *,
+    web_resolution_assessment: dict[str, Any] | None = None,
+) -> RouteDecision:
     normalized = sorted({item.strip() for item in failure_files if item.strip()})
     if reason_code in MECHANICAL_REASON_CODES:
         return RouteDecision(
@@ -70,7 +100,27 @@ def route_failure(reason_code: str, failure_files: list[str]) -> RouteDecision:
             route="CHATGPT_WEB",
             reason_code=reason_code,
             codex_candidate=False,
-            explanation="The failure touches orchestration, policy, security, documentation or business semantics.",
+            explanation=(
+                "The failure touches orchestration, policy, security, "
+                "documentation, integration gates or business semantics."
+            ),
+        )
+    if reason_code not in ALLOWED_CODEX_REASON_CODES:
+        return RouteDecision(
+            route="CHATGPT_WEB",
+            reason_code=reason_code,
+            codex_candidate=False,
+            explanation="Unknown or unapproved reason codes fail closed to ChatGPT Web.",
+        )
+    if not _valid_web_assessment(web_resolution_assessment):
+        return RouteDecision(
+            route="CHATGPT_WEB",
+            reason_code=reason_code,
+            codex_candidate=False,
+            explanation=(
+                "A task is not a Codex candidate until ChatGPT Web records "
+                "why the current session cannot practically complete it."
+            ),
         )
     if 2 <= len(normalized) <= 5:
         return RouteDecision(
@@ -78,15 +128,19 @@ def route_failure(reason_code: str, failure_files: list[str]) -> RouteDecision:
             reason_code=reason_code,
             codex_candidate=True,
             explanation=(
-                "A narrow local product-code task may be considered, but only after explicit user approval "
-                "and all zero-token eligibility gates pass."
+                "A narrow local product-code task has an approved reason and "
+                "a documented unique runner-side benefit. Candidate status "
+                "still requires user approval and all zero-token gates."
             ),
         )
     return RouteDecision(
         route="CHATGPT_WEB",
         reason_code=reason_code,
         codex_candidate=False,
-        explanation="The failure is too broad, too small to justify model startup, or lacks a safe bounded scope.",
+        explanation=(
+            "Codex candidates require exactly two to five safe failure files; "
+            "single-file simple work and broader tasks stay in ChatGPT Web."
+        ),
     )
 
 
@@ -94,9 +148,20 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--reason-code", required=True)
     parser.add_argument("--failure-file", action="append", default=[])
+    parser.add_argument("--web-assessment", type=Path)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
-    decision = route_failure(args.reason_code, args.failure_file)
+    assessment = None
+    if args.web_assessment:
+        value = json.loads(args.web_assessment.read_text(encoding="utf-8"))
+        if not isinstance(value, dict):
+            raise SystemExit("web assessment root must be an object")
+        assessment = value
+    decision = route_failure(
+        args.reason_code,
+        args.failure_file,
+        web_resolution_assessment=assessment,
+    )
     text = json.dumps(asdict(decision), indent=2, sort_keys=True)
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
