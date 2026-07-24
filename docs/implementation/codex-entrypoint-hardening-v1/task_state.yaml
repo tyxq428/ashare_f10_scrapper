@@ -1,9 +1,9 @@
 {
   "schema_version": 2,
-  "state_revision": 1,
+  "state_revision": 2,
   "task_id": "codex-entrypoint-hardening-v1",
   "title": "Codex entrypoint hardening and one-time activation controls",
-  "status": "RUNNING",
+  "status": "VERIFYING",
   "execution_status": "RUNNING",
   "acceptance": {
     "domain": "generic",
@@ -11,17 +11,28 @@
     "reason_code": null,
     "details_path": null
   },
-  "security_status": "PENDING",
+  "security_status": "PASS",
   "working_branch": "feature/codex-entrypoint-hardening-v1",
-  "pull_request": null,
+  "pull_request": 51,
   "base_sha_at_start": "3dd0075c83651d73677ecf8105946ae34bad362e",
-  "last_product_commit_sha": "3dd0075c83651d73677ecf8105946ae34bad362e",
+  "last_product_commit_sha": "1798816ac30efb32548370faa08af0f0909fe5a1",
   "last_state_commit_sha": null,
-  "current_stage": "W00",
-  "last_completed_stage": null,
-  "last_successful_step": "task_contract_and_master_plan_created",
-  "next_action": "inventory_all_potential_codex_entrypoints_and_add_zero_model_static_guard",
-  "gate_results": {},
+  "current_stage": "W08",
+  "last_completed_stage": "W07",
+  "last_successful_step": "forced_premerge_zero_codex_validation_pass",
+  "next_action": "merge_pr51_then_run_exact_main_closeout",
+  "gate_results": {
+    "W00_ENTRYPOINT_INVENTORY": "PASS",
+    "W01_PRODUCT_GATE_ZERO_MODEL": "PASS",
+    "W02_RECOVERY_GENERATIONS_ZERO": "PASS",
+    "W03_MODEL_JOB_NON_RERUNNABLE": "PASS",
+    "W04_TRUSTED_CONTROL": "PASS",
+    "W05_POSITIVE_ALLOWLIST": "PASS",
+    "W06_TRUSTED_REPRODUCTION": "PASS",
+    "W07_ONE_TIME_GRANT": "PASS",
+    "W08_PRE_MERGE": "PASS:30058774833",
+    "CODEX_CALLS_DURING_HARDENING": "0"
+  },
   "retry_budget": {
     "infrastructure": 3,
     "codex_sessions": 0,
@@ -45,5 +56,5 @@
     "acknowledged": true,
     "control_issue_number": null
   },
-  "updated_at_utc": "2026-07-24T00:29:40Z"
+  "updated_at_utc": "2026-07-24T01:24:10Z"
 }

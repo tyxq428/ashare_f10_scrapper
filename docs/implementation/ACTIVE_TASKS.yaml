@@ -22,10 +22,10 @@
     {
       "task_id": "codex-entrypoint-hardening-v1",
       "title": "Codex entrypoint hardening and one-time activation controls",
-      "status": "RUNNING",
+      "status": "VERIFYING",
       "branch": "feature/codex-entrypoint-hardening-v1",
-      "pull_request": null,
-      "current_stage": "W00",
+      "pull_request": 51,
+      "current_stage": "W08",
       "state_path": "docs/implementation/codex-entrypoint-hardening-v1/task_state.yaml"
     }
   ]
