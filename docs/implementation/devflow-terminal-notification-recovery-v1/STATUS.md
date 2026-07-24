@@ -10,7 +10,7 @@ last_completed_stage: W05
 branch: main
 pull_request: 58
 implementation_merge_sha: 1f20a6531329ce957d9a3d5a0478071b92d11496
-closeout_pull_request: pending
+closeout_pull_request: 59
 next_action: none
 human_intervention_required: false
 codex_calls: 0
@@ -33,11 +33,11 @@ bark_automatic_retries: 0
 - PR #58已合并，Merge SHA为 `1f20a6531329ce957d9a3d5a0478071b92d11496`；
 - merge commit相对已验证head无文件差异；
 - exact-main Codex Policy仍为 `disabled`；
-- canonical closeout已准备为新的 `COMPLETED` generation 1。
+- closeout PR #59原子发布新的 `COMPLETED` generation 1。
 
 ## 真实投递观察
 
-本closeout进入main后，将由main上的State Consistency成功Run触发独立producer。随后最多发起一次Bark请求，并生成一个安全单JSON回执Artifact及canonical Issue回执索引。
+PR #59进入main后，将由main上的State Consistency成功Run触发独立producer。随后最多发起一次Bark请求，并生成一个安全单JSON回执Artifact及canonical Issue回执索引。
 
 Bark、producer、Artifact或Issue索引失败均不撤销本任务的DONE事实，也不会触发自动重试。
 
