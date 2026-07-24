@@ -1,0 +1,85 @@
+name: Run Bark All-Status Test Preparer
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+    paths:
+      - .github/workflows/temporary-prepare-bark-all-status-live-test.yml
+      - .github/workflows/temporary-run-bark-all-status-preparer.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: run-bark-all-status-test-preparer-v1
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: >-
+      github.run_attempt == 1 &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'feature/devflow-bark-all-status-live-test-v1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: feature/devflow-bark-all-status-live-test-v1
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Extract and execute the deterministic patch program
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE=.github/workflows/temporary-prepare-bark-all-status-live-test.yml
+          python - "$SOURCE" /tmp/prepare-bark-all-status-live-test.py <<'PY'
+          from pathlib import Path
+          import sys
+
+          source = Path(sys.argv[1]).read_text(encoding='utf-8').splitlines()
+          output = Path(sys.argv[2])
+          start = None
+          end = None
+          marker = "          python - <<'PY'"
+          for index, line in enumerate(source):
+              if line == marker:
+                  start = index + 1
+                  break
+          if start is None:
+              raise SystemExit('PATCH_PROGRAM_START_NOT_FOUND')
+          for index in range(start, len(source)):
+              if source[index] == '          PY':
+                  end = index
+                  break
+          if end is None:
+              raise SystemExit('PATCH_PROGRAM_END_NOT_FOUND')
+          program = []
+          for line in source[start:end]:
+              if line.startswith('          '):
+                  line = line[10:]
+              program.append(line)
+          output.write_text('\n'.join(program) + '\n', encoding='utf-8')
+          PY
+          python /tmp/prepare-bark-all-status-live-test.py
+          rm -f .github/workflows/temporary-run-bark-all-status-preparer.yml
+
+          python -m compileall -q scripts/devflow
+          python scripts/devflow/validate_notification_channels.py
+          python scripts/devflow/validate_workflows.py
+
+      - name: Commit the prepared live-test implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Prepare one-time Bark all-status live test"
+          git push origin HEAD:feature/devflow-bark-all-status-live-test-v1
