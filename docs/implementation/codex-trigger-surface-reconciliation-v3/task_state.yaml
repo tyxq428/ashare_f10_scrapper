@@ -1,0 +1,59 @@
+{
+  "schema_version": 2,
+  "state_revision": 1,
+  "task_id": "codex-trigger-surface-reconciliation-v3",
+  "title": "Codex trigger-surface reconciliation and Environment protection confirmation",
+  "status": "WAITING_HUMAN",
+  "execution_status": "BLOCKED",
+  "acceptance": {
+    "domain": "generic",
+    "status": "PENDING",
+    "reason_code": "PLATFORM_CONFIGURATION_REQUIRED",
+    "details_path": "docs/implementation/codex-trigger-surface-reconciliation-v3/W00_result.md"
+  },
+  "security_status": "PENDING",
+  "working_branch": "feature/codex-trigger-surface-reconciliation-v3",
+  "pull_request": null,
+  "base_sha_at_start": "9e01fb6669c8a4a74573645e775ad68215d96139",
+  "last_product_commit_sha": "9e01fb6669c8a4a74573645e775ad68215d96139",
+  "last_state_commit_sha": null,
+  "current_stage": "W01",
+  "last_completed_stage": "W00",
+  "last_successful_step": "lockdown_v2_pr52_reconciliation_complete",
+  "next_action": "configure_or_confirm_agent_runtime_environment_protection",
+  "gate_results": {
+    "W00_DIFF_RECONCILIATION": "PASS",
+    "LEGACY_BRANCH_OPEN_PRS": "0",
+    "LEGACY_BRANCH_IMPLEMENTATION_FILES": "0",
+    "CODEX_TASK_DECISION": "KEEP_ELIGIBILITY_ONLY",
+    "AUTOMATIC_MODEL_PATHS": "0",
+    "RESPONSES_AUTOMATIC_PAID_PATHS": "0",
+    "CODEX_CALLS_DURING_RECONCILIATION": "0",
+    "RESPONSES_PAID_PROBES_DURING_RECONCILIATION": "0",
+    "RELAY_SECRET_READS_DURING_RECONCILIATION": "0"
+  },
+  "retry_budget": {
+    "infrastructure": 0,
+    "codex_sessions": 0,
+    "codex_recovery_generations": 0,
+    "replans": 0
+  },
+  "human_gate": {
+    "required": true,
+    "reason": "Current connector cannot read or modify agent-runtime Environment protection metadata.",
+    "minimum_action": "Configure or confirm Required Reviewer tyxq428, main-only deployment branches, and disable administrator bypass when available, without opening or changing Secrets.",
+    "resume_from": "docs/implementation/codex-trigger-surface-reconciliation-v3/W01_plan.md"
+  },
+  "post_merge": {
+    "status": "PENDING",
+    "merge_sha": null,
+    "verified_run_ids": []
+  },
+  "notification": {
+    "generation": 1,
+    "last_type": "HUMAN_REQUIRED",
+    "acknowledged": false,
+    "control_issue_number": null
+  },
+  "updated_at_utc": "2026-07-24T05:37:43Z"
+}
