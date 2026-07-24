@@ -34,14 +34,21 @@
     "include_full_sop": false
   },
   "failure_context": {
-    "source_run_id": 0,
+    "source_run_id": 1,
     "source_commit_sha": "0000000000000000000000000000000000000000",
     "failure_fingerprint": "replace-me",
-    "diagnostic_artifact_digest": "sha256:replace-me",
+    "diagnostic_artifact_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
     "failure_files": ["path/to/file.py", "tests/test_file.py"],
-    "pre_model_gate_profile": "replace-me-targeted"
+    "pre_model_gate_profile": "replace-me-targeted",
+    "reason_code": "LOCAL_IMPLEMENTATION_DEFECT"
   },
-  "authorization_id": "replace-me",
+  "web_resolution_assessment": {
+    "attempted": true,
+    "can_complete_in_web": false,
+    "reason_code": "BACKGROUND_WORKER_EXPLICITLY_REQUESTED",
+    "summary": "The user explicitly requested one reviewed background worker for this bounded task."
+  },
+  "authorization_id": "replace-me-grant",
   "session_limit": 1,
   "automatic_second_session": 0,
   "recovery_generation": 0,
@@ -54,8 +61,9 @@
   "expected_base_sha": "0000000000000000000000000000000000000000",
   "stop_conditions": [
     "any changed path outside allowed_files",
-    "failure is not reproducible before model invocation",
+    "failure is not reproduced by the trusted pre-model job",
     "failure files are not covered by allowed_files",
+    "one-time Grant is absent, expired, reserved or consumed",
     "secret audit match",
     "targeted gate failure after the single approved session",
     "business or architecture decision required",
