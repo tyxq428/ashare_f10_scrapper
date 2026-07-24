@@ -250,16 +250,32 @@ jobs:
           CURL_EXIT_CODE="null"
           HTTP_STATUS="null"
 
+          BARK_ENDPOINT="${BARK_PUSH_URL:-}"
+          BARK_ENDPOINT="${BARK_ENDPOINT%/}"
+          CURL_PROTOCOL_ARGS=(--proto '=http,https')
           if [[ -n "${BARK_PUSH_URL:-}" ]]; then
             echo "::add-mask::${BARK_PUSH_URL}"
+          fi
+          if [[ -n "$BARK_ENDPOINT" ]]; then
+            echo "::add-mask::${BARK_ENDPOINT}"
+          fi
+
+          if [[ -z "$BARK_ENDPOINT" ]]; then
+            DELIVERY_STATUS="SKIPPED_MISSING_CONFIGURATION"
+          elif [[ "$BARK_ENDPOINT" != http://* && "$BARK_ENDPOINT" != https://* ]]; then
+            DELIVERY_STATUS="SKIPPED_INVALID_CONFIGURATION"
+          else
+            if [[ "$BARK_ENDPOINT" == https://* ]]; then
+              CURL_PROTOCOL_ARGS+=(--tlsv1.2)
+            fi
             REQUEST_INITIATED="true"
             REQUEST_ATTEMPTS="1"
+            set +e
             HTTP_STATUS_RAW="$(curl \
               --silent \
               --fail \
               --retry 0 \
-              --proto '=https' \
-              --tlsv1.2 \
+              "${CURL_PROTOCOL_ARGS[@]}" \
               --connect-timeout 10 \
               --max-time 20 \
               --request POST \
@@ -267,8 +283,9 @@ jobs:
               --data-binary @/tmp/bark-message.json \
               --output /dev/null \
               --write-out '%{http_code}' \
-              "$BARK_PUSH_URL")"
+              --url "$BARK_ENDPOINT")"
             CURL_RC=$?
+            set -e
             CURL_EXIT_CODE="$CURL_RC"
             if [[ "$HTTP_STATUS_RAW" =~ ^[1-5][0-9][0-9]$ ]]; then
               HTTP_STATUS="$((10#$HTTP_STATUS_RAW))"
