@@ -61,7 +61,7 @@
       "status": "RUNNING",
       "branch": "feature/devflow-bark-delivery-receipt-v1",
       "pull_request": 56,
-      "current_stage": "W02",
+      "current_stage": "W03",
       "state_path": "docs/implementation/devflow-bark-delivery-receipt-v1/task_state.yaml"
     }
   ]
