@@ -19,3 +19,11 @@
 ## D005｜Environment 保护必须由平台元数据证明
 
 当前连接器不能读取或修改 Required Reviewer、管理员绕过与 Deployment Branch Policy。不得用仓库文档替代平台保护证据；该项进入真实 `WAITING_HUMAN`。
+
+## D006｜接受用户提供的 GitHub UI 平台证据
+
+用户提供 GitHub UI 截图并确认配置已完成：`Codex Task` 平台状态为 active；`agent-runtime` Required reviewers 包含 `tyxq428` 和 `jellycookie`；管理员绕过未启用；Deployment branches and tags 仅允许 `main`；未读取或修改 Secret 值。该人工证据关闭 W01 平台配置门槛。
+
+## D007｜保留 self-review 能力
+
+虽然已有两名 Required Reviewer，用户明确选择不启用 `Prevent self-review`，从而允许触发者自行批准 Environment。这保留了显式人工审批边界，但不强制双人分离审批。若未来要求四眼审批，可单独启用 `Prevent self-review`；本次不把它作为未闭合 Codex 或 Responses 触发面。
