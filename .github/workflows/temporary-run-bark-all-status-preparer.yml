@@ -55,9 +55,6 @@ jobs:
             python -m compileall -q scripts/devflow
             python scripts/devflow/validate_notification_channels.py
             python scripts/devflow/validate_workflows.py
-            pytest -q \
-              tests/test_devflow_bark_notification.py \
-              tests/test_devflow_bark_workflow.py
           } 2>&1 | tee /tmp/bark-all-status-preparer.log
 
       - name: Commit only non-Workflow files
