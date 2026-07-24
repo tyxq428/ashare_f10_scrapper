@@ -5,11 +5,11 @@ status: RUNNING
 execution_status: RUNNING
 acceptance: PENDING
 security_status: PENDING
-current_stage: W01
-last_completed_stage: W00
+current_stage: W02
+last_completed_stage: W01
 branch: feature/devflow-bark-delivery-receipt-v1
-pull_request: null
-next_action: implement_deterministic_bark_delivery_result_model_and_tests
+pull_request: 56
+next_action: wire_receipt_artifact_and_issue_index_into_Devflow_Incident
 codex_calls: 0
 responses_paid_probes: 0
 relay_secret_reads: 0
@@ -20,13 +20,14 @@ bark_live_requests: 0
 
 ## 已完成
 
-- 当前Bark可观测面库存；
-- 安全回执字段白名单和状态机；
-- Artifact名称、保留期和Issue索引合同；
-- W01实现计划。
+- W00回执缺口、字段白名单和状态机；
+- W01确定性回执生成与validate CLI；
+- 专用单元测试；
+- 精确head `ba3147ebe0b63912888368d3b147b1702aa5acd8` 的Upgrade Compatibility、Test、State Consistency和真实688521 E2E全部PASS；
+- Draft PR #56已创建。
 
 ## 当前阶段
 
-W01实现确定性 `bark_delivery_result.py` 和单元测试。该阶段不读取Secret、不执行网络请求，也不修改Transport。
+W02把回执接入 `Devflow Incident`：捕获安全Transport状态、上传单一JSON Artifact，并向canonical Issue追加Artifact索引。该阶段仍不发起真实Bark请求。
 
 冲突时以 `task_state.yaml` 为准。
