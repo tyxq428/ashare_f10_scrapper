@@ -1,12 +1,21 @@
 name: One-Shot Canonical Completion Recovery
 
 # This branch-local workflow validates an immutable canonical completion before
-# dispatch. The branch filter, exact-main SHA, run-attempt guard and Incident
-# task markers make the connector actor safe without relying on actor naming.
+# dispatch. The exact branch/head checks, exact-main SHA, run-attempt guard and
+# Incident task markers keep both push and same-repository PR runs bounded.
 on:
   push:
     branches:
       - chore/devflow-terminal-notification-recovery-v1-one-shot
+    paths:
+      - .github/workflows/one-shot-terminal-completion-recovery.yml
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
     paths:
       - .github/workflows/one-shot-terminal-completion-recovery.yml
 
@@ -19,7 +28,14 @@ concurrency:
 
 jobs:
   dispatch-canonical-completion:
-    if: github.run_attempt == 1
+    if: >-
+      github.run_attempt == 1 &&
+      (
+        (github.event_name == 'push' &&
+         github.ref_name == 'chore/devflow-terminal-notification-recovery-v1-one-shot') ||
+        (github.event_name == 'pull_request' &&
+         github.head_ref == 'chore/devflow-terminal-notification-recovery-v1-one-shot')
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
