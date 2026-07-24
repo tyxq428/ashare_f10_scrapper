@@ -4,6 +4,8 @@ import json
 import re
 from pathlib import Path
 
+from validate_codex_entrypoints import validate as validate_codex_entrypoints
+
 ACTION_REF = re.compile(r"^\s*-?\s*uses:\s*([^\s#]+)", re.MULTILINE)
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 WORKFLOW_TARGETS = (
@@ -19,7 +21,12 @@ WORKFLOW_TARGETS = (
 ACTION_TARGETS = (Path(".github/actions/codex-thin-worker/action.yml"),)
 
 
-def _require_fragments(path: Path, text: str, fragments: tuple[str, ...], errors: list[str]) -> None:
+def _require_fragments(
+    path: Path,
+    text: str,
+    fragments: tuple[str, ...],
+    errors: list[str],
+) -> None:
     lowered = text.lower()
     for fragment in fragments:
         if fragment.lower() not in lowered:
@@ -47,7 +54,22 @@ def _check_action_pins(path: Path, text: str, errors: list[str]) -> None:
             continue
         _name, revision = reference.rsplit("@", 1)
         if not FULL_SHA.fullmatch(revision):
-            errors.append(f"{path}: action must be pinned to a full SHA: {reference}")
+            errors.append(
+                f"{path}: action must be pinned to a full SHA: {reference}"
+            )
+
+
+def _forbid(
+    path: Path,
+    text: str,
+    fragments: tuple[str, ...],
+    errors: list[str],
+    *,
+    message: str,
+) -> None:
+    for fragment in fragments:
+        if fragment in text:
+            errors.append(f"{path}: {message}: {fragment}")
 
 
 def validate_file(path: Path) -> list[str]:
@@ -69,28 +91,35 @@ def validate_file(path: Path) -> list[str]:
             (
                 "workflow_dispatch:",
                 "github.actor == 'tyxq428'",
-                "codex_eligibility",
-                "approval_file",
-                "reproduction_file",
+                "github.ref_name == 'main'",
+                "path: control",
+                "path: workspace",
+                "codex_candidate_review.py",
                 "CODEX_MODEL_INVOCATION=DISABLED",
-                "No Environment Secret, localhost forwarder or model session was started",
+                "Task branches are data-only",
             ),
             errors,
         )
-        for forbidden in (
-            "github-actions[bot]",
-            "environment: agent-runtime",
-            "secrets.",
-            "openai/codex-action@",
-            "./.github/actions/codex-thin-worker",
-            "secret-bearing-read-only-codex",
-        ):
-            if forbidden in text:
-                errors.append(f"{path}: hard-disabled manual entry contains forbidden model path: {forbidden}")
+        _forbid(
+            path,
+            text,
+            (
+                "github-actions[bot]",
+                "environment: agent-runtime",
+                "secrets.",
+                "openai/codex-action@",
+                "./.github/actions/codex-thin-worker",
+                "secret-bearing-read-only-codex",
+            ),
+            errors,
+            message="hard-disabled entry contains a model path",
+        )
         if re.search(r"^\s{2}push:\s*$", text, re.MULTILINE):
             errors.append(f"{path}: Codex Task must use explicit dispatch, not push")
 
-    if path.as_posix().endswith(".github/actions/codex-thin-worker/action.yml"):
+    if path.as_posix().endswith(
+        ".github/actions/codex-thin-worker/action.yml"
+    ):
         try:
             mode = _codex_policy_mode()
         except ValueError as exc:
@@ -109,15 +138,18 @@ def validate_file(path: Path) -> list[str]:
                 errors,
             )
             if "openai/codex-action@" in text:
-                errors.append(f"{path}: disabled policy must stop before the official Codex action")
+                errors.append(
+                    f"{path}: disabled policy must stop before the official action"
+                )
         else:
-            errors.append(f"{path}: repository production policy must remain disabled")
-        if "secrets." in text:
-            errors.append(f"{path}: composite action must not read secrets directly")
-        if "output-file:" in text:
-            errors.append(f"{path}: output-file is forbidden; use structured final-message")
-        if "effort: low" in text:
-            errors.append(f"{path}: Low reasoning is forbidden")
+            errors.append(f"{path}: production policy must remain disabled")
+        _forbid(
+            path,
+            text,
+            ("secrets.", "output-file:", "effort: low"),
+            errors,
+            message="disabled composite contains a forbidden field",
+        )
 
     if path.name == "devflow-auto-recovery.yml":
         _require_fragments(
@@ -128,19 +160,24 @@ def validate_file(path: Path) -> list[str]:
                 "rerun-failed-jobs",
                 "recovery_policy.py",
                 "devflow_notify",
-                "No Codex task was created or retried",
+                "No Codex task was created, observed or retried",
             ),
             errors,
         )
-        for forbidden in (
-            "actions/workflows/codex-task.yml/dispatches",
-            "steps.decision.outputs.action == 'RETRY_CODEX'",
-            "python scripts/devflow/recovery_task.py",
-            "environment: agent-runtime",
-            "secrets.AGENT_",
-        ):
-            if forbidden in text:
-                errors.append(f"{path}: automatic Codex path is forbidden: {forbidden}")
+        _forbid(
+            path,
+            text,
+            (
+                "      - Codex Task\n",
+                "actions/workflows/codex-task.yml/dispatches",
+                "steps.decision.outputs.action == 'RETRY_CODEX'",
+                "python scripts/devflow/recovery_task.py",
+                "environment: agent-runtime",
+                "secrets.AGENT_",
+            ),
+            errors,
+            message="automatic Codex path is forbidden",
+        )
         if "issues: write" in text:
             errors.append(f"{path}: auto recovery must not write Issues directly")
 
@@ -156,31 +193,57 @@ def validate_file(path: Path) -> list[str]:
                 "git merge-base origin/main HEAD",
                 "product-scope-result.json",
                 "Fail closed on changed-path scope violation",
+                "PRODUCT_GATE_WEB_REPAIR_REQUIRED",
                 'git config user.name "github-actions[bot]"',
-                'git config user.email "41898282+github-actions[bot]@users.noreply.github.com"',
                 "Fail closed when automatic merge boundary is blocked",
                 "auto_merge",
                 "devflow_post_merge",
             ),
             errors,
         )
-        if "environment: agent-runtime" in text or "secrets.AGENT_" in text:
-            errors.append(f"{path}: product gate must not access relay secrets")
-        if "--base origin/main" in text.split("Reconcile latest main", 1)[0]:
-            errors.append(f"{path}: initial scope must use merge base, not moving main")
+        _forbid(
+            path,
+            text,
+            (
+                "environment: agent-runtime",
+                "secrets.AGENT_",
+                "actions/workflows/codex-task.yml/dispatches",
+                "python scripts/devflow/recovery_task.py",
+                "RECOVERY_GENERATION",
+                "RECOVERY_TASK_ID",
+            ),
+            errors,
+            message="Product Gate automatic model recovery is forbidden",
+        )
+        if "--base origin/main" in text.split(
+            "Reconcile latest main", 1
+        )[0]:
+            errors.append(
+                f"{path}: initial scope must use merge base, not moving main"
+            )
 
     if path.name == "devflow-state-consistency.yml":
         _require_fragments(
             path,
             text,
-            ("validate_state.py", "validate_workflows.py", "pytest -q", "tests/test_devflow"),
+            (
+                "validate_state.py",
+                "validate_workflows.py",
+                "validate_codex_entrypoints.py",
+                "pytest -q",
+                "tests/test_devflow",
+            ),
             errors,
         )
         if "environment: agent-runtime" in text or "secrets.AGENT_" in text:
-            errors.append(f"{path}: State Consistency must be zero-model and secret-free")
+            errors.append(
+                f"{path}: State Consistency must be zero-model and secret-free"
+            )
 
     if path.name == "devflow-relay-health.yml":
         _require_fragments(path, text, ("agent-runtime", "relay_health.py"), errors)
+        if "openai/codex-action@" in text:
+            errors.append(f"{path}: Relay Health may not call Codex")
 
     if path.name == "devflow-secret-audit.yml":
         _require_fragments(path, text, ("secret_audit.py",), errors)
@@ -189,28 +252,44 @@ def validate_file(path: Path) -> list[str]:
         _require_fragments(
             path,
             text,
-            ("repository_dispatch", "devflow_notify", "does **not** trigger repair", "control_issue_number"),
+            (
+                "repository_dispatch",
+                "devflow_notify",
+                "does **not** trigger repair",
+                "control_issue_number",
+            ),
             errors,
         )
         if "workflow_run:" in text:
-            errors.append(f"{path}: Incident must not notify directly from raw failures")
+            errors.append(
+                f"{path}: Incident must not notify directly from raw failures"
+            )
 
     if path.name == "devflow-post-merge.yml":
         _require_fragments(
             path,
             text,
-            ("devflow_post_merge", "run_gate_profile.py", "POST_MERGE_WEB_REPAIR_REQUIRED", "devflow_notify"),
+            (
+                "devflow_post_merge",
+                "run_gate_profile.py",
+                "POST_MERGE_WEB_REPAIR_REQUIRED",
+                "devflow_notify",
+            ),
             errors,
         )
-        for forbidden in (
-            "environment: agent-runtime",
-            "secrets.AGENT_",
-            "actions/workflows/codex-task.yml/dispatches",
-            "python scripts/devflow/recovery_task.py",
-            "RETRY_CODEX",
-        ):
-            if forbidden in text:
-                errors.append(f"{path}: post-merge automatic model path is forbidden: {forbidden}")
+        _forbid(
+            path,
+            text,
+            (
+                "environment: agent-runtime",
+                "secrets.AGENT_",
+                "actions/workflows/codex-task.yml/dispatches",
+                "python scripts/devflow/recovery_task.py",
+                "RETRY_CODEX",
+            ),
+            errors,
+            message="Post-Merge automatic model path is forbidden",
+        )
 
     return errors
 
@@ -219,6 +298,8 @@ def main() -> int:
     workflow_root = Path(".github/workflows")
     errors: list[str] = []
     found: list[str] = []
+    for temporary in sorted(workflow_root.glob("temporary-*.yml")):
+        errors.append(f"obsolete temporary workflow must be removed: {temporary}")
     for name in WORKFLOW_TARGETS:
         path = workflow_root / name
         if not path.is_file():
@@ -232,9 +313,22 @@ def main() -> int:
             continue
         found.append(path.as_posix())
         errors.extend(validate_file(path))
-    summary = {"status": "PASS" if not errors else "FAIL", "files": found, "errors": errors}
+    entrypoint_summary = validate_codex_entrypoints()
+    errors.extend(
+        f"codex-entrypoint: {item}"
+        for item in entrypoint_summary.get("errors", [])
+    )
+    summary = {
+        "status": "PASS" if not errors else "FAIL",
+        "files": found,
+        "automatic_model_paths": entrypoint_summary.get(
+            "automatic_model_paths"
+        ),
+        "errors": errors,
+    }
     Path("devflow-workflow-validation.json").write_text(
-        json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        json.dumps(summary, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
     )
     print(json.dumps(summary, indent=2, sort_keys=True))
     return 0 if not errors else 1
