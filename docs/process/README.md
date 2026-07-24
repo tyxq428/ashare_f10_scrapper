@@ -10,12 +10,19 @@ ChatGPT Web Supervisor
 → GitHub Actions Executor
 → Context / Scope / State / Secret / Gate
 → Zero-model Auto Recovery
-→ 只重试受信任的模型前基础设施错误
+→ 只重试受信任的普通零模型基础设施错误
 → Product Gate / 低风险自动合并 / exact-main Post-Merge
 → 最终完成通知 / 受管分支GC dry-run
 ```
 
-Codex 不属于默认执行链。仓库级 Policy 保持 `disabled`；常驻 `Codex Task` 只做零 Token 候选复核。未来只有用户针对一个具体任务再次明确授权、受信任真实复现和一次性 Grant 全部通过，并由独立受审 Activation PR 临时加入模型 Job时，才允许一次 XHigh Session。
+Codex 不属于默认执行链。仓库级 Policy 保持 `disabled`；常驻 `Codex Task` 只做零 Token候选复核。未来只有用户针对一个具体任务再次明确授权、受信任真实复现和一次性 Grant全部通过，并由独立受审 Activation PR临时加入模型 Job时，才允许一次 XHigh Session。
+
+历史 Workflow Re-run和 Relay付费探针也属于模型费用执行面：
+
+- `Devflow Legacy Codex Rerun Audit` 隔离所有历史 `task/codex-*` 分支；
+- `Devflow Relay Health` 默认发送 0 个请求；
+- 付费 Relay探针必须人工精确确认且永不自动重跑；
+- Secret Audit只审计经验证的一次性 Activation Run。
 
 ## 分层
 
@@ -33,10 +40,11 @@ Codex 不属于默认执行链。仓库级 Policy 保持 `disabled`；常驻 `Co
 ## Machine-readable control
 
 - `.devflow/codex-policy.yaml`：仓库级模型总开关；
-- `.devflow/codex-entrypoints.yaml`：唯一允许入口、可信控制和一次性 Activation边界；
-- `.devflow/codex-grants/`：一次性 Grant 规范；
+- `.devflow/codex-entrypoints.yaml`：唯一允许入口、可信控制、历史 Re-run隔离、付费探针和一次性 Activation边界；
+- `.devflow/codex-grants/`：一次性 Grant规范；
 - `docs/implementation/CODEX_USAGE_LEDGER.json`：`RESERVED / CONSUMED` 用量账本；
-- `scripts/devflow/validate_codex_entrypoints.py`：全仓自动模型路径扫描。
+- `scripts/devflow/validate_codex_entrypoints.py`：全仓自动模型与付费探针路径扫描；
+- `scripts/devflow/legacy_codex_branch_audit.py`：远端历史任务分支 Re-run隔离审计。
 
 ## Policies
 
@@ -66,17 +74,19 @@ Codex 不属于默认执行链。仓库级 Policy 保持 `disabled`；常驻 `Co
 1. 先定义完成，再执行；
 2. 每个工作包先计划、后实现、再写结果；
 3. 非错误、非人工决策不暂停；
-4. 原始失败先确定性分类；只有模型前基础设施错误可有限重试；
+4. 原始失败先确定性分类；只有普通零模型基础设施错误可有限重试；
 5. 长任务可观测、可恢复、有限重试；
 6. 平台执行状态与领域验收状态分离；
 7. 确定性规则进入脚本或 CI；
 8. Codex 默认禁用，ChatGPT Web 是常规实现和修复路径；
-9. 未知失败、Full Gate 和 Post-Merge 失败不得自动进入 Codex；
-10. 任务分支是 data-only，Policy、Eligibility 和 Gate 来自精确默认分支 SHA；
-11. Context Budget、受信任复现和一次性 Grant 必须在任何模型步骤前通过；
-12. 模型 Job 一旦预占 Grant 即不可重跑；
-13. 只缓存依赖，不缓存 Scope、安全、Gate 或 Post-Merge 结论；
-14. 只有显式批准的低风险任务才允许自动合并；
-15. 未通过 exact-main Post-Merge、升级兼容和 canonical closeout 不得写 100%；
-16. 受管分支 GC 默认 dry-run；
-17. `/ack` 只确认收到，不触发修复或继续。
+9. 未知失败、Full Gate和 Post-Merge失败不得自动进入 Codex；
+10. 任务分支是 data-only，Policy、Eligibility和 Gate来自精确默认分支 SHA；
+11. Context Budget、受信任复现和一次性 Grant必须在任何模型步骤前通过；
+12. 模型 Job一旦预占 Grant即不可重跑；
+13. 历史模型 Run的原任务分支必须持续隔离；
+14. Relay付费探针必须人工精确确认且不可自动重跑；
+15. 只缓存依赖，不缓存 Scope、安全、Gate或 Post-Merge结论；
+16. 只有显式批准的低风险任务才允许自动合并；
+17. 未通过 exact-main Post-Merge、升级兼容和 canonical closeout不得写 100%；
+18. 受管分支 GC默认 dry-run；
+19. `/ack` 只确认收到，不触发修复或继续。
