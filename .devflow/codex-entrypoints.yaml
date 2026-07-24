@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "policy_mode": "disabled",
+  "allowed_entrypoints": [
+    {
+      "id": "manual_one_time_executor",
+      "workflow": ".github/workflows/codex-task.yml",
+      "current_mode": "eligibility_only",
+      "model_invocation": false,
+      "allowed_actor": "tyxq428"
+    }
+  ],
+  "allowed_agent_runtime_workflows": [
+    ".github/workflows/devflow-relay-health.yml"
+  ],
+  "forbidden_automatic_model_patterns": [
+    "actions/workflows/codex-task.yml/dispatches",
+    "steps.decision.outputs.action == 'RETRY_CODEX'",
+    "python scripts/devflow/recovery_task.py",
+    "openai/codex-action@"
+  ],
+  "trusted_control": {
+    "control_ref": "exact_default_branch_sha",
+    "control_checkout_path": "control",
+    "task_checkout_path": "workspace",
+    "task_branch_execution_code": false,
+    "task_branch_data_only": true
+  },
+  "activation": {
+    "mode": "one_time_reviewed_pr",
+    "persistent_model_job": false,
+    "grant_required": true,
+    "grant_ttl_minutes_max": 60,
+    "calls_per_task": 1,
+    "calls_per_fingerprint": 1,
+    "automatic_recovery_generations": 0,
+    "automatic_second_session": 0
+  }
+}
