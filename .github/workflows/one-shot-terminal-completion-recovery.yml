@@ -111,6 +111,8 @@ jobs:
             --bark-output /tmp/bark-message.json
 
       - name: Dispatch the one canonical completion event
+        id: dispatch
+        continue-on-error: true
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -150,14 +152,58 @@ jobs:
             --write-out '%{http_code}' \
             "${GITHUB_API_URL_VALUE}/repos/${GITHUB_REPOSITORY_VALUE}/dispatches")"
           CURL_RC=$?
+          python - "$CURL_RC" "$HTTP_STATUS" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          curl_exit = int(sys.argv[1])
+          raw_status = sys.argv[2]
+          status = int(raw_status) if raw_status.isdigit() else None
+          value = {
+              'schema_version': 1,
+              'curl_exit_code': curl_exit,
+              'http_status': status,
+              'accepted': curl_exit == 0 and status == 204,
+              'bark_requests_in_this_workflow': 0,
+              'codex_calls': 0,
+              'responses_paid_probes': 0,
+              'relay_secret_reads': 0,
+              'historical_codex_reruns': 0,
+              'response_body_stored': False,
+              'response_headers_stored': False,
+              'token_stored': False,
+              'endpoint_stored': False,
+          }
+          Path('/tmp/canonical-completion-dispatch-result.json').write_text(
+              json.dumps(value, indent=2, sort_keys=True) + '\n',
+              encoding='utf-8',
+          )
+          PY
+          echo "curl_exit_code=${CURL_RC}" >> "$GITHUB_OUTPUT"
+          echo "http_status=${HTTP_STATUS}" >> "$GITHUB_OUTPUT"
           echo "CANONICAL_COMPLETION_DISPATCH_CURL_EXIT=${CURL_RC}" \
             >> "$GITHUB_STEP_SUMMARY"
           echo "CANONICAL_COMPLETION_DISPATCH_HTTP_STATUS=${HTTP_STATUS}" \
             >> "$GITHUB_STEP_SUMMARY"
           echo "BARK_REQUESTS_IN_THIS_WORKFLOW=0" \
             >> "$GITHUB_STEP_SUMMARY"
-          echo "CODEX_CALLS=0" >> "$GITHUB_STEP_SUMMARY"
-          echo "RESPONSES_PAID_PROBES=0" >> "$GITHUB_STEP_SUMMARY"
-          echo "RELAY_SECRET_READS=0" >> "$GITHUB_STEP_SUMMARY"
-          echo "HISTORICAL_CODEX_RERUNS=0" >> "$GITHUB_STEP_SUMMARY"
-          [[ "$CURL_RC" -eq 0 && "$HTTP_STATUS" == "204" ]]
+          exit 0
+
+      - name: Upload the safe dispatch result
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: canonical-completion-dispatch-result-${{ github.run_id }}
+          path: /tmp/canonical-completion-dispatch-result.json
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+      - name: Require GitHub to accept the canonical dispatch
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${{ steps.dispatch.outputs.curl_exit_code }}" == "0" ]]
+          [[ "${{ steps.dispatch.outputs.http_status }}" == "204" ]]
