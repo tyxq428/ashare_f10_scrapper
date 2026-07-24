@@ -11,7 +11,8 @@
     }
   ],
   "allowed_agent_runtime_workflows": [
-    ".github/workflows/devflow-relay-health.yml"
+    ".github/workflows/devflow-relay-health.yml",
+    ".github/workflows/devflow-secret-audit.yml"
   ],
   "forbidden_automatic_model_patterns": [
     "actions/workflows/codex-task.yml/dispatches",
