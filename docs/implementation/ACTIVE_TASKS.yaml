@@ -54,6 +54,15 @@
       "pull_request": 54,
       "current_stage": "W05",
       "state_path": "docs/implementation/devflow-bark-terminal-notification-v1/task_state.yaml"
+    },
+    {
+      "task_id": "devflow-bark-delivery-receipt-v1",
+      "title": "Devflow Bark delivery receipt artifact and live verification",
+      "status": "RUNNING",
+      "branch": "feature/devflow-bark-delivery-receipt-v1",
+      "pull_request": null,
+      "current_stage": "W00",
+      "state_path": "docs/implementation/devflow-bark-delivery-receipt-v1/task_state.yaml"
     }
   ]
 }
