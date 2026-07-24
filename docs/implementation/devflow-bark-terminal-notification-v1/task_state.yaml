@@ -1,15 +1,15 @@
 {
   "schema_version": 2,
-  "state_revision": 5,
+  "state_revision": 6,
   "task_id": "devflow-bark-terminal-notification-v1",
   "title": "Devflow Bark terminal notification channel",
-  "status": "VERIFYING",
-  "execution_status": "RUNNING",
+  "status": "WAITING_HUMAN",
+  "execution_status": "BLOCKED",
   "acceptance": {
     "domain": "generic",
     "status": "PENDING",
-    "reason_code": null,
-    "details_path": "docs/implementation/devflow-bark-terminal-notification-v1/W03_result.md"
+    "reason_code": "PLATFORM_CONFIGURATION_REQUIRED",
+    "details_path": "docs/implementation/devflow-bark-terminal-notification-v1/W04_result.md"
   },
   "security_status": "PASS",
   "working_branch": "feature/devflow-bark-terminal-notification-v1",
@@ -17,24 +17,27 @@
   "base_sha_at_start": "379aac1ac439f1277e211984ef1acdfa2d5cdc07",
   "last_product_commit_sha": "ac84df7f8337ee223a5958619462007c41dbad38",
   "last_state_commit_sha": null,
-  "current_stage": "W04",
-  "last_completed_stage": "W03",
-  "last_successful_step": "terminal_notification_producers_guards_and_exact_head_gates_pass",
-  "next_action": "run_final_exact_PR_head_gates_then_enter_notification_runtime_human_gate",
+  "current_stage": "W05",
+  "last_completed_stage": "W04",
+  "last_successful_step": "final_exact_PR_head_deterministic_gates_pass",
+  "next_action": "configure_notification_runtime_and_BARK_PUSH_URL_in_GitHub_UI",
   "gate_results": {
     "W00_TERMINAL_NOTIFICATION_INVENTORY": "PASS",
     "W01_NOTIFICATION_EVENT_CORE": "PASS",
     "W02_GENERIC_INCIDENT_AND_BARK_TRANSPORT": "PASS",
     "W03_TERMINAL_PRODUCERS_AND_GUARDS": "PASS",
-    "W03_UPGRADE_COMPATIBILITY": "PASS:30088607141",
-    "W03_TEST": "PASS:30088607131",
-    "W03_STATE_CONSISTENCY": "PASS:30088607126",
-    "W03_E2E_688521": "PASS:30088607192",
-    "W03_VERIFIED_HEAD_SHA": "ac84df7f8337ee223a5958619462007c41dbad38",
+    "W04_EXACT_PR_HEAD": "PASS:16bb730900412d05adf9e634b4526629975d0f4a",
+    "W04_UPGRADE_COMPATIBILITY": "PASS:30088891192",
+    "W04_TEST": "PASS:30088891203",
+    "W04_STATE_CONSISTENCY": "PASS:30088891196",
+    "W04_E2E_688521": "PASS:30088891241",
     "RAW_WORKFLOW_RUN_DIRECT_NOTIFICATIONS": "0",
+    "NOTIFICATION_RUNTIME_WORKFLOWS": "1:DEVFLOW_INCIDENT",
+    "BARK_SECRET_WORKFLOWS": "1:DEVFLOW_INCIDENT",
     "BARK_POST_LOCATIONS": "1",
     "BARK_AUTOMATIC_RETRIES": "0",
     "BARK_REQUESTS_PER_LOGICAL_NOTIFICATION_MAX": "1",
+    "COMPLETION_SOURCE": "DEVFLOW_STATE_CONSISTENCY",
     "COMPLETION_DELIVERY_FAILURE": "FAIL_OPEN",
     "NOTIFICATION_FAILURE_AUTO_RECOVERY": "0",
     "CODEX_CALLS": "0",
@@ -50,10 +53,10 @@
     "replans": 2
   },
   "human_gate": {
-    "required": false,
-    "reason": null,
-    "minimum_action": null,
-    "resume_from": null
+    "required": true,
+    "reason": "The current connector cannot create or verify notification-runtime Environment protection metadata or the presence of BARK_PUSH_URL without accessing platform configuration.",
+    "minimum_action": "In GitHub UI create or confirm notification-runtime with no Required Reviewer, administrator bypass disabled, main-only deployment branches, and add HTTPS BARK_PUSH_URL as an Environment Secret without sharing its value.",
+    "resume_from": "docs/implementation/devflow-bark-terminal-notification-v1/W05_plan.md"
   },
   "post_merge": {
     "status": "PENDING",
@@ -61,10 +64,10 @@
     "verified_run_ids": []
   },
   "notification": {
-    "generation": 0,
-    "last_type": null,
-    "acknowledged": true,
+    "generation": 1,
+    "last_type": "HUMAN_REQUIRED",
+    "acknowledged": false,
     "control_issue_number": null
   },
-  "updated_at_utc": "2026-07-24T11:13:07Z"
+  "updated_at_utc": "2026-07-24T11:16:53Z"
 }
