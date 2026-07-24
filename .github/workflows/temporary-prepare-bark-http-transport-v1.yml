@@ -13,7 +13,7 @@ on:
       - scripts/devflow/prepare_bark_http_transport_v1.py
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: prepare-bark-http-transport-v1
@@ -32,7 +32,7 @@ jobs:
         with:
           ref: feature/devflow-bark-http-transport-v1
           fetch-depth: 0
-          persist-credentials: true
+          persist-credentials: false
 
       - uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55
         with:
@@ -100,20 +100,31 @@ jobs:
           retention-days: 7
           compression-level: 0
 
-      - name: Persist the validated change set to the PR branch
-        shell: bash
+      - name: Upload the validated final change set
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: bark-http-transport-final-files-${{ github.run_id }}
+          path: |
+            .devflow/notification-channels.yaml
+            .github/workflows/bark-all-status-live-retest-v2.yml
+            .github/workflows/devflow-incident.yml
+            docs/process/policies/notification-policy.md
+            docs/process/runbooks/handle-incident.md
+            scripts/devflow/bark_delivery_result.py
+            scripts/devflow/validate_notification_channels.py
+            scripts/devflow/validate_workflows.py
+            tests/test_devflow_bark_delivery_result.py
+            tests/test_devflow_bark_workflow.py
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+      - name: Record successful preparation
+        if: success()
         run: |
           set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
-          if git diff --cached --quiet; then
-            echo 'BARK_HTTP_TRANSPORT_PREPARER=NO_CHANGES' >> "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
-          git commit -m 'Allow explicit HTTP or HTTPS Bark transport and add v3 live retest'
-          git push origin HEAD:feature/devflow-bark-http-transport-v1
-          echo 'BARK_HTTP_TRANSPORT_PREPARER=PERSISTED' >> "$GITHUB_STEP_SUMMARY"
+          echo 'BARK_HTTP_TRANSPORT_PREPARER=VALIDATED_AND_UPLOADED' >> "$GITHUB_STEP_SUMMARY"
           echo 'CODEX_CALLS=0' >> "$GITHUB_STEP_SUMMARY"
           echo 'RESPONSES_PAID_PROBES=0' >> "$GITHUB_STEP_SUMMARY"
           echo 'RELAY_SECRET_READS=0' >> "$GITHUB_STEP_SUMMARY"
