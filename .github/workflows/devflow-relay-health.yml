@@ -2,6 +2,25 @@ name: Devflow Relay Health
 
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: Configuration-only is zero-request; paid probe sends one Responses request
+        required: true
+        type: choice
+        default: configuration_only
+        options:
+          - configuration_only
+          - paid_responses_probe
+      confirm_paid_probe:
+        description: For paid mode, enter I_ACCEPT_ONE_PAID_RESPONSES_PROBE
+        required: false
+        type: string
+        default: ""
+      purpose:
+        description: Required reason for a paid probe
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -15,11 +34,44 @@ jobs:
     if: github.actor == 'tyxq428'
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    environment: agent-runtime
+    environment:
+      name: agent-runtime
+      deployment: false
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
+          ref: main
           persist-credentials: false
+
+      - name: Validate zero-request or explicitly paid mode
+        shell: bash
+        env:
+          MODE: ${{ inputs.mode }}
+          CONFIRM: ${{ inputs.confirm_paid_probe }}
+          PURPOSE: ${{ inputs.purpose }}
+        run: |
+          set -euo pipefail
+          case "$MODE" in
+            configuration_only)
+              test -z "$CONFIRM"
+              echo "RELAY_HEALTH_MODE=CONFIGURATION_ONLY_ZERO_REQUEST" \
+                >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            paid_responses_probe)
+              test "$CONFIRM" = "I_ACCEPT_ONE_PAID_RESPONSES_PROBE"
+              test -n "${PURPOSE// }"
+              echo "RELAY_HEALTH_MODE=ONE_EXPLICIT_PAID_REQUEST" \
+                >> "$GITHUB_STEP_SUMMARY"
+              echo "PAID_PROBE_PURPOSE_RECORDED=YES" >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            *)
+              echo "UNSUPPORTED_RELAY_HEALTH_MODE"
+              exit 1
+              ;;
+          esac
+          echo "This workflow is never automatically retried." \
+            >> "$GITHUB_STEP_SUMMARY"
+
       - name: Register private value masks
         shell: bash
         env:
@@ -32,13 +84,20 @@ jobs:
           import base64
           import os
           from urllib.parse import quote, urlsplit
+
           endpoint = os.environ['ENDPOINT']
           key = os.environ['API_KEY']
           model = os.environ['MODEL']
           parsed = urlsplit(endpoint)
           for value in {
-              endpoint, endpoint.rstrip('/'), parsed.netloc, parsed.hostname or '', key, model,
-              quote(endpoint, safe=''), quote(key, safe=''),
+              endpoint,
+              endpoint.rstrip('/'),
+              parsed.netloc,
+              parsed.hostname or '',
+              key,
+              model,
+              quote(endpoint, safe=''),
+              quote(key, safe=''),
               base64.b64encode(endpoint.encode()).decode(),
               base64.urlsafe_b64encode(endpoint.encode()).decode(),
               base64.b64encode(key.encode()).decode(),
@@ -47,13 +106,29 @@ jobs:
               if len(value) >= 3:
                   print(f'::add-mask::{value}')
           PY
-      - name: Run minimal streaming Responses health check
+
+      - name: Validate private runtime configuration without a network request
         env:
           AGENT_RESPONSES_ENDPOINT: ${{ secrets.AGENT_RESPONSES_ENDPOINT }}
           AGENT_API_KEY: ${{ secrets.AGENT_API_KEY }}
           AGENT_MODEL: ${{ secrets.AGENT_MODEL }}
           PYTHONPATH: scripts/devflow
-        run: python scripts/devflow/relay_health.py
+        run: |
+          python scripts/devflow/runtime_preflight.py \
+            --output relay-health-summary.json
+          echo "RESPONSES_REQUESTS_SENT=0" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run one explicitly approved paid streaming Responses probe
+        if: inputs.mode == 'paid_responses_probe'
+        env:
+          AGENT_RESPONSES_ENDPOINT: ${{ secrets.AGENT_RESPONSES_ENDPOINT }}
+          AGENT_API_KEY: ${{ secrets.AGENT_API_KEY }}
+          AGENT_MODEL: ${{ secrets.AGENT_MODEL }}
+          PYTHONPATH: scripts/devflow
+        run: |
+          python scripts/devflow/relay_health.py
+          echo "RESPONSES_REQUESTS_SENT=1" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Audit safe health summary
         if: always()
         env:
@@ -63,6 +138,7 @@ jobs:
         run: |
           python scripts/devflow/secret_audit.py relay-health-summary.json \
             --output relay-health-secret-audit.json
+
       - name: Upload diagnostics only on failure
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
