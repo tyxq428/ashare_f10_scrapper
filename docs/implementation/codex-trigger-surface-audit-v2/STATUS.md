@@ -9,8 +9,8 @@ security_status: PENDING
 current_stage: W04
 last_completed_stage: W03
 branch: feature/codex-trigger-surface-audit-v2
-pull_request: null
-next_action: open_pr_and_run_zero_model_premerge_gates
+pull_request: 52
+next_action: monitor_pr52_and_fix_deterministic_gates
 post_merge: PENDING
 human_intervention_required: false
 legacy_task_branches_quarantined: 88
