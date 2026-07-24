@@ -1,32 +1,41 @@
 {
   "schema_version": 2,
-  "state_revision": 1,
+  "state_revision": 2,
   "task_id": "codex-trigger-surface-lockdown-v2",
   "title": "Codex trigger-surface and historical rerun lockdown",
-  "status": "RUNNING",
-  "execution_status": "RUNNING",
+  "status": "DONE",
+  "execution_status": "COMPLETED",
   "acceptance": {
     "domain": "generic",
-    "status": "PENDING",
-    "reason_code": null,
-    "details_path": null
+    "status": "PASS",
+    "reason_code": "SUPERSEDED_BY_PR52",
+    "details_path": "docs/implementation/codex-trigger-surface-lockdown-v2/FINAL_REPORT.md"
   },
-  "security_status": "PENDING",
+  "security_status": "PASS",
   "working_branch": "feature/codex-trigger-surface-lockdown-v2",
   "pull_request": null,
   "base_sha_at_start": "fa1427a08bc62b7fdf55a991fec99cb22f442562",
-  "last_product_commit_sha": "fa1427a08bc62b7fdf55a991fec99cb22f442562",
+  "last_product_commit_sha": "9e01fb6669c8a4a74573645e775ad68215d96139",
   "last_state_commit_sha": null,
   "current_stage": "W00",
-  "last_completed_stage": null,
-  "last_successful_step": "task_contract_and_master_plan_created",
-  "next_action": "audit_current_historical_branch_workflow_and_environment_surfaces",
-  "gate_results": {},
+  "last_completed_stage": "W00",
+  "last_successful_step": "superseded_by_pr52_and_reconciliation_v3_created",
+  "next_action": "none",
+  "gate_results": {
+    "W00_RECONCILIATION": "PASS",
+    "IMPLEMENTATION_FILES_CHANGED": "0",
+    "OPEN_PULL_REQUESTS": "0",
+    "SUPERSEDED_BY_PR": "52",
+    "FOLLOW_UP_PR": "53",
+    "CODEX_CALLS": "0",
+    "RESPONSES_PAID_PROBES": "0",
+    "RELAY_SECRET_READS": "0"
+  },
   "retry_budget": {
-    "infrastructure": 3,
+    "infrastructure": 0,
     "codex_sessions": 0,
     "codex_recovery_generations": 0,
-    "replans": 2
+    "replans": 0
   },
   "human_gate": {
     "required": false,
@@ -35,15 +44,15 @@
     "resume_from": null
   },
   "post_merge": {
-    "status": "PENDING",
-    "merge_sha": null,
-    "verified_run_ids": []
+    "status": "PASS",
+    "merge_sha": "b02b0c58cb20c72e098b63dbae47ec07c5b6f7c3",
+    "verified_run_ids": [30067491515]
   },
   "notification": {
-    "generation": 0,
-    "last_type": null,
+    "generation": 1,
+    "last_type": "COMPLETED",
     "acknowledged": true,
     "control_issue_number": null
   },
-  "updated_at_utc": "2026-07-24T02:12:00Z"
+  "updated_at_utc": "2026-07-24T05:40:18Z"
 }
