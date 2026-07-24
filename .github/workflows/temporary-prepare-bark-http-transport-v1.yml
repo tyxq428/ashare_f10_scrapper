@@ -51,6 +51,17 @@ jobs:
         run: |
           set -euo pipefail
           set -o pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('scripts/devflow/prepare_bark_http_transport_v1.py')
+          text = path.read_text(encoding='utf-8')
+          old = '        "BARK_ENDPOINT=\\"${BARK_ENDPOINT%/}\\"",\n'
+          new = '        \'BARK_ENDPOINT="${BARK_ENDPOINT%/}"\',\n'
+          if text.count(old) != 1:
+              raise SystemExit('PREPARER_QUOTE_PATCH_COUNT_MISMATCH')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
           python scripts/devflow/prepare_bark_http_transport_v1.py \
             2>&1 | tee /tmp/bark-http-preparer.log
           rm -f \
