@@ -15,6 +15,7 @@ WORKFLOW_TARGETS = (
     "devflow-state-consistency.yml",
     "devflow-relay-health.yml",
     "devflow-secret-audit.yml",
+    "devflow-legacy-codex-rerun-audit.yml",
     "devflow-incident.yml",
     "devflow-post-merge.yml",
 )
@@ -160,7 +161,8 @@ def validate_file(path: Path) -> list[str]:
                 "rerun-failed-jobs",
                 "recovery_policy.py",
                 "devflow_notify",
-                "No Codex task was created, observed or retried",
+                "No Codex task, Relay paid probe or model session was retried",
+                "AUTOMATIC_PAID_RELAY_PROBE_RETRIES=0",
             ),
             errors,
         )
@@ -169,6 +171,7 @@ def validate_file(path: Path) -> list[str]:
             text,
             (
                 "      - Codex Task\n",
+                "      - Devflow Relay Health\n",
                 "actions/workflows/codex-task.yml/dispatches",
                 "steps.decision.outputs.action == 'RETRY_CODEX'",
                 "python scripts/devflow/recovery_task.py",
@@ -176,7 +179,7 @@ def validate_file(path: Path) -> list[str]:
                 "secrets.AGENT_",
             ),
             errors,
-            message="automatic Codex path is forbidden",
+            message="automatic model or paid-probe path is forbidden",
         )
         if "issues: write" in text:
             errors.append(f"{path}: auto recovery must not write Issues directly")
@@ -241,12 +244,73 @@ def validate_file(path: Path) -> list[str]:
             )
 
     if path.name == "devflow-relay-health.yml":
-        _require_fragments(path, text, ("agent-runtime", "relay_health.py"), errors)
+        _require_fragments(
+            path,
+            text,
+            (
+                "agent-runtime",
+                "configuration_only",
+                "paid_responses_probe",
+                "I_ACCEPT_ONE_PAID_RESPONSES_PROBE",
+                "RESPONSES_REQUESTS_SENT=0",
+                "relay_health.py",
+                "This workflow is never automatically retried",
+            ),
+            errors,
+        )
+        if text.count("python scripts/devflow/relay_health.py") != 1:
+            errors.append(
+                f"{path}: exactly one explicitly paid Responses probe is allowed"
+            )
         if "openai/codex-action@" in text:
             errors.append(f"{path}: Relay Health may not call Codex")
 
     if path.name == "devflow-secret-audit.yml":
-        _require_fragments(path, text, ("secret_audit.py",), errors)
+        _require_fragments(
+            path,
+            text,
+            (
+                "validate-source:",
+                "AUDIT_CONFIRMED_MODEL_RUN",
+                "Codex One-Time Activation",
+                "CODEX_MODEL_SESSION_STARTED activation_id=",
+                "needs: validate-source",
+                "MODEL_RUN_EVIDENCE=VALIDATED_BEFORE_SECRET_ACCESS",
+                "secret_audit.py",
+            ),
+            errors,
+        )
+        if "workflow_run:" in text:
+            errors.append(f"{path}: Secret Audit must not trigger automatically")
+        validate_index = text.find("  validate-source:")
+        audit_index = text.find("  audit-public-logs:")
+        environment_index = text.find("    environment:")
+        if not (0 <= validate_index < audit_index <= environment_index):
+            errors.append(
+                f"{path}: source evidence must pass before Environment binding"
+            )
+
+    if path.name == "devflow-legacy-codex-rerun-audit.yml":
+        _require_fragments(
+            path,
+            text,
+            (
+                "workflow_dispatch:",
+                "schedule:",
+                "create:",
+                "task/codex-",
+                "legacy_codex_branch_audit.py",
+                "persist-credentials: false",
+            ),
+            errors,
+        )
+        _forbid(
+            path,
+            text,
+            ("agent-runtime", "secrets.AGENT_", "openai/codex-action@"),
+            errors,
+            message="legacy branch audit must remain zero-model and secret-free",
+        )
 
     if path.name == "devflow-incident.yml":
         _require_fragments(
@@ -323,6 +387,9 @@ def main() -> int:
         "files": found,
         "automatic_model_paths": entrypoint_summary.get(
             "automatic_model_paths"
+        ),
+        "automatic_paid_probe_retries": entrypoint_summary.get(
+            "automatic_paid_probe_retries"
         ),
         "errors": errors,
     }
