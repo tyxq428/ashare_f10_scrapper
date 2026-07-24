@@ -1,0 +1,49 @@
+{
+  "schema_version": 2,
+  "state_revision": 1,
+  "task_id": "codex-entrypoint-hardening-v1",
+  "title": "Codex entrypoint hardening and one-time activation controls",
+  "status": "RUNNING",
+  "execution_status": "RUNNING",
+  "acceptance": {
+    "domain": "generic",
+    "status": "PENDING",
+    "reason_code": null,
+    "details_path": null
+  },
+  "security_status": "PENDING",
+  "working_branch": "feature/codex-entrypoint-hardening-v1",
+  "pull_request": null,
+  "base_sha_at_start": "3dd0075c83651d73677ecf8105946ae34bad362e",
+  "last_product_commit_sha": "3dd0075c83651d73677ecf8105946ae34bad362e",
+  "last_state_commit_sha": null,
+  "current_stage": "W00",
+  "last_completed_stage": null,
+  "last_successful_step": "task_contract_and_master_plan_created",
+  "next_action": "inventory_all_potential_codex_entrypoints_and_add_zero_model_static_guard",
+  "gate_results": {},
+  "retry_budget": {
+    "infrastructure": 3,
+    "codex_sessions": 0,
+    "codex_recovery_generations": 0,
+    "replans": 2
+  },
+  "human_gate": {
+    "required": false,
+    "reason": null,
+    "minimum_action": null,
+    "resume_from": null
+  },
+  "post_merge": {
+    "status": "PENDING",
+    "merge_sha": null,
+    "verified_run_ids": []
+  },
+  "notification": {
+    "generation": 0,
+    "last_type": null,
+    "acknowledged": true,
+    "control_issue_number": null
+  },
+  "updated_at_utc": "2026-07-24T00:29:40Z"
+}
