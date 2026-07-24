@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "state_revision": 3,
+  "state_revision": 4,
   "task_id": "codex-trigger-surface-audit-v2",
   "title": "Historical Codex rerun quarantine and paid-probe trigger hardening",
   "status": "VERIFYING",
@@ -13,20 +13,20 @@
   },
   "security_status": "PENDING",
   "working_branch": "feature/codex-trigger-surface-audit-v2",
-  "pull_request": null,
+  "pull_request": 52,
   "base_sha_at_start": "fa1427a08bc62b7fdf55a991fec99cb22f442562",
   "last_product_commit_sha": "fa1427a08bc62b7fdf55a991fec99cb22f442562",
   "last_state_commit_sha": null,
   "current_stage": "W04",
   "last_completed_stage": "W03",
-  "last_successful_step": "historical_rerun_paid_probe_and_secret_audit_guards_implemented",
-  "next_action": "open_pr_and_run_zero_model_premerge_gates",
+  "last_successful_step": "pr52_opened_for_zero_model_validation",
+  "next_action": "monitor_pr52_and_fix_deterministic_gates",
   "gate_results": {
     "W00_TRIGGER_SURFACE_AUDIT": "PASS",
     "W01_LEGACY_RERUN_QUARANTINE": "PASS:88_BRANCHES",
     "W02_PAID_PROBE_BOUNDARY": "PASS",
     "W03_PERMANENT_GUARDS": "PASS",
-    "W04_PRE_MERGE": "PENDING",
+    "W04_PRE_MERGE": "RUNNING:PR52",
     "W05_EXACT_MAIN": "PENDING",
     "CODEX_CALLS_DURING_TASK": "0",
     "RESPONSES_PAID_PROBES_DURING_TASK": "0"
@@ -54,5 +54,5 @@
     "acknowledged": true,
     "control_issue_number": null
   },
-  "updated_at_utc": "2026-07-24T04:18:23Z"
+  "updated_at_utc": "2026-07-24T04:22:20Z"
 }
