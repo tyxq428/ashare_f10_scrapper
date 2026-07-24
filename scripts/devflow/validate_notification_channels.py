@@ -10,6 +10,9 @@ INCIDENT = WORKFLOW_ROOT / "devflow-incident.yml"
 STATE_CONSISTENCY = WORKFLOW_ROOT / "devflow-state-consistency.yml"
 TERMINAL_PRODUCER = WORKFLOW_ROOT / "devflow-terminal-state-notify.yml"
 AUTO_RECOVERY = WORKFLOW_ROOT / "devflow-auto-recovery.yml"
+LIVE_TEST_WORKFLOW = (
+    WORKFLOW_ROOT / "devflow-bark-all-status-live-test.yml"
+)
 LIVE_TEST_ACTIVATION = Path(
     ".devflow/bark-all-status-live-test-activation.json"
 )
@@ -152,7 +155,7 @@ def validate() -> dict[str, Any]:
     live_test = manifest.get("one_time_live_test")
     expected_live_test = {
         "activation_id": "bark-all-status-live-test-v1-20260724",
-        "workflow": INCIDENT.as_posix(),
+        "workflow": LIVE_TEST_WORKFLOW.as_posix(),
         "activation_file": LIVE_TEST_ACTIVATION.as_posix(),
         "issue_number": 61,
         "statuses": expected_types,
@@ -195,9 +198,14 @@ def validate() -> dict[str, Any]:
         for path, text in workflow_text.items()
         if "notification-runtime" in text
     ]
-    if environment_users != [INCIDENT.as_posix()]:
+    expected_environment_users = [
+        LIVE_TEST_WORKFLOW.as_posix(),
+        INCIDENT.as_posix(),
+    ]
+    if environment_users != expected_environment_users:
         errors.append(
-            "notification-runtime must be referenced only by Devflow Incident: "
+            "notification-runtime may be referenced only by Incident and the "
+            "owner-approved one-time live test: "
             f"{environment_users}"
         )
 
@@ -206,9 +214,14 @@ def validate() -> dict[str, Any]:
         for path, text in workflow_text.items()
         if "${{ secrets.BARK_PUSH_URL }}" in text
     ]
-    if secret_users != [INCIDENT.as_posix()]:
+    expected_secret_users = [
+        LIVE_TEST_WORKFLOW.as_posix(),
+        INCIDENT.as_posix(),
+    ]
+    if secret_users != expected_secret_users:
         errors.append(
-            "BARK_PUSH_URL must be referenced only by Devflow Incident: "
+            "BARK_PUSH_URL may be referenced only by Incident and the "
+            "owner-approved one-time live test: "
             f"{secret_users}"
         )
 
@@ -234,7 +247,12 @@ def validate() -> dict[str, Any]:
             f"{scanner_users}"
         )
 
-    for path in (INCIDENT, STATE_CONSISTENCY, TERMINAL_PRODUCER):
+    for path in (
+        INCIDENT,
+        STATE_CONSISTENCY,
+        TERMINAL_PRODUCER,
+        LIVE_TEST_WORKFLOW,
+    ):
         if not path.is_file():
             errors.append(f"missing notification workflow: {path}")
     for script in (RECEIPT_BUILDER, RECEIPT_COMMENT):
@@ -276,23 +294,15 @@ def validate() -> dict[str, Any]:
         "BARK_RESPONSE_HEADERS_STORED=0",
         "BARK_ENDPOINT_DIAGNOSTICS_PRINTED=0",
         "BARK_SECRET_VALUE_STORED=0",
-        ".devflow/bark-all-status-live-test-activation.json",
-        "bark-all-status-live-test:",
-        "COMPLETED INTERRUPTED HUMAN_REQUIRED SECURITY_BLOCKED",
-        "EXPECTED_REAL_BARK_REQUESTS=4",
-        "BARK_ALL_STATUS_LIVE_TEST=DELIVERED",
-        "gh issue comment 61",
     )
     for fragment in required_incident:
         if fragment not in incident_text:
             errors.append(f"Devflow Incident missing Bark guard: {fragment}")
-    if incident_text.count("--request POST") != 2:
+    if incident_text.count("--request POST") != 1:
+        errors.append("Devflow Incident must contain exactly one Bark POST location")
+    if incident_text.count("actions/upload-artifact@") != 1:
         errors.append(
-            "Devflow Incident must contain one production and one approved live-test Bark POST"
-        )
-    if incident_text.count("actions/upload-artifact@") != 2:
-        errors.append(
-            "Devflow Incident must contain one receipt and one live-test Artifact upload"
+            "Devflow Incident must contain exactly one receipt Artifact upload"
         )
     if incident_text.count("path: /tmp/bark-delivery-result.json") != 1:
         errors.append("Bark receipt Artifact must contain exactly one JSON path")
@@ -313,6 +323,53 @@ def validate() -> dict[str, Any]:
     ):
         if forbidden in incident_text:
             errors.append(f"Devflow Incident contains forbidden path: {forbidden}")
+
+
+    live_test_text = workflow_text.get(LIVE_TEST_WORKFLOW, "")
+    required_live_test = (
+        "push:",
+        "      - main",
+        ".devflow/bark-all-status-live-test-activation.json",
+        "github.event_name == 'push'",
+        "github.ref_name == 'main'",
+        "github.run_attempt == 1",
+        "name: notification-runtime",
+        "${{ secrets.BARK_PUSH_URL }}",
+        "STATUSES=(COMPLETED INTERRUPTED HUMAN_REQUIRED SECURITY_BLOCKED)",
+        "render_bark_message",
+        "BARK_TITLE_MISSING_STATUS",
+        "--retry 0",
+        "--proto '=https'",
+        "--tlsv1.2",
+        "--output /dev/null",
+        "EXPECTED_REAL_BARK_REQUESTS=4",
+        "ACTUAL_REAL_BARK_REQUESTS=",
+        "BARK_ALL_STATUS_LIVE_TEST=DELIVERED",
+        "gh issue comment 61",
+        UPLOAD_ARTIFACT_REF,
+        "bark-all-status-live-test-${{ github.run_id }}",
+        "retention-days: 14",
+        "compression-level: 0",
+    )
+    for fragment in required_live_test:
+        if fragment not in live_test_text:
+            errors.append(f"Bark all-status live test missing guard: {fragment}")
+    if live_test_text.count("--request POST") != 1:
+        errors.append("Bark all-status live test must contain exactly one POST loop")
+    if live_test_text.count("actions/upload-artifact@") != 1:
+        errors.append("Bark all-status live test must upload exactly one result Artifact")
+    for forbidden in (
+        "repository_dispatch:",
+        "workflow_run:",
+        "agent-runtime",
+        "secrets.AGENT_",
+        "openai/codex-action@",
+        "private_responses_forwarder.py",
+        "relay_health.py",
+        "--show-error",
+    ):
+        if forbidden in live_test_text:
+            errors.append(f"Bark all-status live test contains forbidden path: {forbidden}")
 
     comment_text = (
         RECEIPT_COMMENT.read_text(encoding="utf-8")
@@ -440,6 +497,12 @@ def validate() -> dict[str, Any]:
         "bark_receipt_issue_index": receipt.get("issue_index_enabled"),
         "raw_workflow_failure_notifications": 0 if not errors else None,
         "automatic_bark_retries": 0 if not errors else None,
+        "bark_live_test_post_locations": live_test_text.count(
+            "--request POST"
+        ),
+        "bark_live_test_artifact_uploads": live_test_text.count(
+            "actions/upload-artifact@"
+        ),
         "one_time_live_test": live_test,
         "errors": errors,
     }

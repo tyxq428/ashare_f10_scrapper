@@ -60,7 +60,7 @@
   },
   "one_time_live_test": {
     "activation_id": "bark-all-status-live-test-v1-20260724",
-    "workflow": ".github/workflows/devflow-incident.yml",
+    "workflow": ".github/workflows/devflow-bark-all-status-live-test.yml",
     "activation_file": ".devflow/bark-all-status-live-test-activation.json",
     "issue_number": 61,
     "statuses": [
