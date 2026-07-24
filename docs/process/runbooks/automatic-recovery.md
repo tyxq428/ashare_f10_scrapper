@@ -17,25 +17,36 @@
 | Action | 系统动作 | 用户通知 |
 |---|---|---|
 | `NOOP` | 无动作 | 否 |
-| `RETRY` | 仅重跑已验证的基础设施失败 Job | 否 |
+| `RETRY` | 仅重跑白名单中的普通零模型基础设施失败 Job | 否 |
 | `HUMAN_REQUIRED` | 停止并给出唯一人工动作 | 是 |
 | `SECURITY_BLOCKED` | 阻止发布和自动恢复 | 是 |
 | `INTERRUPTED` | 路由 ChatGPT Web 或预算耗尽 | 是 |
 | `COMPLETED` | 记录完成状态 | 是，最多 1 次 |
 
-不存在 `RETRY_CODEX` 或自动 `CODEX_REPAIR` 路径。
+不存在 `RETRY_CODEX`、自动 `CODEX_REPAIR` 或 Recovery Generation 路径。
 
 ## 唯一允许的自动重试
 
-仅以下已验证的基础设施问题可在预算内调用 `rerun-failed-jobs`：
+仅普通、零模型、零付费探针 Workflow 的以下已验证基础设施问题，可在预算内调用 `rerun-failed-jobs`：
 
 - Runner 启动、排队、取消、超时或 stale；
 - Checkout、setup、依赖下载；
 - Artifact 上传或下载；
-- GitHub API 的明确临时错误；
-- Relay Health 的传输检查，但不得因此启动模型。
+- GitHub API 的明确临时错误。
 
 重试只针对失败 Job，保留成功检查点；成功后静默继续。
+
+## 永不自动重跑
+
+以下执行不在 Auto Recovery监听清单中，或分类时直接终止：
+
+- `Codex Task`；
+- `Codex One-Time Activation`；
+- `Devflow Relay Health`；
+- 已经预占或消耗一次性 Grant 的 Run；
+- 任何模型结果或模型启动标记存在的 Run。
+
+即使失败步骤叫 Checkout、Timeout 或 Artifact Upload，也不得重跑整个模型/付费探针 Job。
 
 ## 必须交给 ChatGPT Web 的失败
 
@@ -48,6 +59,7 @@
 - Post-Merge；
 - Secret、Scope、Manifest 和权限；
 - 业务语义、数据源冲突和架构决策；
+- Relay付费探针失败；
 - 任何模型返回的 `BLOCKED / NO_CHANGES / UNVERIFIED / FAILURE / TIMEOUT`。
 
 处理顺序：
@@ -62,9 +74,24 @@
 
 不得从 `main` 合成固定文件范围来猜测功能分支失败。
 
+## 历史 Codex Run Re-run
+
+GitHub历史 Re-run会复用原 Workflow定义。永久防护依赖历史任务分支隔离，而不是当前 `main` 的 Policy：
+
+```text
+Devflow Legacy Codex Rerun Audit
+→ 枚举 task/codex-*
+→ Descriptor必须不存在
+→ Composite Action必须是禁用版本
+→ 模型引用必须不存在
+→ Quarantine marker必须有效
+```
+
+发现新建或未隔离的历史任务分支时 Fail Closed。开放 PR分支不自动修改，由 ChatGPT Web审查。
+
 ## Codex Candidate 只记录，不执行
 
-若未来出现一个看似适合 Codex 的局部产品代码问题，自动恢复最多将其标记为候选；不得创建分支、写入 Descriptor、启动 Environment 或 Dispatch `codex-task.yml`。
+若未来出现一个看似适合 Codex 的局部产品代码问题，常驻入口最多执行零 Token候选复核；不得启动 Environment、Forwarder或模型。
 
 后续必须由 ChatGPT Web：
 
@@ -73,30 +100,25 @@
 3. 生成不可变 Descriptor 和失败指纹；
 4. 获得用户明确授权；
 5. 通过 Context、重复和用量门禁；
-6. 通过独立 PR 恢复模型 Job；
-7. 用户再次明确要求后才执行一次。
+6. 通过独立 PR加入一次性 Activation；
+7. 用户再次明确要求后只执行一次。
 
-当前仓库 `mode: disabled`，因此候选也不会调用模型。
+当前仓库 `mode: disabled`，候选不会调用模型。
 
 ## Product Gate
-
-Product Gate 继续执行 Scope、Full Gate、受控合并和 merge-boundary 分类，但失败处理如下：
 
 - Scope violation → `SECURITY_BLOCKED`；
 - 真实 merge conflict、Branch Protection 或权限拒绝 → `HUMAN_REQUIRED`；
 - 代码或 Gate 失败 → `INTERRUPTED`，交给 ChatGPT Web；
-- 不创建 Codex Recovery Generation；
-- 不重跑失败 Codex Job。
+- 不创建 Recovery Generation；
+- 不重跑模型 Job。
 
 ## Post-Merge
 
-Post-Merge 在 exact `main` 上运行指定 Profile：
-
 - PASS：记录成功，继续 canonical closeout；
-- FAIL：发送 `POST_MERGE_WEB_REPAIR_REQUIRED`，由 ChatGPT Web 直接修复或回滚；
+- FAIL：发送 `POST_MERGE_WEB_REPAIR_REQUIRED`；
 - 不声明 `agent-runtime`；
 - 不访问 Relay Secret；
-- 不调用 `recovery_task.py`；
 - 不 Dispatch Codex。
 
 ## 通知
@@ -110,4 +132,4 @@ SECURITY_BLOCKED
 INTERRUPTED
 ```
 
-基础设施重试、确定性修复和普通阶段 PASS 保持静默。`/ack` 仅确认收到，不触发修复、重试、恢复或模型调用。
+普通基础设施重试、确定性修复和阶段 PASS保持静默。`/ack` 仅确认收到，不触发修复、重试、恢复或模型调用。

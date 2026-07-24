@@ -1,0 +1,56 @@
+name: Devflow Legacy Codex Rerun Audit
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1"
+  create:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  audit:
+    if: >-
+      github.event_name != 'create' ||
+      (github.event.ref_type == 'branch' && startsWith(github.event.ref, 'task/codex-'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Collect open pull request heads
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh pr list --state open --limit 200 --json headRefName \
+            > /tmp/open-pr-heads.json
+
+      - name: Audit every historical task/codex branch
+        run: |
+          set -euo pipefail
+          python scripts/devflow/legacy_codex_branch_audit.py \
+            --repo . \
+            --open-pr-heads-json /tmp/open-pr-heads.json \
+            --canonical-action .github/actions/codex-thin-worker/action.yml \
+            --control-sha "$(git rev-parse HEAD)" \
+            --output /tmp/legacy-codex-rerun-audit.json
+
+      - name: Upload bounded diagnostics only on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: legacy-codex-rerun-audit-${{ github.run_id }}
+          path: /tmp/legacy-codex-rerun-audit.json
+          if-no-files-found: warn
+          retention-days: 7

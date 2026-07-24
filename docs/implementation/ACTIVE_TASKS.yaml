@@ -27,6 +27,15 @@
       "pull_request": 51,
       "current_stage": "W08",
       "state_path": "docs/implementation/codex-entrypoint-hardening-v1/task_state.yaml"
+    },
+    {
+      "task_id": "codex-trigger-surface-audit-v2",
+      "title": "Historical Codex rerun quarantine and paid-probe trigger hardening",
+      "status": "VERIFYING",
+      "branch": "feature/codex-trigger-surface-audit-v2",
+      "pull_request": 52,
+      "current_stage": "W05",
+      "state_path": "docs/implementation/codex-trigger-surface-audit-v2/task_state.yaml"
     }
   ]
 }
