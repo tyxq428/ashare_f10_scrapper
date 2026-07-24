@@ -1,0 +1,66 @@
+{
+  "schema_version": 2,
+  "state_revision": 3,
+  "task_id": "codex-trigger-surface-reconciliation-v3",
+  "title": "Codex trigger-surface reconciliation and Environment protection confirmation",
+  "status": "VERIFYING",
+  "execution_status": "RUNNING",
+  "acceptance": {
+    "domain": "generic",
+    "status": "PENDING",
+    "reason_code": null,
+    "details_path": "docs/implementation/codex-trigger-surface-reconciliation-v3/W01_result.md"
+  },
+  "security_status": "PASS",
+  "working_branch": "feature/codex-trigger-surface-reconciliation-v3",
+  "pull_request": 53,
+  "base_sha_at_start": "9e01fb6669c8a4a74573645e775ad68215d96139",
+  "last_product_commit_sha": "9e01fb6669c8a4a74573645e775ad68215d96139",
+  "last_state_commit_sha": null,
+  "current_stage": "W02",
+  "last_completed_stage": "W01",
+  "last_successful_step": "agent_runtime_environment_protection_confirmed_by_user",
+  "next_action": "run_pr_head_deterministic_checks_and_merge_pr53",
+  "gate_results": {
+    "W00_DIFF_RECONCILIATION": "PASS",
+    "W01_ENVIRONMENT_PROTECTION": "PASS:USER_ATTESTATION",
+    "CODEX_TASK_PLATFORM_STATE": "ACTIVE_ELIGIBILITY_ONLY",
+    "AGENT_RUNTIME_REQUIRED_REVIEWERS": "tyxq428,jellycookie",
+    "AGENT_RUNTIME_SELF_REVIEW": "ALLOWED_BY_USER_DECISION",
+    "AGENT_RUNTIME_ADMIN_BYPASS": "DISABLED",
+    "AGENT_RUNTIME_DEPLOYMENT_BRANCHES": "MAIN_ONLY",
+    "LEGACY_BRANCH_OPEN_PRS": "0",
+    "LEGACY_BRANCH_IMPLEMENTATION_FILES": "0",
+    "CODEX_TASK_DECISION": "KEEP_ELIGIBILITY_ONLY",
+    "AUTOMATIC_MODEL_PATHS": "0",
+    "RESPONSES_AUTOMATIC_PAID_PATHS": "0",
+    "CODEX_CALLS_DURING_RECONCILIATION": "0",
+    "RESPONSES_PAID_PROBES_DURING_RECONCILIATION": "0",
+    "RELAY_SECRET_READS_DURING_RECONCILIATION": "0",
+    "HISTORICAL_CODEX_RERUNS_DURING_RECONCILIATION": "0"
+  },
+  "retry_budget": {
+    "infrastructure": 0,
+    "codex_sessions": 0,
+    "codex_recovery_generations": 0,
+    "replans": 0
+  },
+  "human_gate": {
+    "required": false,
+    "reason": null,
+    "minimum_action": null,
+    "resume_from": null
+  },
+  "post_merge": {
+    "status": "PENDING",
+    "merge_sha": null,
+    "verified_run_ids": []
+  },
+  "notification": {
+    "generation": 2,
+    "last_type": "RESUMED",
+    "acknowledged": true,
+    "control_issue_number": null
+  },
+  "updated_at_utc": "2026-07-24T06:07:12Z"
+}
