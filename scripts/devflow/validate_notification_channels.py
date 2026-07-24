@@ -8,6 +8,7 @@ MANIFEST = Path(".devflow/notification-channels.yaml")
 WORKFLOW_ROOT = Path(".github/workflows")
 INCIDENT = WORKFLOW_ROOT / "devflow-incident.yml"
 STATE_CONSISTENCY = WORKFLOW_ROOT / "devflow-state-consistency.yml"
+TERMINAL_PRODUCER = WORKFLOW_ROOT / "devflow-terminal-state-notify.yml"
 AUTO_RECOVERY = WORKFLOW_ROOT / "devflow-auto-recovery.yml"
 RECEIPT_BUILDER = Path("scripts/devflow/bark_delivery_result.py")
 RECEIPT_COMMENT = Path("scripts/devflow/bark_delivery_receipt_comment.py")
@@ -57,15 +58,31 @@ def validate() -> dict[str, Any]:
             errors.append("raw workflow_run notifications must remain disabled")
 
     channels = manifest.get("channels")
+    canonical_issue: dict[str, Any] = {}
     bark: dict[str, Any] = {}
     if not isinstance(channels, dict):
         errors.append("notification channels must be an object")
     else:
-        value = channels.get("bark")
-        if not isinstance(value, dict):
+        issue_value = channels.get("canonical_issue")
+        if not isinstance(issue_value, dict):
+            errors.append("canonical Issue channel policy is missing")
+        else:
+            canonical_issue = issue_value
+        bark_value = channels.get("bark")
+        if not isinstance(bark_value, dict):
             errors.append("Bark channel policy is missing")
         else:
-            bark = value
+            bark = bark_value
+
+    expected_issue = {
+        "enabled": True,
+        "deduplication_marker": "task_id+fingerprint+notification_type",
+        "stable_completion_marker": "devflow-task-completed:<task-id>",
+    }
+    for key, expected in expected_issue.items():
+        if canonical_issue.get(key) != expected:
+            errors.append(f"canonical Issue policy mismatch for {key}")
+
     expected_bark = {
         "enabled": True,
         "environment": "notification-runtime",
@@ -111,12 +128,22 @@ def validate() -> dict[str, Any]:
     if not isinstance(producer, dict):
         errors.append("completion producer policy is missing")
     else:
-        if producer.get("workflow") != STATE_CONSISTENCY.as_posix():
-            errors.append("completion producer workflow mismatch")
-        if producer.get("strict_done_required") is not True:
-            errors.append("completion producer must require strict DONE")
-        if producer.get("state_consistency_pass_required") is not True:
-            errors.append("completion producer must require State Consistency PASS")
+        expected_producer = {
+            "workflow": TERMINAL_PRODUCER.as_posix(),
+            "trigger": "workflow_run_success",
+            "source_workflow": "Devflow State Consistency",
+            "source_event": "push",
+            "source_branch": "main",
+            "source_head_checkout": True,
+            "first_parent_diff": True,
+            "single_producer": True,
+            "strict_done_required": True,
+            "state_consistency_pass_required": True,
+            "failure_changes_task_state": False,
+        }
+        for key, expected in expected_producer.items():
+            if producer.get(key) != expected:
+                errors.append(f"completion producer policy mismatch for {key}")
 
     workflow_text: dict[Path, str] = {}
     for path in sorted(WORKFLOW_ROOT.glob("*.yml")):
@@ -155,6 +182,20 @@ def validate() -> dict[str, Any]:
             f"{receipt_script_users}"
         )
 
+    scanner_users = [
+        path.as_posix()
+        for path, text in workflow_text.items()
+        if "terminal_notification_scan.py" in text
+    ]
+    if scanner_users != [TERMINAL_PRODUCER.as_posix()]:
+        errors.append(
+            "terminal completion scanner must have one independent producer: "
+            f"{scanner_users}"
+        )
+
+    for path in (INCIDENT, STATE_CONSISTENCY, TERMINAL_PRODUCER):
+        if not path.is_file():
+            errors.append(f"missing notification workflow: {path}")
     for script in (RECEIPT_BUILDER, RECEIPT_COMMENT):
         if not script.is_file():
             errors.append(f"missing Bark receipt script: {script}")
@@ -166,6 +207,9 @@ def validate() -> dict[str, Any]:
         "notification_event.py prepare",
         "github.run_attempt == 1",
         "continue-on-error: true",
+        "devflow-task-completed:${TASK_ID}",
+        "devflow-task-completed:{value['task_id']}",
+        "TASK_COMPLETION=ALREADY_RECORDED",
         "--retry 0",
         "--proto '=https'",
         "--tlsv1.2",
@@ -237,24 +281,57 @@ def validate() -> dict[str, Any]:
 
     consistency_text = workflow_text.get(STATE_CONSISTENCY, "")
     for fragment in (
-        "notify-terminal-state:",
-        "needs: consistency",
-        "github.event_name == 'push' && github.ref_name == 'main'",
-        "continue-on-error: true",
-        "contents: write",
-        "ref: ${{ github.sha }}",
-        "fetch-depth: 0",
-        "terminal_notification_scan.py",
-        "devflow_notify",
-        "TERMINAL_NOTIFICATION_FAILURE=FAIL_OPEN",
-        "STATE_CONSISTENCY_REQUIRED_BEFORE_COMPLETION=YES",
-        "BARK_REQUESTS_IN_THIS_WORKFLOW=0",
-        "NOTIFICATION_FAILURE_AUTO_RECOVERY=0",
+        "validate_state.py",
+        "validate_workflows.py",
+        "validate_codex_entrypoints.py",
+        "pytest -q",
+        "tests/test_devflow",
     ):
         if fragment not in consistency_text:
+            errors.append(f"State Consistency missing validation guard: {fragment}")
+    for forbidden in (
+        "notify-terminal-state:",
+        "terminal_notification_scan.py",
+        "devflow_notify",
+        "contents: write",
+        "notification-runtime",
+        "BARK_PUSH_URL",
+        "--request POST",
+        RECEIPT_BUILDER.name,
+        RECEIPT_COMMENT.name,
+    ):
+        if forbidden in consistency_text:
             errors.append(
-                f"State Consistency completion producer missing guard: {fragment}"
+                "State Consistency must not produce terminal notifications: "
+                f"{forbidden}"
             )
+
+    producer_text = workflow_text.get(TERMINAL_PRODUCER, "")
+    required_producer = (
+        "workflow_run:",
+        "      - Devflow State Consistency",
+        "github.event.workflow_run.conclusion == 'success'",
+        "github.event.workflow_run.event == 'push'",
+        "github.event.workflow_run.head_branch == 'main'",
+        "ref: ${{ github.event.workflow_run.head_sha }}",
+        "fetch-depth: 2",
+        "persist-credentials: false",
+        "git merge-base --is-ancestor",
+        'git rev-parse "${SOURCE_HEAD_SHA}^1"',
+        "terminal_notification_scan.py",
+        "--source-run-id \"${{ steps.source.outputs.source_run_id }}\"",
+        "devflow_notify",
+        "TERMINAL_NOTIFICATION_FAILURE=FAIL_OPEN",
+        "STATE_CONSISTENCY_SUCCESS_REQUIRED=YES",
+        "SOURCE_EVENT_REQUIRED=PUSH",
+        "SOURCE_BRANCH_REQUIRED=MAIN",
+        "RAW_WORKFLOW_FAILURE_NOTIFICATIONS=0",
+        "BARK_REQUESTS_IN_THIS_WORKFLOW=0",
+        "NOTIFICATION_FAILURE_AUTO_RECOVERY=0",
+    )
+    for fragment in required_producer:
+        if fragment not in producer_text:
+            errors.append(f"terminal completion producer missing guard: {fragment}")
     for forbidden in (
         "notification-runtime",
         "BARK_PUSH_URL",
@@ -264,11 +341,11 @@ def validate() -> dict[str, Any]:
         "--request POST",
         RECEIPT_BUILDER.name,
         RECEIPT_COMMENT.name,
+        "issues: write",
     ):
-        if forbidden in consistency_text:
+        if forbidden in producer_text:
             errors.append(
-                "State Consistency completion producer contains forbidden path: "
-                f"{forbidden}"
+                f"terminal completion producer contains forbidden path: {forbidden}"
             )
 
     auto_text = workflow_text.get(AUTO_RECOVERY, "")
@@ -300,7 +377,11 @@ def validate() -> dict[str, Any]:
         "notification_runtime_workflows": environment_users,
         "bark_secret_workflows": secret_users,
         "bark_receipt_workflows": receipt_script_users,
-        "completion_producer": STATE_CONSISTENCY.as_posix(),
+        "completion_scanner_workflows": scanner_users,
+        "completion_producer": TERMINAL_PRODUCER.as_posix(),
+        "stable_completion_marker": canonical_issue.get(
+            "stable_completion_marker"
+        ),
         "completion_delivery_fail_open": not errors,
         "bark_post_locations": incident_text.count("--request POST"),
         "bark_receipt_artifact_uploads": incident_text.count(
@@ -308,7 +389,7 @@ def validate() -> dict[str, Any]:
         ),
         "bark_receipt_retention_days": receipt.get("retention_days"),
         "bark_receipt_issue_index": receipt.get("issue_index_enabled"),
-        "raw_workflow_run_notifications": 0 if not errors else None,
+        "raw_workflow_failure_notifications": 0 if not errors else None,
         "automatic_bark_retries": 0 if not errors else None,
         "errors": errors,
     }

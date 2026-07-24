@@ -14,7 +14,8 @@
   "channels": {
     "canonical_issue": {
       "enabled": true,
-      "deduplication_marker": "task_id+fingerprint+notification_type"
+      "deduplication_marker": "task_id+fingerprint+notification_type",
+      "stable_completion_marker": "devflow-task-completed:<task-id>"
     },
     "bark": {
       "enabled": true,
@@ -45,9 +46,16 @@
     }
   },
   "completion_producer": {
-    "workflow": ".github/workflows/devflow-state-consistency.yml",
-    "source": "canonical_task_state_transition_after_consistency_pass_on_main",
+    "workflow": ".github/workflows/devflow-terminal-state-notify.yml",
+    "trigger": "workflow_run_success",
+    "source_workflow": "Devflow State Consistency",
+    "source_event": "push",
+    "source_branch": "main",
+    "source_head_checkout": true,
+    "first_parent_diff": true,
+    "single_producer": true,
     "strict_done_required": true,
-    "state_consistency_pass_required": true
+    "state_consistency_pass_required": true,
+    "failure_changes_task_state": false
   }
 }

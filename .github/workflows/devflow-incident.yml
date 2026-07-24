@@ -73,6 +73,10 @@ jobs:
             /tmp/validated-notification.json)"
           TYPE="$(jq -r '.notification_type' /tmp/validated-notification.json)"
           MARKER="$(jq -r '.marker' /tmp/validated-notification.json)"
+          COMPLETION_MARKER=""
+          if [[ "$TYPE" == "COMPLETED" ]]; then
+            COMPLETION_MARKER="devflow-task-completed:${TASK_ID}"
+          fi
 
           if [[ -n "$ISSUE_NUMBER" ]]; then
             gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}" \
@@ -130,10 +134,17 @@ jobs:
               raise SystemExit('TASK_CONTROL_STATE_INVALID')
           PY
 
-          if gh api --paginate \
+          gh api --paginate \
             "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments?per_page=100" \
-            --jq '.[].body' | grep -Fq -- "$MARKER"; then
+            --jq '.[].body' > /tmp/task-control-comment-bodies.txt
+          if grep -Fq -- "$MARKER" /tmp/task-control-comment-bodies.txt || \
+             { [[ -n "$COMPLETION_MARKER" ]] && \
+               grep -Fq -- "$COMPLETION_MARKER" \
+                 /tmp/task-control-comment-bodies.txt; }; then
             echo "VALUABLE_NOTIFICATION=ALREADY_RECORDED" >> "$GITHUB_STEP_SUMMARY"
+            if [[ -n "$COMPLETION_MARKER" ]]; then
+              echo "TASK_COMPLETION=ALREADY_RECORDED" >> "$GITHUB_STEP_SUMMARY"
+            fi
             echo "issue_number=${ISSUE_NUMBER}" >> "$GITHUB_OUTPUT"
             echo "should_push=false" >> "$GITHUB_OUTPUT"
             exit 0
@@ -152,6 +163,11 @@ jobs:
               Path('/tmp/validated-notification.json').read_text(encoding='utf-8')
           )
           failed = ', '.join(value['failure_steps']) or 'none'
+          markers = [f"<!-- {value['marker']} -->"]
+          if value['notification_type'] == 'COMPLETED':
+              markers.append(
+                  f"<!-- devflow-task-completed:{value['task_id']} -->"
+              )
           body = '\n'.join(
               (
                   '@tyxq428',
@@ -170,7 +186,7 @@ jobs:
                   '`/ack` only confirms that you saw this message. It does **not** trigger repair, '
                   'retry, Codex, resume or state changes. Automatic classification and bounded '
                   'recovery already happened before this notification.',
-                  f"<!-- {value['marker']} -->",
+                  *markers,
               )
           )
           Path('/tmp/task-control-comment.md').write_text(body + '\n', encoding='utf-8')
