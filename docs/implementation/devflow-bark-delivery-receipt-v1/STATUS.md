@@ -5,11 +5,11 @@ status: VERIFYING
 execution_status: RUNNING
 acceptance: PENDING
 security_status: PASS
-current_stage: W04
-last_completed_stage: W03
+current_stage: W05
+last_completed_stage: W04
 branch: feature/devflow-bark-delivery-receipt-v1
 pull_request: 56
-next_action: prepare_W05_merge_state_and_run_final_exact_PR_head_gates
+next_action: run_resumed_exact_head_gates_mark_PR56_ready_and_merge
 codex_calls: 0
 responses_paid_probes: 0
 relay_secret_reads: 0
@@ -24,10 +24,11 @@ bark_live_requests: 0
 - W01确定性回执模型和validate CLI；
 - W02安全Transport状态、单JSON Artifact上传和canonical Issue回执索引；
 - W03机器清单、永久Validator、静态测试、Policy和Runbook；
-- 精确W03 head `1c3e1eca154df833a9cd1724dc4ae036af1b29cc` 的四个Gate全部PASS。
+- W04精确head `fd12abe80c52396a3dd91e7e2149e93011ef3715` 的四个Gate全部PASS；
+- 当前唯一开放PR为 #56，并行路径交集为0。
 
 ## 当前阶段
 
-W04准备W05合并状态，并对包含全部实现、守卫、文档与canonical状态的最终PR head再次运行完整Gate。真实Bark请求仍为0。
+W05对恢复后的最终精确PR head再次运行完整Gate，随后将PR #56转为Ready并合并。实现合并不会产生COMPLETED generation或Bark请求；真实验证只在独立DONE closeout后发生。
 
 冲突时以 `task_state.yaml` 为准。
