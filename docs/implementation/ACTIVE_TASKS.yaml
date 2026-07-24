@@ -42,7 +42,7 @@
       "title": "Codex trigger-surface reconciliation and Environment protection confirmation",
       "status": "WAITING_HUMAN",
       "branch": "feature/codex-trigger-surface-reconciliation-v3",
-      "pull_request": null,
+      "pull_request": 53,
       "current_stage": "W01",
       "state_path": "docs/implementation/codex-trigger-surface-reconciliation-v3/task_state.yaml"
     }
