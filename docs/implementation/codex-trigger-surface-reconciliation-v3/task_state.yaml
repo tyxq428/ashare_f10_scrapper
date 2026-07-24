@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "state_revision": 1,
+  "state_revision": 2,
   "task_id": "codex-trigger-surface-reconciliation-v3",
   "title": "Codex trigger-surface reconciliation and Environment protection confirmation",
   "status": "WAITING_HUMAN",
@@ -13,13 +13,13 @@
   },
   "security_status": "PENDING",
   "working_branch": "feature/codex-trigger-surface-reconciliation-v3",
-  "pull_request": null,
+  "pull_request": 53,
   "base_sha_at_start": "9e01fb6669c8a4a74573645e775ad68215d96139",
   "last_product_commit_sha": "9e01fb6669c8a4a74573645e775ad68215d96139",
   "last_state_commit_sha": null,
   "current_stage": "W01",
   "last_completed_stage": "W00",
-  "last_successful_step": "lockdown_v2_pr52_reconciliation_complete",
+  "last_successful_step": "lockdown_v2_pr52_reconciliation_complete_and_pr53_opened",
   "next_action": "configure_or_confirm_agent_runtime_environment_protection",
   "gate_results": {
     "W00_DIFF_RECONCILIATION": "PASS",
@@ -55,5 +55,5 @@
     "acknowledged": false,
     "control_issue_number": null
   },
-  "updated_at_utc": "2026-07-24T05:37:43Z"
+  "updated_at_utc": "2026-07-24T05:39:15Z"
 }
