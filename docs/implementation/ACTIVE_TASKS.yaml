@@ -18,6 +18,15 @@
       "pull_request": 50,
       "current_stage": "W07",
       "state_path": "docs/implementation/devflow-operational-optimization-v2/task_state.yaml"
+    },
+    {
+      "task_id": "codex-entrypoint-hardening-v1",
+      "title": "Codex entrypoint hardening and one-time activation controls",
+      "status": "RUNNING",
+      "branch": "feature/codex-entrypoint-hardening-v1",
+      "pull_request": null,
+      "current_stage": "W00",
+      "state_path": "docs/implementation/codex-entrypoint-hardening-v1/task_state.yaml"
     }
   ]
 }
