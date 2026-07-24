@@ -1,5 +1,8 @@
 name: One-Shot Canonical Completion Recovery
 
+# The first commit installs this branch-local workflow; this second immutable
+# change is the intentional one-shot trigger. Incident task markers make any
+# delayed duplicate dispatch safe and unable to send a second Bark request.
 on:
   push:
     branches:
