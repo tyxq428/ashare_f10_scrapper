@@ -8,6 +8,7 @@
 - merge commit相对该已验证head无文件差异；
 - State Consistency仅负责验证，独立producer负责成功后续通知；
 - Incident stable completion marker阻止同一任务跨generation重复完成Bark；
+- closeout PR #59原子发布DONE state和notification generation 1；
 - Codex Policy保持disabled；
 - closeout前未调用Codex、Responses、Relay、历史模型Workflow或Bark；
 - 未读取、显示、复制、哈希或变换 `BARK_PUSH_URL`。
@@ -24,13 +25,14 @@ last_completed_stage: W05
 branch: main
 pull_request: 58
 implementation_merge_sha: 1f20a6531329ce957d9a3d5a0478071b92d11496
+closeout_pull_request: 59
 next_action: none
 human_intervention_required: false
 ```
 
 ## 自动观察链
 
-本closeout合入main后：
+PR #59合入main后：
 
 ```text
 Devflow State Consistency PASS on exact main
