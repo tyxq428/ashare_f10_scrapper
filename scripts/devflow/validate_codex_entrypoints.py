@@ -34,13 +34,23 @@ def _text(path: Path) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
 
 
-def _require(text: str, fragments: tuple[str, ...], path: Path, errors: list[str]) -> None:
+def _require(
+    text: str,
+    fragments: tuple[str, ...],
+    path: Path,
+    errors: list[str],
+) -> None:
     for fragment in fragments:
         if fragment not in text:
             errors.append(f"{path}: missing required fragment: {fragment}")
 
 
-def _forbid(text: str, fragments: tuple[str, ...], path: Path, errors: list[str]) -> None:
+def _forbid(
+    text: str,
+    fragments: tuple[str, ...],
+    path: Path,
+    errors: list[str],
+) -> None:
     for fragment in fragments:
         if fragment in text:
             errors.append(f"{path}: forbidden model path: {fragment}")
@@ -156,7 +166,12 @@ def validate() -> dict[str, Any]:
     )
 
     post_merge = _text(POST_MERGE)
-    _require(post_merge, ("POST_MERGE_WEB_REPAIR_REQUIRED",), POST_MERGE, errors)
+    _require(
+        post_merge,
+        ("POST_MERGE_WEB_REPAIR_REQUIRED",),
+        POST_MERGE,
+        errors,
+    )
 
     action = _text(ACTION_PATH)
     _require(
@@ -167,7 +182,9 @@ def validate() -> dict[str, Any]:
     )
     _forbid(action, ("openai/codex-action@", "secrets."), ACTION_PATH, errors)
 
-    allowed_agent_runtime = set(manifest.get("allowed_agent_runtime_workflows", []))
+    allowed_agent_runtime = set(
+        manifest.get("allowed_agent_runtime_workflows", [])
+    )
     discovered_agent_runtime: set[str] = set()
     for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
         text = path.read_text(encoding="utf-8")
@@ -180,7 +197,9 @@ def validate() -> dict[str, Any]:
             f"actual={sorted(discovered_agent_runtime)}"
         )
     if RELAY_HEALTH.as_posix() not in discovered_agent_runtime:
-        errors.append("Relay Health must remain the only agent-runtime health probe")
+        errors.append(
+            "Relay Health must remain the only agent-runtime health probe"
+        )
 
     if (ROOT / "scripts/devflow/recovery_task.py").exists():
         errors.append("production recovery_task.py must be removed")
@@ -189,8 +208,8 @@ def validate() -> dict[str, Any]:
     _require(
         task_descriptor,
         (
-            'max_recovery_generations must equal 0',
-            'max_recovery_generations=0',
+            "max_recovery_generations must equal 0",
+            "max_recovery_generations = 0",
         ),
         Path("scripts/devflow/task_descriptor.py"),
         errors,
@@ -199,7 +218,9 @@ def validate() -> dict[str, Any]:
     summary = {
         "status": "PASS" if not errors else "FAIL",
         "policy_mode": policy.get("mode"),
-        "allowed_entrypoint_count": len(entrypoints) if isinstance(entrypoints, list) else 0,
+        "allowed_entrypoint_count": (
+            len(entrypoints) if isinstance(entrypoints, list) else 0
+        ),
         "agent_runtime_workflows": sorted(discovered_agent_runtime),
         "automatic_model_paths": 0 if not errors else None,
         "errors": errors,
