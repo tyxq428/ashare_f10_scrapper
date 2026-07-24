@@ -36,5 +36,27 @@
     "calls_per_fingerprint": 1,
     "automatic_recovery_generations": 0,
     "automatic_second_session": 0
+  },
+  "historical_rerun_quarantine": {
+    "branch_pattern": "task/codex-*",
+    "descriptor_must_be_absent": true,
+    "disabled_action_required": true,
+    "model_reference_forbidden": true,
+    "open_pull_request_branches_are_never_modified": true,
+    "audit_workflow": ".github/workflows/devflow-legacy-codex-rerun-audit.yml"
+  },
+  "paid_probe_policy": {
+    "workflow": ".github/workflows/devflow-relay-health.yml",
+    "default_mode": "configuration_only",
+    "paid_confirmation": "I_ACCEPT_ONE_PAID_RESPONSES_PROBE",
+    "automatic_retry": false,
+    "maximum_requests_per_dispatch": 1
+  },
+  "secret_audit_policy": {
+    "workflow": ".github/workflows/devflow-secret-audit.yml",
+    "automatic_trigger": false,
+    "source_workflow": "Codex One-Time Activation",
+    "source_marker_required": true,
+    "environment_bound_after_source_validation": true
   }
 }
