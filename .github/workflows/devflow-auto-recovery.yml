@@ -80,6 +80,18 @@ jobs:
               print(f"{key}={'' if raw is None else raw}")
           PY
 
+      - name: Resolve the canonical task before terminal notification
+        if: >-
+          steps.decision.outputs.action == 'HUMAN_REQUIRED' ||
+          steps.decision.outputs.action == 'SECURITY_BLOCKED' ||
+          steps.decision.outputs.action == 'INTERRUPTED'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/devflow/notification_event.py resolve-task \
+            --repo . \
+            --output /tmp/resolved-notification-task.json
+
       - name: Retry only verified pre-model infrastructure failures
         if: steps.decision.outputs.action == 'RETRY'
         shell: bash
@@ -113,6 +125,12 @@ jobs:
                   encoding='utf-8'
               )
           )
+          resolved = json.loads(
+              Path('/tmp/resolved-notification-task.json').read_text(
+                  encoding='utf-8'
+              )
+          )
+          value['task_id'] = resolved['task_id']
           payload = {
               'event_type': 'devflow_notify',
               'client_payload': value,
@@ -126,17 +144,14 @@ jobs:
             --input /tmp/devflow-notify-payload.json
           echo "AUTO_RECOVERY=ESCALATED_AFTER_ZERO_MODEL_POLICY" \
             >> "$GITHUB_STEP_SUMMARY"
+          echo "TERMINAL_NOTIFICATION_TASK_ID=RESOLVED_FROM_CANONICAL_STATE" \
+            >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Prove automatic paid and Codex paths are absent
+      - name: Prove automatic paid, Bark and Codex paths are absent
+        shell: bash
         run: |
           set -euo pipefail
-          ! grep -Fq 'codex-task.yml/dispatches' \
-            .github/workflows/devflow-auto-recovery.yml
-          ! grep -Fq 'RETRY_CODEX' \
-            .github/workflows/devflow-auto-recovery.yml
-          ! grep -Fq 'recovery_task.py' \
-            .github/workflows/devflow-auto-recovery.yml
-          ! grep -Fq 'Devflow Relay Health' \
-            .github/workflows/devflow-auto-recovery.yml
+          python scripts/devflow/assert_auto_recovery_boundaries.py
           echo "AUTOMATIC_CODEX_PATHS=0" >> "$GITHUB_STEP_SUMMARY"
           echo "AUTOMATIC_PAID_RELAY_PROBE_RETRIES=0" >> "$GITHUB_STEP_SUMMARY"
+          echo "AUTOMATIC_BARK_RETRIES=0" >> "$GITHUB_STEP_SUMMARY"

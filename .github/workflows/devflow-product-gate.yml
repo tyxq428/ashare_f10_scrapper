@@ -123,48 +123,16 @@ jobs:
             "${{ steps.task.outputs.full_gate_profile }}" \
             --output /tmp/product-gate-result.json
 
-      - name: Stop and route failed full gate to ChatGPT Web
+      - name: Stop after failed full gate for centralized recovery classification
         if: steps.full_gate.outcome != 'success'
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          python - <<'PY'
-          import json
-          from pathlib import Path
-
-          payload = {
-              'event_type': 'devflow_notify',
-              'client_payload': {
-                  'action': 'INTERRUPTED',
-                  'notification_type': 'INTERRUPTED',
-                  'reason_code': 'PRODUCT_GATE_WEB_REPAIR_REQUIRED',
-                  'reason': (
-                      'The deterministic full product gate failed. Automatic '
-                      'Codex recovery and failed-job model reruns are forbidden.'
-                  ),
-                  'minimum_action': (
-                      'Inspect the bounded gate result in ChatGPT Web, identify '
-                      'the real failing files, and repair deterministically.'
-                  ),
-                  'fingerprint': (
-                      'product-gate-web-repair-'
-                      '${{ steps.task.outputs.task_id }}'
-                  ),
-                  'source_workflow': 'Devflow Product Gate',
-                  'source_run_id': int('${{ github.run_id }}'),
-                  'failure_steps': ['Run full product gate'],
-              },
-          }
-          Path('/tmp/devflow-notify.json').write_text(
-              json.dumps(payload), encoding='utf-8'
-          )
-          PY
-          gh api --method POST \
-            "repos/${{ github.repository }}/dispatches" \
-            --input /tmp/devflow-notify.json
-          echo "PRODUCT_GATE=WEB_REPAIR_REQUIRED" >> "$GITHUB_STEP_SUMMARY"
+          echo "PRODUCT_GATE_WEB_REPAIR_REQUIRED" >> "$GITHUB_STEP_SUMMARY"
+          echo "Centralized Auto Recovery will classify the terminal task event." \
+            >> "$GITHUB_STEP_SUMMARY"
+          echo "No direct duplicate devflow notification was dispatched." \
+            >> "$GITHUB_STEP_SUMMARY"
           exit 1
 
       - name: Notify when a task is not approved for automatic merge
@@ -176,13 +144,22 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          python scripts/devflow/notification_event.py resolve-task \
+            --repo . \
+            --output /tmp/resolved-notification-task.json
           python - <<'PY'
           import json
           from pathlib import Path
 
+          resolved = json.loads(
+              Path('/tmp/resolved-notification-task.json').read_text(
+                  encoding='utf-8'
+              )
+          )
           payload = {
               'event_type': 'devflow_notify',
               'client_payload': {
+                  'task_id': resolved['task_id'],
                   'action': 'HUMAN_REQUIRED',
                   'notification_type': 'HUMAN_REQUIRED',
                   'reason_code': 'AUTO_MERGE_NOT_APPROVED',

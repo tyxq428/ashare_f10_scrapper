@@ -75,47 +75,16 @@ jobs:
             "${{ steps.task.outputs.post_merge_profile }}" \
             --output /tmp/post-merge-gate-result.json
 
-      - name: Stop and route failed exact-main verification to ChatGPT Web
+      - name: Stop after failed exact-main for centralized recovery classification
         if: steps.post_gate.outcome != 'success'
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          python - <<'PY'
-          import json
-          from pathlib import Path
-
-          payload = {
-              'event_type': 'devflow_notify',
-              'client_payload': {
-                  'action': 'INTERRUPTED',
-                  'notification_type': 'INTERRUPTED',
-                  'reason_code': 'POST_MERGE_WEB_REPAIR_REQUIRED',
-                  'reason': (
-                      'Exact-main verification failed. Automatic Codex repair '
-                      'and failed-job model reruns are disabled.'
-                  ),
-                  'minimum_action': (
-                      'Inspect the bounded gate result in ChatGPT Web and repair '
-                      'deterministically before a new merge.'
-                  ),
-                  'fingerprint': (
-                      'post-merge-web-repair-'
-                      '${{ github.event.client_payload.task_id }}'
-                  ),
-                  'source_workflow': 'Devflow Post Merge',
-                  'source_run_id': int('${{ github.run_id }}'),
-                  'failure_steps': ['Run exact-main regression profile'],
-              },
-          }
-          Path('/tmp/devflow-notify.json').write_text(
-              json.dumps(payload), encoding='utf-8'
-          )
-          PY
-          gh api --method POST \
-            "repos/${{ github.repository }}/dispatches" \
-            --input /tmp/devflow-notify.json
+          echo "POST_MERGE_WEB_REPAIR_REQUIRED" >> "$GITHUB_STEP_SUMMARY"
+          echo "Centralized Auto Recovery will classify the terminal task event." \
+            >> "$GITHUB_STEP_SUMMARY"
+          echo "No direct duplicate devflow notification was dispatched." \
+            >> "$GITHUB_STEP_SUMMARY"
           exit 1
 
       - name: Record exact-main pass

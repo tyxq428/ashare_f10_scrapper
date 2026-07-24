@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "valuable_notification_types": [
+    "COMPLETED",
+    "INTERRUPTED",
+    "HUMAN_REQUIRED",
+    "SECURITY_BLOCKED"
+  ],
+  "event_bus": {
+    "event_type": "devflow_notify",
+    "workflow": ".github/workflows/devflow-incident.yml",
+    "raw_workflow_run_notifications": false
+  },
+  "channels": {
+    "canonical_issue": {
+      "enabled": true,
+      "deduplication_marker": "task_id+fingerprint+notification_type"
+    },
+    "bark": {
+      "enabled": true,
+      "environment": "notification-runtime",
+      "secret_name": "BARK_PUSH_URL",
+      "automatic_retry": false,
+      "github_rerun_resend": false,
+      "run_attempt_must_equal": 1,
+      "maximum_requests_per_notification": 1,
+      "failure_changes_task_state": false
+    }
+  },
+  "completion_producer": {
+    "workflow": ".github/workflows/devflow-state-consistency.yml",
+    "source": "canonical_task_state_transition_after_consistency_pass_on_main",
+    "strict_done_required": true,
+    "state_consistency_pass_required": true
+  }
+}
