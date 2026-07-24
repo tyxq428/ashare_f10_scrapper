@@ -104,6 +104,62 @@ failure_changes_task_state: false
 - Auto Recovery不得监听Incident或Bark Job；
 - 完成事件生产者不读取Bark Secret，也不直接执行HTTP请求。
 
+## Bark投递回执
+
+每个真正进入Bark Job的新逻辑通知都应生成一个机器可读回执：
+
+```text
+bark-delivery-receipt-<task-id>-<incident-run-id>
+└── bark-delivery-result.json
+```
+
+回执是**Transport观察证据**，不是任务状态源。它只允许记录：
+
+- task ID、notification type和逻辑marker；
+- Incident Run ID/attempt与来源Run ID；
+- canonical Issue编号；
+- `DELIVERED / FAILED / SKIPPED_MISSING_CONFIGURATION`；
+- request initiated、request attempts；
+-数值型curl exit code和HTTP status；
+- 秒精度UTC时间；
+- `automatic_retry=false`以及“不保存响应/Endpoint/Secret”的固定布尔值。
+
+永久禁止回执或回执索引包含：
+
+- `BARK_PUSH_URL`、Device Key、Endpoint、hostname、IP或Secret派生值；
+- 响应正文、响应头或Bark服务端message；
+- DNS、TLS、curl原始错误、环境变量快照或完整请求参数。
+
+状态语义：
+
+```yaml
+DELIVERED:
+  request_initiated: true
+  request_attempts: 1
+  curl_exit_code: 0
+  http_status: 200-299
+
+FAILED:
+  request_initiated: true
+  request_attempts: 1
+  curl_or_http_failure: true
+
+SKIPPED_MISSING_CONFIGURATION:
+  request_initiated: false
+  request_attempts: 0
+```
+
+回执Artifact只上传一个JSON文件，保留14天。上传后，Incident在同一canonical Issue中追加 `[BARK][DELIVERY_RECEIPT]` 安全索引，包含Incident Run、Artifact ID/URL和上述白名单状态字段。
+
+回执生成、Artifact上传或Issue索引评论失败全部fail-open：
+
+- 不撤销canonical终态；
+- 不触发Auto Recovery；
+- 不重试或补发Bark；
+- 不允许通过GitHub UI Re-run改变at-most-once语义。
+
+Artifact过期、缺失或索引评论失败不能反向证明“Bark请求没有发起”。只有有效回执中的 `request_initiated`、request count和Transport状态可以形成正向证据。
+
 ## ACK语义
 
 `/ack` 只表示“用户已经看到通知”。它不会：
@@ -142,4 +198,4 @@ failure_changes_task_state: false
 - `STATUS.md`、`HANDOFF.md`、阶段结果和 `FINAL_REPORT.md` 已生成；
 - `Devflow State Consistency` 已在该精确main SHA上通过。
 
-完成通知写入后，canonical task-control Issue可以关闭为 `completed`。Bark发送结果不影响该关闭动作。
+完成通知写入后，canonical task-control Issue可以关闭为 `completed`。Bark发送或回执观察结果不影响该关闭动作。
