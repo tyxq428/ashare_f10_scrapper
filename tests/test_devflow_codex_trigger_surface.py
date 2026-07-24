@@ -39,6 +39,10 @@ def test_relay_health_defaults_to_zero_request_and_requires_exact_paid_confirmat
     assert "RESPONSES_REQUESTS_SENT=0" in workflow
     assert workflow.count("python scripts/devflow/relay_health.py") == 1
     assert "This workflow is never automatically retried" in workflow
+    assert "RUN_ATTEMPT: ${{ github.run_attempt }}" in workflow
+    assert 'test "$RUN_ATTEMPT" = "1"' in workflow
+    assert "github.run_attempt == 1" in workflow
+    assert "A GitHub UI rerun of paid mode is blocked before the request" in workflow
 
 
 def test_secret_audit_validates_real_activation_before_environment_binding() -> None:
@@ -63,6 +67,8 @@ def test_manifest_records_legacy_rerun_and_paid_probe_boundaries() -> None:
     paid = manifest["paid_probe_policy"]
     assert paid["default_mode"] == "configuration_only"
     assert paid["automatic_retry"] is False
+    assert paid["github_rerun_paid_request"] is False
+    assert paid["paid_request_requires_run_attempt"] == 1
     assert paid["maximum_requests_per_dispatch"] == 1
     audit = manifest["secret_audit_policy"]
     assert audit["automatic_trigger"] is False
