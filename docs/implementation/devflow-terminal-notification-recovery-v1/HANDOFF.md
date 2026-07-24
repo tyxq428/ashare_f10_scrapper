@@ -2,9 +2,9 @@
 
 ## 当前检查点
 
-- W00–W03已完成并有计划/结果；
+- W00–W04已完成并有计划/结果；
 - 独立completion producer、stable task marker、manifest、Validator、测试和文档已实现；
-- 精确实现head `6f068f4d5b368b70faf5dfc12bc69c9f4f0aae69` 的Upgrade Compatibility、Test、State Consistency和真实688521 E2E全部PASS；
+- W04精确head `f7431c16262cd98e790038316af11ef10e126f2c` 的四个Gate全部PASS；
 - Draft PR #58保持开放；
 - Codex Policy保持disabled；
 - 未调用Codex、Responses、Relay、历史模型Workflow或Bark；
@@ -14,16 +14,17 @@
 
 ```yaml
 status: VERIFYING
-stage: W04
-last_completed_stage: W03
+stage: W05
+last_completed_stage: W04
 pull_request: 58
 next_action:
-  - wait_for_exact_PR_head_checks
-  - inspect_only_failed_deterministic_checks
-  - write_W04_result
-  - persist_W05_plan_and_merge_state
-  - run_final_exact_head_checks
-  - mark_PR58_ready_and_merge
+  - wait_for_final_exact_head_checks
+  - recheck_open_PR_overlap
+  - mark_PR58_ready
+  - merge_PR58
+  - verify_exact_main_source
+  - create_atomic_closeout_PR
+  - observe_single_real_Bark_and_receipt
 ```
 
 ## 不要执行
@@ -36,6 +37,14 @@ next_action:
 - 不让producer失败改变canonical任务结果；
 - 不调用Codex、Responses、Relay Health、Secret Audit或历史模型Workflow。
 
-## 合并后的真实验证
+## 实现合并后的恢复入口
 
-实现合并后使用独立closeout PR把本任务原子更新为DONE generation1。main State Consistency成功后，独立producer应产生可观察Run、一个canonical completion Issue、最多一个Bark POST和一个安全回执Artifact。
+1.核验implementation merge SHA和exact-main源码；
+2.从implementation main创建独立closeout PR；
+3.原子更新DONE state、FINAL_REPORT、STATUS、HANDOFF和ACTIVE_TASKS；
+4.closeout main State Consistency成功；
+5.独立producer运行并dispatch；
+6.canonical Issue stable marker只出现一次；
+7.Incident最多执行一个Bark POST并上传安全回执；
+8.下载并validate回执；
+9.纯文档观察PR记录实际结果，不修改task state或generation。
