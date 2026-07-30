@@ -1,0 +1,12 @@
+{
+  "status": "READY",
+  "through": "2026-07-30",
+  "batch_size": 5,
+  "batch_count": 1,
+  "identity_count": 5,
+  "standard_request_count": 5,
+  "high_risk_st_count": 0,
+  "archive_or_review_count": 0,
+  "generated_at_utc": "2026-07-30T09:05:53Z",
+  "selection_rule": "status in LISTED/TRADING and is_st=false"
+}
