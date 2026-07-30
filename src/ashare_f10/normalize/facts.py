@@ -24,6 +24,21 @@ DATE_KEYS = (
     "showDateTime",
 )
 
+# Point-in-time availability must be derived from a disclosure/publication timestamp,
+# never from REPORT_DATE. Financial statement APIs normally expose NOTICE_DATE and/or
+# UPDATE_DATE on the same source record as the reported values.
+AVAILABILITY_KEYS = (
+    "NOTICE_DATE",
+    "PUBLISH_DATE",
+    "UPDATE_DATE",
+    "ANNOUNCEMENT_DATE",
+    "DISCLOSURE_DATE",
+    "notice_date",
+    "publish_date",
+    "publish_time",
+    "display_time",
+)
+
 FLOW_FAMILIES = {
     "RPT_F10_FINANCE_GINCOME",
     "RPT_F10_FINANCE_GINCOMEQC",
@@ -119,6 +134,13 @@ def _record_date(record: dict[str, Any]) -> str | None:
     return None
 
 
+def _available_at(record: dict[str, Any]) -> str | None:
+    for key in AVAILABILITY_KEYS:
+        if record.get(key) not in (None, ""):
+            return normalize_date(record[key])
+    return None
+
+
 def _source_url(group: dict[str, Any], record: dict[str, Any]) -> str:
     if record.get("_SOURCE_URL"):
         return str(record["_SOURCE_URL"])
@@ -195,6 +217,7 @@ def _record_facts(
 ) -> Iterable[dict[str, Any]]:
     report_date = normalize_date(record.get("REPORT_DATE"))
     event_date = _record_date(record)
+    available_at = _available_at(record)
     period_type = derive_period_type(record, report_date, family)
     semantics = (
         "flow" if family in FLOW_FAMILIES else "point_in_time" if family in POINT_FAMILIES else "event"
@@ -219,6 +242,7 @@ def _record_facts(
             "record_key": record_key,
             "report_date": report_date,
             "event_date": event_date,
+            "available_at": available_at,
             "period_type": period_type,
             "data_semantics": semantics,
             "field_key": key,
@@ -250,6 +274,7 @@ def build_data_store(combined: dict[str, Any], output_dir: Path) -> dict[str, st
                 "record_key",
                 "report_date",
                 "event_date",
+                "available_at",
                 "period_type",
                 "data_semantics",
                 "field_key",
