@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "state_revision": 4,
+  "state_revision": 5,
   "task_id": "ascope-f10-export-bridge-v1",
   "title": "A-SCOPE F10 batch export bridge",
   "status": "RUNNING",
@@ -15,12 +15,12 @@
   "working_branch": "feature/ascope-f10-export-bridge-v1",
   "pull_request": 72,
   "base_sha_at_start": "208c5450455e8fd678b0551b01bcead114a34893",
-  "last_product_commit_sha": "ce59d52b825b575df90d8cdb49fde74604437c8f",
+  "last_product_commit_sha": "0cef37a8fa33618067735a6146196c50e973c952",
   "last_state_commit_sha": null,
-  "current_stage": "W02",
-  "last_completed_stage": "W01",
-  "last_successful_step": "W01_request_package_resolver_repository_gates_passed",
-  "next_action": "Implement canonical field mapping, financial industry templates, point-in-time filtering, revision selection and independent-quarter derivation.",
+  "current_stage": "W05",
+  "last_completed_stage": "W04",
+  "last_successful_step": "W04_batch_checkpoint_resume_and_reducer_targeted_suite_passed",
+  "next_action": "Implement and validate the pinned GitHub Actions batch export workflow, fixture artifact contract and resumable output handling.",
   "gate_results": {
     "USER_CONFIRMATION": "PASS:2026-07-30",
     "CONTROL_ISSUE": "PASS:71",
@@ -35,6 +35,15 @@
     "W01_TEST_RUN": "PASS:30533509527",
     "W01_STATE_RUN": "PASS:30533509501",
     "W01_E2E_RUN": "PASS:30533509514",
+    "W02_CANONICAL_FINANCE": "PASS:14_TARGETED_TESTS",
+    "W02_TEST_RUN": "PASS:30534394414",
+    "W02_STATE_RUN": "PASS:30534394398",
+    "W02_E2E_RUN": "PASS:30534394370",
+    "W03_SINGLE_STOCK_EXPORT": "PASS:CACHE_FINGERPRINT_PIT_EXPORT_TESTED",
+    "W04_BATCH_RUNNER": "PASS:CHECKPOINT_RESUME_RETRY_DEFER_TESTED",
+    "W04_REDUCER_FOUNDATION": "PASS:CONSERVATION_PIT_DUPLICATE_OUTPUT_TESTED",
+    "BRIDGE_RUFF": "PASS:30538490813",
+    "BRIDGE_TARGETED_SUITE": "PASS:28_TESTS:30538490813",
     "CODEX_CALLS": "0",
     "RESPONSES_PAID_PROBES": "0",
     "FULL_MARKET_OFFICIAL_PDF_VALIDATION": "DISABLED",
@@ -63,5 +72,5 @@
     "acknowledged": true,
     "control_issue_number": 71
   },
-  "updated_at_utc": "2026-07-30T10:10:52Z"
+  "updated_at_utc": "2026-07-30T11:29:25Z"
 }
