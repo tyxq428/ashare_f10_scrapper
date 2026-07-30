@@ -53,6 +53,12 @@ Set-StrictMode -Version Latest
 $ProjectRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 Set-Location $ProjectRoot
 
+$env:PYTHONUTF8 = '1'
+$env:PYTHONIOENCODING = 'utf-8'
+[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$OutputEncoding = [Console]::OutputEncoding
+
 $Python = Join-Path $ProjectRoot '.venv\Scripts\python.exe'
 if (-not (Test-Path -LiteralPath $Python)) {
     throw "Missing project virtual environment: $Python. Run: py -3.12 -m venv .venv; .\.venv\Scripts\python.exe -m pip install -e '.[dev]'"
