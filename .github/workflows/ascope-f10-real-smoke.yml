@@ -1,6 +1,16 @@
 name: A-SCOPE F10 Real Smoke
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/ascope-f10-real-smoke.yml
+      - .github/workflows/ascope-f10-rollout.yml
+      - .github/workflows/ascope-f10-batch-export.yml
+      - src/ashare_f10/ascope_bridge/**
+      - src/ashare_f10/normalize/facts.py
+      - scripts/run_resilient_fetch.py
   pull_request:
     branches:
       - main
@@ -34,8 +44,8 @@ concurrency:
 env:
   PYTHONDONTWRITEBYTECODE: '1'
   PYTHONUNBUFFERED: '1'
-  SOURCE_URL: ${{ github.event_name == 'pull_request' && 'https://github.com/BullbaseGuy/a-scope-reearch/releases/download/ascope-financial-requests-2026-07-30-v1/ascope-financial-requests-2026-07-30-v1.zip' || inputs.source_url }}
-  AS_OF_DATE: ${{ github.event_name == 'pull_request' && '2026-07-30' || inputs.as_of_date }}
+  SOURCE_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.source_url || 'https://github.com/BullbaseGuy/a-scope-reearch/releases/download/ascope-financial-requests-2026-07-30-v1/ascope-financial-requests-2026-07-30-v1.zip' }}
+  AS_OF_DATE: ${{ github.event_name == 'workflow_dispatch' && inputs.as_of_date || '2026-07-30' }}
   BATCH_ID: B001
   SMOKE_COUNT: '5'
   OUTPUT_ROOT: 09_OUTPUTS/ascope-f10-real-smoke
