@@ -1,0 +1,237 @@
+name: A-SCOPE F10 Batch Export
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/ascope-f10-batch-export.yml
+      - src/ashare_f10/ascope_bridge/**
+      - tests/test_ascope_f10_*.py
+      - tests/fixtures/ascope_bridge/**
+      - docs/implementation/ascope-f10-export-bridge-v1/**
+  workflow_dispatch:
+    inputs:
+      source_mode:
+        description: Request source mode
+        required: true
+        default: fixture
+        type: choice
+        options:
+          - fixture
+          - url
+      source_url:
+        description: Direct URL for the request ZIP when source_mode=url
+        required: false
+        type: string
+      batch_id:
+        description: Batch identifier
+        required: true
+        default: B001
+        type: string
+      as_of_date:
+        description: Research cutoff date
+        required: true
+        default: '2026-07-30'
+        type: string
+      smoke_count:
+        description: First N securities; zero means the whole selected batch
+        required: true
+        default: '5'
+        type: string
+      resume_run_id:
+        description: Optional prior run ID whose artifact should be restored
+        required: false
+        type: string
+      force_retry:
+        description: Retry only failed/deferred securities in the restored checkpoint
+        required: true
+        default: false
+        type: boolean
+  workflow_call:
+    inputs:
+      source_mode:
+        required: true
+        type: string
+      source_url:
+        required: false
+        type: string
+      batch_id:
+        required: true
+        type: string
+      as_of_date:
+        required: true
+        type: string
+      smoke_count:
+        required: false
+        default: '0'
+        type: string
+      resume_run_id:
+        required: false
+        type: string
+      force_retry:
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: ascope-f10-${{ github.event_name }}-${{ inputs.batch_id || 'B001' }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+  PYTHONUNBUFFERED: '1'
+  SOURCE_MODE: ${{ github.event_name == 'pull_request' && 'fixture' || inputs.source_mode }}
+  SOURCE_URL: ${{ inputs.source_url }}
+  BATCH_ID: ${{ github.event_name == 'pull_request' && 'B001' || inputs.batch_id }}
+  AS_OF_DATE: ${{ github.event_name == 'pull_request' && '2026-07-30' || inputs.as_of_date }}
+  SMOKE_COUNT: ${{ github.event_name == 'pull_request' && '5' || inputs.smoke_count }}
+  RESUME_RUN_ID: ${{ inputs.resume_run_id }}
+  FORCE_RETRY: ${{ inputs.force_retry }}
+  OUTPUT_ROOT: 09_OUTPUTS/ascope-f10
+
+jobs:
+  batch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    outputs:
+      batch_exit_code: ${{ steps.execute.outputs.exit_code }}
+      artifact_name: ${{ steps.identity.outputs.artifact_name }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+
+      - name: Set up Python with dependency cache
+        uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install project
+        run: python -m pip install -e '.[dev]'
+
+      - name: Validate workflow inputs and set artifact identity
+        id: identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$BATCH_ID" =~ ^B[0-9]{3}$ ]]
+          [[ "$AS_OF_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]
+          [[ "$SMOKE_COUNT" =~ ^[0-9]+$ ]]
+          [[ "$SOURCE_MODE" == 'fixture' || "$SOURCE_MODE" == 'url' ]]
+          if [[ "$SOURCE_MODE" == 'url' ]]; then
+            [[ "$GITHUB_EVENT_NAME" != 'pull_request' ]]
+            [[ "$SOURCE_URL" == https://* ]]
+          fi
+          if [[ -n "$RESUME_RUN_ID" ]]; then
+            [[ "$RESUME_RUN_ID" =~ ^[0-9]+$ ]]
+          fi
+          echo "artifact_name=ascope-f10-${BATCH_ID}-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare immutable request source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf 09_OUTPUTS/ascope-request
+          mkdir -p 09_OUTPUTS/ascope-request
+          if [[ "$SOURCE_MODE" == 'fixture' ]]; then
+            mkdir -p 09_OUTPUTS/ascope-request/financial_batches
+            cp tests/fixtures/ascope_bridge/financial_request_manifest.json \
+              09_OUTPUTS/ascope-request/financial_request_manifest.json
+            cp tests/fixtures/ascope_bridge/B001_smoke_5.csv \
+              09_OUTPUTS/ascope-request/financial_batches/B001.csv
+            printf '%s\n' 'FIXTURE_TEST_ONLY' > 09_OUTPUTS/ascope-request/INVESTMENT_USE_PROHIBITED
+          else
+            curl --fail --location --retry 2 --retry-delay 5 \
+              --output 09_OUTPUTS/ascope-request/request.zip "$SOURCE_URL"
+          fi
+
+      - name: Restore compatible prior batch artifact
+        if: env.RESUME_RUN_ID != ''
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ascope-f10-${{ env.BATCH_ID }}-${{ env.RESUME_RUN_ID }}
+          path: 09_OUTPUTS/ascope-f10
+          run-id: ${{ env.RESUME_RUN_ID }}
+          github-token: ${{ github.token }}
+
+      - name: Execute bounded batch and preserve exit code
+        id: execute
+        shell: bash
+        run: |
+          set +e
+          SOURCE_PATH='09_OUTPUTS/ascope-request'
+          if [[ "$SOURCE_MODE" == 'url' ]]; then
+            SOURCE_PATH='09_OUTPUTS/ascope-request/request.zip'
+          fi
+          EXTRA=()
+          if [[ "$SOURCE_MODE" == 'fixture' ]]; then
+            EXTRA+=(--fixture-mode)
+          fi
+          if [[ "$FORCE_RETRY" == 'true' ]]; then
+            EXTRA+=(--force-retry)
+          fi
+          python -m ashare_f10.ascope_bridge.cli run-batch "$SOURCE_PATH" \
+            --batch-id "$BATCH_ID" \
+            --as-of-date "$AS_OF_DATE" \
+            --smoke-count "$SMOKE_COUNT" \
+            --data-root data \
+            --output-root "$OUTPUT_ROOT" \
+            --stock-workers 2 \
+            --max-attempts 2 \
+            --soft-deadline-seconds 18000 \
+            --heartbeat-seconds 30 \
+            "${EXTRA[@]}"
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Validate fixture/live contamination boundary
+        if: always()
+        shell: python
+        run: |
+          import json
+          import os
+          from pathlib import Path
+
+          batch_id = os.environ['BATCH_ID']
+          source_mode = os.environ['SOURCE_MODE']
+          manifest = Path(os.environ['OUTPUT_ROOT']) / batch_id / 'batch_manifest.json'
+          if not manifest.exists():
+              raise SystemExit(f'missing batch manifest: {manifest}')
+          value = json.loads(manifest.read_text(encoding='utf-8'))
+          fixture = bool(value.get('fixture_mode'))
+          prohibited = bool(value.get('non_investment_output'))
+          if source_mode == 'fixture' and not (fixture and prohibited):
+              raise SystemExit('fixture output is not marked non-investment')
+          if source_mode != 'fixture' and (fixture or prohibited):
+              raise SystemExit('live output contains fixture markers')
+
+      - name: Upload immutable batch output and checkpoint
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.identity.outputs.artifact_name }}
+          path: |
+            09_OUTPUTS/ascope-request
+            09_OUTPUTS/ascope-f10/${{ env.BATCH_ID }}
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6
+
+      - name: Propagate batch result after artifact upload
+        if: always()
+        shell: bash
+        run: |
+          code='${{ steps.execute.outputs.exit_code }}'
+          [[ "$code" =~ ^[0-9]+$ ]]
+          if [[ "$code" != '0' ]]; then
+            echo "Batch returned exit code $code after its checkpoint was uploaded." >&2
+            exit "$code"
+          fi
