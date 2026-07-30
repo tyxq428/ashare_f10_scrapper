@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "state_revision": 6,
+  "state_revision": 7,
   "task_id": "ascope-f10-export-bridge-v1",
   "title": "A-SCOPE F10 batch export bridge",
   "status": "RUNNING",
@@ -15,12 +15,12 @@
   "working_branch": "feature/ascope-f10-export-bridge-v1",
   "pull_request": 72,
   "base_sha_at_start": "208c5450455e8fd678b0551b01bcead114a34893",
-  "last_product_commit_sha": "f4406c3827ff152c0cc9adefbce7eaea9c3c33a4",
+  "last_product_commit_sha": "5c5b7cdea6272eaf6c9e0f3f164b12f3f4e54d5c",
   "last_state_commit_sha": null,
-  "current_stage": "W07",
-  "last_completed_stage": "W06",
-  "last_successful_step": "W06_fixture_artifact_reduced_and_validated",
-  "next_action": "Add and validate the Windows/local operator runbook and stable local CLI surface, then continue to the cross-repository request handoff controller.",
+  "current_stage": "W09",
+  "last_completed_stage": "W08",
+  "last_successful_step": "W09_real_B001_first_five_smoke_passed_on_PR_head",
+  "next_action": "Run final PR-head gates, merge the implementation, require exact-main real smoke, then automatically start full B001 and the bounded B002-B027 rollout.",
   "gate_results": {
     "USER_CONFIRMATION": "PASS:2026-07-30",
     "CONTROL_ISSUE": "PASS:71",
@@ -48,13 +48,20 @@
     "W05_ARTIFACT": "PASS:8757841600:SHA256_0e2641c12cc60f5a4a5ad64da47e017071ba1a04cba7d0a755f7bc5459520866",
     "W06_REDUCTION": "PASS:5_OF_5_SUCCESS_ZERO_FUTURE_ZERO_DUPLICATE",
     "W06_CONSERVATION": "PASS",
+    "W07_WINDOWS_SMOKE": "PASS:30547981476",
+    "W07_JOB_MANAGEMENT": "PASS:30547981599",
+    "W08_ROLLOUT_CONTRACT": "PASS:30547981935",
+    "W09_REAL_SMOKE": "PASS_WITH_GAPS:30547981782:5_OF_5:ZERO_FAILURE_ZERO_FUTURE_ZERO_DUPLICATE",
+    "W09_REAL_SMOKE_ARTIFACT": "PASS:8761691674:SHA256_b53e3ddb71f2965fb3d587b3956859a134baaaa69e2a3b02548a3227b5257587",
+    "QUOTE_300308_REGRESSION": "PASS_AFTER_BOUNDED_INFRA_RETRY:30547981863",
+    "EXACT_MAIN_SMOKE_CHAIN": "IMPLEMENTED:PENDING_MERGE",
     "CODEX_CALLS": "0",
     "RESPONSES_PAID_PROBES": "0",
     "FULL_MARKET_OFFICIAL_PDF_VALIDATION": "DISABLED",
     "STANDARD_ST_PATH": "EXCLUDED"
   },
   "retry_budget": {
-    "infrastructure": 3,
+    "infrastructure": 2,
     "codex_sessions": 0,
     "codex_recovery_generations": 0,
     "replans": 1
@@ -76,5 +83,5 @@
     "acknowledged": true,
     "control_issue_number": 71
   },
-  "updated_at_utc": "2026-07-30T11:35:22Z"
+  "updated_at_utc": "2026-07-30T14:09:29Z"
 }
