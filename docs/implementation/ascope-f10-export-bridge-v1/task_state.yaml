@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "state_revision": 5,
+  "state_revision": 6,
   "task_id": "ascope-f10-export-bridge-v1",
   "title": "A-SCOPE F10 batch export bridge",
   "status": "RUNNING",
@@ -15,12 +15,12 @@
   "working_branch": "feature/ascope-f10-export-bridge-v1",
   "pull_request": 72,
   "base_sha_at_start": "208c5450455e8fd678b0551b01bcead114a34893",
-  "last_product_commit_sha": "0cef37a8fa33618067735a6146196c50e973c952",
+  "last_product_commit_sha": "f4406c3827ff152c0cc9adefbce7eaea9c3c33a4",
   "last_state_commit_sha": null,
-  "current_stage": "W05",
-  "last_completed_stage": "W04",
-  "last_successful_step": "W04_batch_checkpoint_resume_and_reducer_targeted_suite_passed",
-  "next_action": "Implement and validate the pinned GitHub Actions batch export workflow, fixture artifact contract and resumable output handling.",
+  "current_stage": "W07",
+  "last_completed_stage": "W06",
+  "last_successful_step": "W06_fixture_artifact_reduced_and_validated",
+  "next_action": "Add and validate the Windows/local operator runbook and stable local CLI surface, then continue to the cross-repository request handoff controller.",
   "gate_results": {
     "USER_CONFIRMATION": "PASS:2026-07-30",
     "CONTROL_ISSUE": "PASS:71",
@@ -44,6 +44,10 @@
     "W04_REDUCER_FOUNDATION": "PASS:CONSERVATION_PIT_DUPLICATE_OUTPUT_TESTED",
     "BRIDGE_RUFF": "PASS:30538490813",
     "BRIDGE_TARGETED_SUITE": "PASS:28_TESTS:30538490813",
+    "W05_FIXTURE_WORKFLOW": "PASS:30538896094",
+    "W05_ARTIFACT": "PASS:8757841600:SHA256_0e2641c12cc60f5a4a5ad64da47e017071ba1a04cba7d0a755f7bc5459520866",
+    "W06_REDUCTION": "PASS:5_OF_5_SUCCESS_ZERO_FUTURE_ZERO_DUPLICATE",
+    "W06_CONSERVATION": "PASS",
     "CODEX_CALLS": "0",
     "RESPONSES_PAID_PROBES": "0",
     "FULL_MARKET_OFFICIAL_PDF_VALIDATION": "DISABLED",
@@ -72,5 +76,5 @@
     "acknowledged": true,
     "control_issue_number": 71
   },
-  "updated_at_utc": "2026-07-30T11:29:25Z"
+  "updated_at_utc": "2026-07-30T11:35:22Z"
 }
