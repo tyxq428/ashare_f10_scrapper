@@ -1,9 +1,11 @@
 name: A-SCOPE F10 Bridge Autofix
 
 on:
-  push:
+  pull_request:
+    types:
+      - synchronize
     branches:
-      - feature/ascope-f10-export-bridge-v1
+      - main
     paths:
       - .github/workflows/ascope-f10-autofix.yml
 
@@ -16,6 +18,7 @@ concurrency:
 
 jobs:
   fix:
+    if: github.event.pull_request.head.ref == 'feature/ascope-f10-export-bridge-v1'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
