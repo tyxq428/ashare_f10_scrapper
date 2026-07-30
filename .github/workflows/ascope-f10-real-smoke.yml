@@ -28,8 +28,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: ascope-f10-real-smoke-${{ github.ref }}
-  cancel-in-progress: false
+  group: ascope-f10-real-smoke-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 env:
   PYTHONDONTWRITEBYTECODE: '1'
