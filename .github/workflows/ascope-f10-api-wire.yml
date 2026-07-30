@@ -43,8 +43,8 @@ jobs:
         run: |
           from pathlib import Path
 
-          path = Path('src/ashare_f10/api/app.py')
-          text = path.read_text(encoding='utf-8')
+          app_path = Path('src/ashare_f10/api/app.py')
+          text = app_path.read_text(encoding='utf-8')
           import_line = 'from ashare_f10.api.ascope_batches import router as ascope_batches_router\n'
           if import_line not in text:
               marker = 'from ashare_f10.api.jobs_v2 import JobManager\n'
@@ -63,7 +63,14 @@ jobs:
                   'app.include_router(cross_validation_router)\n',
                   1,
               )
-          path.write_text(text, encoding='utf-8')
+          app_path.write_text(text, encoding='utf-8')
+
+          api_path = Path('src/ashare_f10/api/ascope_batches.py')
+          api_text = api_path.read_text(encoding='utf-8')
+          unused = '            job_dir = self.jobs_dir / job_id\n'
+          if unused in api_text:
+              api_text = api_text.replace(unused, '', 1)
+          api_path.write_text(api_text, encoding='utf-8')
 
       - name: Validate API manager and route integration
         run: |
