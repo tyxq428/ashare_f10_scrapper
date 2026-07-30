@@ -1,0 +1,58 @@
+{
+  "schema_version": 2,
+  "state_revision": 1,
+  "task_id": "ascope-f10-export-bridge-v1",
+  "title": "A-SCOPE F10 batch export bridge",
+  "status": "RUNNING",
+  "execution_status": "RUNNING",
+  "acceptance": {
+    "domain": "ascope-f10-export",
+    "status": "PENDING",
+    "reason_code": null,
+    "details_path": null
+  },
+  "security_status": "PENDING",
+  "working_branch": "feature/ascope-f10-export-bridge-v1",
+  "pull_request": null,
+  "base_sha_at_start": "208c5450455e8fd678b0551b01bcead114a34893",
+  "last_product_commit_sha": null,
+  "last_state_commit_sha": null,
+  "current_stage": "W00",
+  "last_completed_stage": null,
+  "last_successful_step": "task_control_issue_71_and_feature_branch_created",
+  "next_action": "Complete W00 repository preflight, open the Draft PR, then execute W01 request-package resolver and validation.",
+  "gate_results": {
+    "USER_CONFIRMATION": "PASS:2026-07-30",
+    "CONTROL_ISSUE": "PASS:71",
+    "WORKING_BRANCH": "PASS:feature/ascope-f10-export-bridge-v1",
+    "BASE_MAIN_SHA": "208c5450455e8fd678b0551b01bcead114a34893",
+    "CODEX_CALLS": "0",
+    "RESPONSES_PAID_PROBES": "0",
+    "FULL_MARKET_OFFICIAL_PDF_VALIDATION": "DISABLED",
+    "STANDARD_ST_PATH": "EXCLUDED"
+  },
+  "retry_budget": {
+    "infrastructure": 3,
+    "codex_sessions": 0,
+    "codex_recovery_generations": 0,
+    "replans": 1
+  },
+  "human_gate": {
+    "required": false,
+    "reason": null,
+    "minimum_action": null,
+    "resume_from": null
+  },
+  "post_merge": {
+    "status": "PENDING",
+    "merge_sha": null,
+    "verified_run_ids": []
+  },
+  "notification": {
+    "generation": 0,
+    "last_type": null,
+    "acknowledged": true,
+    "control_issue_number": 71
+  },
+  "updated_at_utc": "2026-07-30T09:54:19Z"
+}
