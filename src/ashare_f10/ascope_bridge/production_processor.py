@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -174,6 +175,29 @@ def build_canonical_financial_tables(
     return build_financial_tables(select_canonical_source_facts(facts), **kwargs)
 
 
+def _preserve_fetch_report_and_prune(
+    *,
+    report: Path,
+    run_dir: Path,
+    stock_output_root: Path,
+    security_id: str,
+) -> None:
+    """Keep the compact audit report and remove a completed transient F10 run.
+
+    Five-stock smoke artifacts showed that complete raw/group/export trees consume
+    roughly 1.1 GiB uncompressed. A 200-stock batch would exceed the hosted runner's
+    disk budget even though the canonical per-stock export is below one MiB. Completed
+    source runs are therefore transient; failed/deferred runs remain untouched for
+    diagnosis and resume.
+    """
+
+    output_dir = stock_output_root / security_id
+    output_dir.mkdir(parents=True, exist_ok=True)
+    if report.exists():
+        shutil.copy2(report, output_dir / "source_fetch_report.json")
+    shutil.rmtree(run_dir, ignore_errors=False)
+
+
 def canonical_stock_processor(
     request: dict[str, Any],
     attempt: int,
@@ -256,7 +280,14 @@ def canonical_stock_processor(
             source_run_dir=run_dir,
             mapper=build_canonical_financial_tables,
         )
-        return _normalize_result(result)
+        normalized = _normalize_result(result)
+        _preserve_fetch_report_and_prune(
+            report=report,
+            run_dir=run_dir,
+            stock_output_root=stock_output_root,
+            security_id=str(request["security_id"]),
+        )
+        return normalized
     except SingleStockExportError as exc:
         return StockProcessResult(
             status="FAILED_TERMINAL",
