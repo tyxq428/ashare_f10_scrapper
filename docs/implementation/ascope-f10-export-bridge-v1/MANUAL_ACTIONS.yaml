@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "actions": [
+    {
+      "id": "MA-001",
+      "stage": "input-publication",
+      "blocking": false,
+      "owner": "repository-admin",
+      "reason": "The confirmed request ZIP exists outside this repository; production workflows need a durable GitHub-accessible copy or explicit artifact source.",
+      "minimum_action": "Publish the confirmed ZIP as a release asset or provide a compatible workflow artifact run ID.",
+      "workaround": "Implement and validate against a committed five-row fixture; continue all deterministic code stages.",
+      "status": "OPEN",
+      "resume_point": "W09 live B001 smoke"
+    },
+    {
+      "id": "MA-002",
+      "stage": "persistent-cache",
+      "blocking": false,
+      "owner": "repository-admin",
+      "reason": "GitHub-hosted runners do not retain per-stock F10 caches indefinitely.",
+      "minimum_action": "Configure a self-hosted runner or durable cache bundle only if artifact-based resume is insufficient.",
+      "workaround": "Use bounded batch artifacts and resume only incomplete securities.",
+      "status": "DEFERRED",
+      "resume_point": "No pause required"
+    },
+    {
+      "id": "MA-003",
+      "stage": "production-rollout",
+      "blocking": false,
+      "owner": "data-operator",
+      "reason": "A first production smoke may expose provider throttling or availability-date coverage gaps that fixtures cannot prove.",
+      "minimum_action": "Review only the safe smoke manifest and classified gap report if W09 requests human confirmation.",
+      "workaround": "Preserve completed outputs and stop before B001 full rollout if a business-semantic blocker appears.",
+      "status": "OPEN",
+      "resume_point": "W09 after five-stock smoke"
+    }
+  ]
+}

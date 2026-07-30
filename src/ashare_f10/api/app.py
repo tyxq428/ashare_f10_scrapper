@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from ashare_f10.api.ascope_batches import router as ascope_batches_router
 from ashare_f10.api.jobs_v2 import JobManager
 from ashare_f10.api.search import (
     export_search_rows,
@@ -47,6 +48,7 @@ app = FastAPI(
     description="A-share F10 collection, task recovery, Excel-style filtering, chained search, TTM and formula platform",
 )
 manager = JobManager(settings)
+app.include_router(ascope_batches_router)
 app.include_router(cross_validation_router)
 
 
