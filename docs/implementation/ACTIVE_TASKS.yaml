@@ -72,6 +72,15 @@
       "pull_request": 58,
       "current_stage": "W05",
       "state_path": "docs/implementation/devflow-terminal-notification-recovery-v1/task_state.yaml"
+    },
+    {
+      "task_id": "ascope-f10-export-bridge-v1",
+      "title": "A-SCOPE F10 batch export bridge",
+      "status": "RUNNING",
+      "branch": "feature/ascope-f10-export-bridge-v1",
+      "pull_request": null,
+      "current_stage": "W00",
+      "state_path": "docs/implementation/ascope-f10-export-bridge-v1/task_state.yaml"
     }
   ]
 }
