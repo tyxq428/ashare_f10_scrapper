@@ -5,11 +5,12 @@ import os
 import subprocess
 import sys
 import time
+from collections.abc import Callable, Mapping
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import asdict, dataclass, is_dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any
 
 import pandas as pd
 
