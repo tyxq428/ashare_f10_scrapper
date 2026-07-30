@@ -84,6 +84,47 @@ def test_canonical_selector_drops_empty_and_exact_duplicates() -> None:
     assert selected.iloc[0]["value_num"] == 88
 
 
+def test_scope_finance_export_uses_request_windows_and_pads_codes() -> None:
+    def frame(periods: list[str]) -> pd.DataFrame:
+        return pd.DataFrame(
+            [
+                {
+                    "security_id": "SZSE.000001",
+                    "security_code": 1,
+                    "report_period": period,
+                }
+                for period in periods
+            ]
+        )
+
+    result = FinanceExportResult(
+        annual=frame(["2018-12-31", "2019-12-31", "2025-12-31", "2026-12-31"]),
+        quarterly=frame(["2021-12-31", "2022-03-31", "2026-06-30", "2026-09-30"]),
+        field_status=frame(
+            ["2018-12-31", "2019-12-31", "2021-09-30", "2022-03-31", "2026-09-30"]
+        ),
+        future_rows=frame(["2018-12-31", "2022-03-31", "2026-09-30"]),
+        data_gaps=frame(["2018-12-31", "2019-12-31", "2022-03-31", "2026-09-30"]),
+        duplicate_resolution=frame(["2018-12-31", "2025-12-31"]),
+    )
+    scoped = production.scope_finance_export(
+        result,
+        {
+            "request_annual_from": "2019-12-31",
+            "request_quarterly_from": "2022-03-31",
+            "request_through": "2026-07-30",
+        },
+    )
+
+    assert list(scoped.annual["report_period"]) == ["2019-12-31", "2025-12-31"]
+    assert list(scoped.quarterly["report_period"]) == ["2022-03-31", "2026-06-30"]
+    assert list(scoped.field_status["report_period"]) == ["2019-12-31", "2022-03-31"]
+    assert list(scoped.future_rows["report_period"]) == ["2022-03-31"]
+    assert list(scoped.data_gaps["report_period"]) == ["2019-12-31", "2022-03-31"]
+    assert list(scoped.duplicate_resolution["report_period"]) == ["2025-12-31"]
+    assert set(scoped.field_status["security_code"]) == {"000001"}
+
+
 def test_production_processor_prunes_completed_transient_fetch(monkeypatch, tmp_path) -> None:
     calls = 0
     captured: dict[str, list[str]] = {}
@@ -112,7 +153,13 @@ def test_production_processor_prunes_completed_transient_fetch(monkeypatch, tmp_
     monkeypatch.setattr(production.subprocess, "run", fake_run)
 
     result = production.canonical_stock_processor(
-        {"security_id": "SZSE.000001", "code": "000001"},
+        {
+            "security_id": "SZSE.000001",
+            "code": "000001",
+            "request_annual_from": "2019-12-31",
+            "request_quarterly_from": "2022-03-31",
+            "request_through": "2026-07-30",
+        },
         1,
         {
             "data_root": tmp_path / "data",
