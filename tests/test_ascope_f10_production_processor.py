@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pandas as pd
@@ -83,20 +84,28 @@ def test_canonical_selector_drops_empty_and_exact_duplicates() -> None:
     assert selected.iloc[0]["value_num"] == 88
 
 
-def test_production_processor_normalizes_heartbeat_for_fetch(monkeypatch, tmp_path) -> None:
+def test_production_processor_prunes_completed_transient_fetch(monkeypatch, tmp_path) -> None:
     calls = 0
     captured: dict[str, list[str]] = {}
+    batch_root = tmp_path / "batch"
+    stocks_root = tmp_path / "stocks"
 
     def fake_export(*_args, **_kwargs):
         nonlocal calls
         calls += 1
         if calls == 1:
             raise SingleStockExportError("CURRENT_RUN_NOT_FOUND", "missing")
+        output_dir = stocks_root / "SZSE.000001"
+        output_dir.mkdir(parents=True, exist_ok=True)
         return SimpleNamespace(status="PASS", to_dict=lambda: {"status": "PASS"})
 
     def fake_run(command, check=False):
         assert check is False
         captured["command"] = [str(value) for value in command]
+        report = Path(command[command.index("--report") + 1])
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text('{"status":"PASS"}\n', encoding="utf-8")
+        (report.parent / "large-transient.bin").write_bytes(b"x" * 1024)
         return SimpleNamespace(returncode=0)
 
     monkeypatch.setattr(production, "export_single_stock", fake_export)
@@ -107,9 +116,9 @@ def test_production_processor_normalizes_heartbeat_for_fetch(monkeypatch, tmp_pa
         1,
         {
             "data_root": tmp_path / "data",
-            "stock_output_root": tmp_path / "stocks",
+            "stock_output_root": stocks_root,
             "as_of_date": "2026-07-30",
-            "batch_output_dir": tmp_path / "batch",
+            "batch_output_dir": batch_root,
             "endpoint_workers": 4,
             "heartbeat_seconds": 30.0,
         },
@@ -118,3 +127,7 @@ def test_production_processor_normalizes_heartbeat_for_fetch(monkeypatch, tmp_pa
     command = captured["command"]
     assert command[command.index("--heartbeat-seconds") + 1] == "30"
     assert result.status == "COMPLETED"
+    assert not (batch_root / "_f10_runs" / "SZSE.000001").exists()
+    assert (
+        stocks_root / "SZSE.000001" / "source_fetch_report.json"
+    ).read_text(encoding="utf-8") == '{"status":"PASS"}\n'
