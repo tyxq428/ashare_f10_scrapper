@@ -79,7 +79,7 @@
       "status": "RUNNING",
       "branch": "feature/ascope-f10-export-bridge-v1",
       "pull_request": 72,
-      "current_stage": "W02",
+      "current_stage": "W05",
       "state_path": "docs/implementation/ascope-f10-export-bridge-v1/task_state.yaml"
     }
   ]
