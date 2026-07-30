@@ -225,7 +225,6 @@ class AscopeBatchManager:
     def _run_job(self, job_id: str) -> None:
         try:
             state = self._read_state(job_id)
-            job_dir = self.jobs_dir / job_id
             output_root = Path(state["output_root"])
             output_root.mkdir(parents=True, exist_ok=True)
             log_path = Path(state["log_path"])
