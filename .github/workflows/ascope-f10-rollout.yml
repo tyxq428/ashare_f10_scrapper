@@ -11,6 +11,11 @@ on:
       - src/ashare_f10/ascope_bridge/rollout_cli.py
       - tests/test_ascope_f10_rollout.py
       - docs/implementation/ascope-f10-export-bridge-v1/**
+  workflow_run:
+    workflows:
+      - A-SCOPE F10 Real Smoke
+    types:
+      - completed
   workflow_dispatch:
     inputs:
       source_url:
@@ -34,12 +39,14 @@ permissions:
   actions: read
 
 concurrency:
-  group: ascope-f10-full-rollout-${{ inputs.as_of_date || 'pr-contract' }}
+  group: ascope-f10-full-rollout-${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || inputs.as_of_date || 'pr-contract' }}
   cancel-in-progress: false
 
 env:
   PYTHONDONTWRITEBYTECODE: '1'
   PYTHONUNBUFFERED: '1'
+  FIXED_SOURCE_URL: https://github.com/BullbaseGuy/a-scope-reearch/releases/download/ascope-financial-requests-2026-07-30-v1/ascope-financial-requests-2026-07-30-v1.zip
+  FIXED_AS_OF_DATE: '2026-07-30'
 
 jobs:
   contract:
@@ -83,6 +90,30 @@ jobs:
           python -m ashare_f10.ascope_bridge.rollout_cli plan \
             09_OUTPUTS/rollout-contract/rollout_state.json
 
+  source_gate:
+    if: github.event_name == 'workflow_run'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Validate exact-main smoke source
+        env:
+          SOURCE_NAME: ${{ github.event.workflow_run.name }}
+          SOURCE_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          SOURCE_EVENT: ${{ github.event.workflow_run.event }}
+          SOURCE_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+          CURRENT_MAIN_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_NAME" == 'A-SCOPE F10 Real Smoke' ]]
+          [[ "$SOURCE_CONCLUSION" == 'success' ]]
+          [[ "$SOURCE_EVENT" == 'push' ]]
+          [[ "$SOURCE_BRANCH" == 'main' ]]
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$SOURCE_SHA" == "$CURRENT_MAIN_SHA" ]]
+          printf '%s\n' "Exact-main smoke accepted: ${SOURCE_SHA}"
+
   smoke:
     if: github.event_name == 'workflow_dispatch'
     uses: ./.github/workflows/ascope-f10-batch-export.yml
@@ -96,21 +127,34 @@ jobs:
       force_retry: false
 
   b001_full:
-    if: github.event_name == 'workflow_dispatch' && needs.smoke.result == 'success'
+    if: >-
+      ${{
+        always()
+        && (
+          (github.event_name == 'workflow_dispatch' && needs.smoke.result == 'success')
+          || (github.event_name == 'workflow_run' && needs.source_gate.result == 'success')
+        )
+      }}
     needs:
       - smoke
+      - source_gate
     uses: ./.github/workflows/ascope-f10-batch-export.yml
     with:
       source_mode: url
-      source_url: ${{ inputs.source_url }}
+      source_url: ${{ github.event_name == 'workflow_dispatch' && inputs.source_url || 'https://github.com/BullbaseGuy/a-scope-reearch/releases/download/ascope-financial-requests-2026-07-30-v1/ascope-financial-requests-2026-07-30-v1.zip' }}
       batch_id: B001
-      as_of_date: ${{ inputs.as_of_date }}
+      as_of_date: ${{ github.event_name == 'workflow_dispatch' && inputs.as_of_date || '2026-07-30' }}
       smoke_count: '0'
       resume_run_id: ''
       force_retry: false
 
   remaining_batches:
-    if: github.event_name == 'workflow_dispatch' && needs.b001_full.result == 'success'
+    if: >-
+      ${{
+        always()
+        && (github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_run')
+        && needs.b001_full.result == 'success'
+      }}
     needs:
       - b001_full
     strategy:
@@ -147,9 +191,9 @@ jobs:
     uses: ./.github/workflows/ascope-f10-batch-export.yml
     with:
       source_mode: url
-      source_url: ${{ inputs.source_url }}
+      source_url: ${{ github.event_name == 'workflow_dispatch' && inputs.source_url || 'https://github.com/BullbaseGuy/a-scope-reearch/releases/download/ascope-financial-requests-2026-07-30-v1/ascope-financial-requests-2026-07-30-v1.zip' }}
       batch_id: ${{ matrix.batch_id }}
-      as_of_date: ${{ inputs.as_of_date }}
+      as_of_date: ${{ github.event_name == 'workflow_dispatch' && inputs.as_of_date || '2026-07-30' }}
       smoke_count: '0'
       resume_run_id: ''
       force_retry: false
@@ -158,7 +202,7 @@ jobs:
     if: >-
       ${{
         always()
-        && github.event_name == 'workflow_dispatch'
+        && (github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_run')
         && needs.b001_full.result == 'success'
         && needs.remaining_batches.result == 'success'
       }}
@@ -184,7 +228,7 @@ jobs:
 
       - name: Download exact request snapshot
         env:
-          SOURCE_URL: ${{ inputs.source_url }}
+          SOURCE_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.source_url || 'https://github.com/BullbaseGuy/a-scope-reearch/releases/download/ascope-financial-requests-2026-07-30-v1/ascope-financial-requests-2026-07-30-v1.zip' }}
         run: |
           set -euo pipefail
           mkdir -p 09_OUTPUTS/rollout-input
@@ -199,12 +243,14 @@ jobs:
           merge-multiple: true
 
       - name: Reduce and validate all 27 batches
+        env:
+          AS_OF_DATE: ${{ github.event_name == 'workflow_dispatch' && inputs.as_of_date || '2026-07-30' }}
         run: |
           python -m ashare_f10.ascope_bridge.rollout_cli reduce-full \
             09_OUTPUTS/rollout-input/request.zip \
             09_OUTPUTS/ascope-f10 \
             --output-dir 09_OUTPUTS/ascope-f10-full-market \
-            --as-of-date '${{ inputs.as_of_date }}'
+            --as-of-date "$AS_OF_DATE"
 
       - name: Reject fixture contamination and incomplete output
         shell: python
