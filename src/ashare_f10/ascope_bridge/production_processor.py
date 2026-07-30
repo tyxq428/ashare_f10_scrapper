@@ -9,6 +9,7 @@ from typing import Any
 
 import pandas as pd
 
+import ashare_f10.ascope_bridge.single_stock as single_stock_module
 from ashare_f10.ascope_bridge.batch import (
     StockProcessResult,
     _normalize_result,
@@ -19,6 +20,8 @@ from ashare_f10.ascope_bridge.single_stock import (
     SingleStockExportError,
     export_single_stock,
 )
+
+PRODUCTION_MAPPING_VERSION = "ascope-finance-v2"
 
 INCOME_CUMULATIVE = "RPT_F10_FINANCE_GINCOME"
 INCOME_STANDALONE = "RPT_F10_FINANCE_GINCOMEQC"
@@ -175,6 +178,96 @@ def build_canonical_financial_tables(
     return build_financial_tables(select_canonical_source_facts(facts), **kwargs)
 
 
+def _scope_period_frame(
+    frame: pd.DataFrame,
+    *,
+    annual_from: str,
+    quarterly_from: str,
+    through: str,
+) -> pd.DataFrame:
+    """Limit status and diagnostic rows to the requested annual/quarterly windows."""
+
+    value = frame.copy()
+    if value.empty:
+        return value
+    if "security_code" in value.columns:
+        value["security_code"] = value["security_code"].astype(str).str.zfill(6)
+    if "report_period" not in value.columns:
+        return value.reset_index(drop=True)
+    periods = value["report_period"].fillna("").astype(str).str[:10]
+    valid = periods.str.match(r"^\d{4}-\d{2}-\d{2}$")
+    annual_window = periods.str.endswith("-12-31") & (periods >= annual_from)
+    quarterly_window = periods >= quarterly_from
+    keep = valid & (periods <= through) & (annual_window | quarterly_window)
+    return value[keep].copy().reset_index(drop=True)
+
+
+def scope_finance_export(
+    result: FinanceExportResult,
+    request: dict[str, Any],
+) -> FinanceExportResult:
+    annual_from = str(request["request_annual_from"])
+    quarterly_from = str(request["request_quarterly_from"])
+    through = str(request["request_through"])
+
+    def annual(frame: pd.DataFrame) -> pd.DataFrame:
+        if frame.empty or "report_period" not in frame.columns:
+            return frame.copy()
+        periods = frame["report_period"].fillna("").astype(str).str[:10]
+        value = frame[(periods >= annual_from) & (periods <= through)].copy()
+        if "security_code" in value.columns:
+            value["security_code"] = value["security_code"].astype(str).str.zfill(6)
+        return value.reset_index(drop=True)
+
+    def quarterly(frame: pd.DataFrame) -> pd.DataFrame:
+        if frame.empty or "report_period" not in frame.columns:
+            return frame.copy()
+        periods = frame["report_period"].fillna("").astype(str).str[:10]
+        value = frame[(periods >= quarterly_from) & (periods <= through)].copy()
+        if "security_code" in value.columns:
+            value["security_code"] = value["security_code"].astype(str).str.zfill(6)
+        return value.reset_index(drop=True)
+
+    return FinanceExportResult(
+        annual=annual(result.annual),
+        quarterly=quarterly(result.quarterly),
+        field_status=_scope_period_frame(
+            result.field_status,
+            annual_from=annual_from,
+            quarterly_from=quarterly_from,
+            through=through,
+        ),
+        future_rows=_scope_period_frame(
+            result.future_rows,
+            annual_from=annual_from,
+            quarterly_from=quarterly_from,
+            through=through,
+        ),
+        data_gaps=_scope_period_frame(
+            result.data_gaps,
+            annual_from=annual_from,
+            quarterly_from=quarterly_from,
+            through=through,
+        ),
+        duplicate_resolution=_scope_period_frame(
+            result.duplicate_resolution,
+            annual_from=annual_from,
+            quarterly_from=quarterly_from,
+            through=through,
+        ),
+    )
+
+
+def _mapper_for_request(request: dict[str, Any]):
+    def mapper(facts: pd.DataFrame, **kwargs: Any) -> FinanceExportResult:
+        return scope_finance_export(
+            build_canonical_financial_tables(facts, **kwargs),
+            request,
+        )
+
+    return mapper
+
+
 def _preserve_fetch_report_and_prune(
     *,
     report: Path,
@@ -206,13 +299,15 @@ def canonical_stock_processor(
     data_root = Path(context["data_root"])
     stock_output_root = Path(context["stock_output_root"])
     cutoff = str(context["as_of_date"])
+    mapper = _mapper_for_request(request)
+    single_stock_module.MAPPING_VERSION = PRODUCTION_MAPPING_VERSION
     try:
         result = export_single_stock(
             request,
             data_root=data_root,
             output_root=stock_output_root,
             as_of_date=cutoff,
-            mapper=build_canonical_financial_tables,
+            mapper=mapper,
         )
         return _normalize_result(result)
     except SingleStockExportError as exc:
@@ -278,7 +373,7 @@ def canonical_stock_processor(
             output_root=stock_output_root,
             as_of_date=cutoff,
             source_run_dir=run_dir,
-            mapper=build_canonical_financial_tables,
+            mapper=mapper,
         )
         normalized = _normalize_result(result)
         _preserve_fetch_report_and_prune(
