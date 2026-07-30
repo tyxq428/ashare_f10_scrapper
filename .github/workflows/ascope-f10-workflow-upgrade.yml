@@ -38,31 +38,93 @@ jobs:
       - name: Install development dependencies
         run: python -m pip install -e '.[dev]'
 
-      - name: Upgrade immutable artifact identity and rerun behavior
+      - name: Upgrade rollout-safe artifacts and state semantics
         shell: python
         run: |
           from pathlib import Path
 
-          path = Path('.github/workflows/ascope-f10-batch-export.yml')
-          text = path.read_text(encoding='utf-8')
-          old = 'echo "artifact_name=ascope-f10-${BATCH_ID}-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"'
-          new = 'echo "artifact_name=ascope-f10-${BATCH_ID}-s${SMOKE_COUNT}-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"'
-          if old in text:
-              text = text.replace(old, new, 1)
-          restore_old = 'name: ascope-f10-${{ env.BATCH_ID }}-${{ env.RESUME_RUN_ID }}'
-          restore_new = 'name: ascope-f10-${{ env.BATCH_ID }}-s${{ env.SMOKE_COUNT }}-${{ env.RESUME_RUN_ID }}'
-          if restore_old in text:
-              text = text.replace(restore_old, restore_new, 1)
-          marker = '          compression-level: 6\n'
-          replacement = '          compression-level: 6\n          overwrite: true\n'
+          workflow_path = Path('.github/workflows/ascope-f10-batch-export.yml')
+          text = workflow_path.read_text(encoding='utf-8')
+          text = text.replace(
+              '  RESUME_RUN_ID: ${{ inputs.resume_run_id }}',
+              '  RESUME_RUN_ID: ${{ inputs.resume_run_id || github.run_id }}',
+              1,
+          )
+          text = text.replace(
+              'echo "artifact_name=ascope-f10-${BATCH_ID}-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"',
+              'echo "artifact_name=ascope-f10-${BATCH_ID}-s${SMOKE_COUNT}-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"',
+              1,
+          )
+          text = text.replace(
+              'name: ascope-f10-${{ env.BATCH_ID }}-${{ env.RESUME_RUN_ID }}',
+              'name: ascope-f10-${{ env.BATCH_ID }}-s${{ env.SMOKE_COUNT }}-${{ env.RESUME_RUN_ID }}',
+              1,
+          )
+          text = text.replace(
+              '          path: 09_OUTPUTS/ascope-f10\n          run-id:',
+              '          path: 09_OUTPUTS\n          run-id:',
+              1,
+          )
+          restore_marker = '      - name: Restore compatible prior batch artifact\n        if: env.RESUME_RUN_ID != \'\'\n'
+          restore_value = (
+              '      - name: Restore compatible prior batch artifact\n'
+              '        if: env.RESUME_RUN_ID != \'\'\n'
+              '        continue-on-error: ${{ inputs.resume_run_id == \'\' }}\n'
+          )
+          if 'continue-on-error: ${{ inputs.resume_run_id == \'\' }}' not in text:
+              if restore_marker not in text:
+                  raise SystemExit('restore step marker not found')
+              text = text.replace(restore_marker, restore_value, 1)
+          upload_marker = '          compression-level: 6\n'
           if '          overwrite: true\n' not in text:
-              if marker not in text:
+              if upload_marker not in text:
                   raise SystemExit('upload-artifact marker not found')
-              text = text.replace(marker, replacement, 1)
-          path.write_text(text, encoding='utf-8')
+              text = text.replace(
+                  upload_marker,
+                  upload_marker + '          overwrite: true\n',
+                  1,
+              )
+          workflow_path.write_text(text, encoding='utf-8')
 
-      - name: Validate workflow and fixture contract
+          rollout_path = Path('src/ashare_f10/ascope_bridge/rollout.py')
+          rollout = rollout_path.read_text(encoding='utf-8')
+          old = '''    if batch_id == "B001":
+        if value["phase"] != "B001_SMOKE_PASS":
+            raise RolloutError("ROLLOUT_B001_ORDER_VIOLATION", f"phase={value['phase']}")
+        value["phase"] = "B001_FULL_RUNNING"
+    elif value["phase"] not in {"B001_FULL_PASS", "FULL_ROLLOUT_RUNNING", "FULL_ROLLOUT_PARTIAL"}:
+        raise RolloutError("ROLLOUT_FULL_ORDER_VIOLATION", f"phase={value['phase']}")
+    active = list(value.get("active_batches") or [])
+'''
+          new = '''    record = value["batches"].get(batch_id)
+    if record is None:
+        raise RolloutError("ROLLOUT_UNKNOWN_BATCH", batch_id)
+    if record["status"] in SUCCESS_BATCH:
+        raise RolloutError("ROLLOUT_SUCCESS_RESTART_FORBIDDEN", batch_id)
+    if batch_id == "B001":
+        if value["phase"] != "B001_SMOKE_PASS":
+            raise RolloutError("ROLLOUT_B001_ORDER_VIOLATION", f"phase={value['phase']}")
+        value["phase"] = "B001_FULL_RUNNING"
+    elif value["phase"] not in {"B001_FULL_PASS", "FULL_ROLLOUT_RUNNING", "FULL_ROLLOUT_PARTIAL"}:
+        raise RolloutError("ROLLOUT_FULL_ORDER_VIOLATION", f"phase={value['phase']}")
+    active = list(value.get("active_batches") or [])
+'''
+          if old not in rollout:
+              raise SystemExit('rollout transition marker not found')
+          rollout = rollout.replace(old, new, 1)
+          duplicate = '''    record = value["batches"][batch_id]
+    if record["status"] in SUCCESS_BATCH:
+        raise RolloutError("ROLLOUT_SUCCESS_RESTART_FORBIDDEN", batch_id)
+'''
+          if duplicate not in rollout:
+              raise SystemExit('rollout duplicate record marker not found')
+          rollout = rollout.replace(duplicate, '', 1)
+          rollout_path.write_text(rollout, encoding='utf-8')
+
+      - name: Validate workflow and rollout contracts
         run: |
+          ruff check --fix src/ashare_f10/ascope_bridge/rollout.py tests/test_ascope_f10_rollout.py
+          ruff check src/ashare_f10/ascope_bridge/rollout.py tests/test_ascope_f10_rollout.py
           python scripts/devflow/validate_workflows.py
           pytest -q tests/test_ascope_f10_rollout.py tests/test_ascope_f10_batch.py tests/test_ascope_f10_reducer.py
 
@@ -72,6 +134,7 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add .github/workflows/ascope-f10-batch-export.yml \
+            src/ashare_f10/ascope_bridge/rollout.py \
             .github/workflows/ascope-f10-workflow-upgrade.yml
-          git commit -m 'Make A-SCOPE batch artifacts rollout-safe'
+          git commit -m 'Make A-SCOPE rollout resumable and ordered'
           git push origin HEAD:feature/ascope-f10-export-bridge-v1
