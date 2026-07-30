@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "state_revision": 3,
+  "state_revision": 4,
   "task_id": "ascope-f10-export-bridge-v1",
   "title": "A-SCOPE F10 batch export bridge",
   "status": "RUNNING",
@@ -15,12 +15,12 @@
   "working_branch": "feature/ascope-f10-export-bridge-v1",
   "pull_request": 72,
   "base_sha_at_start": "208c5450455e8fd678b0551b01bcead114a34893",
-  "last_product_commit_sha": "1a7db7429b21324a158b981a9388021a70371e9b",
+  "last_product_commit_sha": "ce59d52b825b575df90d8cdb49fde74604437c8f",
   "last_state_commit_sha": null,
-  "current_stage": "W01",
-  "last_completed_stage": "W00",
-  "last_successful_step": "W01_request_package_resolver_implemented_and_local_fixture_plus_production_snapshot_validation_passed",
-  "next_action": "Run repository CI for the W01 resolver and repair only demonstrated deterministic failures before writing W01_result.md.",
+  "current_stage": "W02",
+  "last_completed_stage": "W01",
+  "last_successful_step": "W01_request_package_resolver_repository_gates_passed",
+  "next_action": "Implement canonical field mapping, financial industry templates, point-in-time filtering, revision selection and independent-quarter derivation.",
   "gate_results": {
     "USER_CONFIRMATION": "PASS:2026-07-30",
     "CONTROL_ISSUE": "PASS:71",
@@ -32,6 +32,9 @@
     "W01_LOCAL_FIXTURE": "PASS:8_TESTS",
     "W01_PRODUCTION_REQUEST_PARSE": "PASS:5331_ROWS_27_BATCHES_B001_SMOKE_5",
     "W01_PACKAGE_SHA256": "8e5ed52ba310d05b0ee80a7d967cc2246577a5815d5b5edaad72483f3239dc77",
+    "W01_TEST_RUN": "PASS:30533509527",
+    "W01_STATE_RUN": "PASS:30533509501",
+    "W01_E2E_RUN": "PASS:30533509514",
     "CODEX_CALLS": "0",
     "RESPONSES_PAID_PROBES": "0",
     "FULL_MARKET_OFFICIAL_PDF_VALIDATION": "DISABLED",
@@ -60,5 +63,5 @@
     "acknowledged": true,
     "control_issue_number": 71
   },
-  "updated_at_utc": "2026-07-30T10:08:44Z"
+  "updated_at_utc": "2026-07-30T10:10:52Z"
 }
