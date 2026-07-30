@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "state_revision": 1,
+  "state_revision": 2,
   "task_id": "ascope-f10-export-bridge-v1",
   "title": "A-SCOPE F10 batch export bridge",
   "status": "RUNNING",
@@ -13,19 +13,22 @@
   },
   "security_status": "PENDING",
   "working_branch": "feature/ascope-f10-export-bridge-v1",
-  "pull_request": null,
+  "pull_request": 72,
   "base_sha_at_start": "208c5450455e8fd678b0551b01bcead114a34893",
   "last_product_commit_sha": null,
   "last_state_commit_sha": null,
-  "current_stage": "W00",
-  "last_completed_stage": null,
-  "last_successful_step": "task_control_issue_71_and_feature_branch_created",
-  "next_action": "Complete W00 repository preflight, open the Draft PR, then execute W01 request-package resolver and validation.",
+  "current_stage": "W01",
+  "last_completed_stage": "W00",
+  "last_successful_step": "W00_bootstrap_scope_overlap_and_security_preflight_passed",
+  "next_action": "Implement and verify the deterministic A-SCOPE request package resolver, B001 selection and fail-closed validation suite.",
   "gate_results": {
     "USER_CONFIRMATION": "PASS:2026-07-30",
     "CONTROL_ISSUE": "PASS:71",
     "WORKING_BRANCH": "PASS:feature/ascope-f10-export-bridge-v1",
+    "DRAFT_PR": "PASS:72",
     "BASE_MAIN_SHA": "208c5450455e8fd678b0551b01bcead114a34893",
+    "OPEN_PR_PATH_OVERLAP": "PASS:NONE_WITH_68_69_70",
+    "W00_BOOTSTRAP": "PASS",
     "CODEX_CALLS": "0",
     "RESPONSES_PAID_PROBES": "0",
     "FULL_MARKET_OFFICIAL_PDF_VALIDATION": "DISABLED",
@@ -54,5 +57,5 @@
     "acknowledged": true,
     "control_issue_number": 71
   },
-  "updated_at_utc": "2026-07-30T09:54:19Z"
+  "updated_at_utc": "2026-07-30T09:59:06Z"
 }
