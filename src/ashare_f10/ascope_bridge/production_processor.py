@@ -13,43 +13,165 @@ from ashare_f10.ascope_bridge.batch import (
     _normalize_result,
     _retryable_text,
 )
-from ashare_f10.ascope_bridge.finance import (
-    DEBT_COMPONENTS,
-    FIELD_SPECS,
-    FinanceExportResult,
-    build_financial_tables,
-)
+from ashare_f10.ascope_bridge.finance import FinanceExportResult, build_financial_tables
 from ashare_f10.ascope_bridge.single_stock import (
     SingleStockExportError,
     export_single_stock,
 )
 
-CANONICAL_SOURCE_KEYS = frozenset(
+INCOME_CUMULATIVE = "RPT_F10_FINANCE_GINCOME"
+INCOME_STANDALONE = "RPT_F10_FINANCE_GINCOMEQC"
+CASHFLOW_CUMULATIVE = "RPT_F10_FINANCE_GCASHFLOW"
+CASHFLOW_STANDALONE = "RPT_F10_FINANCE_GCASHFLOWQC"
+BALANCE = "RPT_F10_FINANCE_GBALANCE"
+MAIN_FINANCE = "RPT_F10_FINANCE_MAINFINADATA"
+QUARTER_MAIN_FINANCE = "RPT_F10_QTR_MAINFINADATA"
+
+STANDALONE_FAMILIES = frozenset(
     {
-        *(key for spec in FIELD_SPECS for key in spec.keys),
-        *DEBT_COMPONENTS,
+        INCOME_STANDALONE,
+        CASHFLOW_STANDALONE,
+        QUARTER_MAIN_FINANCE,
     }
 )
+
+INCOME_KEYS = frozenset(
+    {
+        "OPERATE_INCOME",
+        "TOTAL_OPERATE_INCOME",
+        "OPERATE_COST",
+        "TOTAL_OPERATE_COST",
+        "DEDUCT_PARENT_NETPROFIT",
+        "DEDU_PARENT_PROFIT",
+    }
+)
+MAIN_FINANCE_KEYS = frozenset({"KCFJCXSYJLR"})
+CASHFLOW_KEYS = frozenset({"NETCASH_OPERATE", "CONSTRUCT_LONG_ASSET"})
+BALANCE_KEYS = frozenset(
+    {
+        "ACCOUNTS_RECE",
+        "ACCOUNTS_RECEIVABLE",
+        "INVENTORY",
+        "CONTRACT_LIAB",
+        "CONTRACT_LIABILITY",
+        "CONTRACT_LIABILITIES",
+        "INTEREST_BEARING_DEBT",
+        "TOTAL_EQUITY",
+        "TOTAL_EQUITY_PARENT",
+        "TOTAL_ASSETS",
+        "MONETARYFUNDS",
+        "CASH_AND_DEPOSIT_CENTRAL_BANK",
+        "SHORT_LOAN",
+        "LONG_LOAN",
+        "NONCURRENT_LIAB_1YEAR",
+        "BOND_PAYABLE",
+        "LEASE_LIAB",
+    }
+)
+AUDIT_KEYS = frozenset({"AUDIT_OPINION", "OPINION_TYPE", "AUDIT_RESULT"})
+INTERNAL_CONTROL_KEYS = frozenset(
+    {"INTERNAL_CONTROL_OPINION", "INTERNAL_CONTROL_AUDIT_OPINION"}
+)
+
+ALLOWED_FAMILIES_BY_KEY: dict[str, frozenset[str]] = {
+    **{
+        key: frozenset({INCOME_CUMULATIVE, INCOME_STANDALONE})
+        for key in INCOME_KEYS
+    },
+    **{
+        key: frozenset({MAIN_FINANCE, QUARTER_MAIN_FINANCE})
+        for key in MAIN_FINANCE_KEYS
+    },
+    **{
+        key: frozenset({CASHFLOW_CUMULATIVE, CASHFLOW_STANDALONE})
+        for key in CASHFLOW_KEYS
+    },
+    **{key: frozenset({BALANCE}) for key in BALANCE_KEYS},
+    **{key: frozenset({INCOME_CUMULATIVE}) for key in AUDIT_KEYS},
+    # No current F10 family is trusted for the internal-control opinion. Keep the
+    # canonical column and emit SOURCE_MISSING until a point-in-time official
+    # metadata adapter is added; never infer it from the audit opinion.
+    **{key: frozenset() for key in INTERNAL_CONTROL_KEYS},
+}
+
+FAMILY_PRIORITY = {
+    INCOME_CUMULATIVE: 100,
+    INCOME_STANDALONE: 100,
+    CASHFLOW_CUMULATIVE: 100,
+    CASHFLOW_STANDALONE: 100,
+    BALANCE: 100,
+    MAIN_FINANCE: 80,
+    QUARTER_MAIN_FINANCE: 80,
+}
+
+
+def _has_source_value(frame: pd.DataFrame) -> pd.Series:
+    numeric = (
+        frame["value_num"].notna()
+        if "value_num" in frame.columns
+        else pd.Series(False, index=frame.index)
+    )
+    if "value_text" not in frame.columns:
+        return numeric
+    text = frame["value_text"].notna() & (
+        frame["value_text"].astype(str).str.strip() != ""
+    )
+    return numeric | text
+
+
+def select_canonical_source_facts(facts: pd.DataFrame) -> pd.DataFrame:
+    """Select only semantically valid source families for A-SCOPE fields.
+
+    Eastmoney ratio and Dupont datasets reuse statement field keys for percentages
+    and composition ratios. Selecting by field key alone therefore mixes values such
+    as TOTAL_ASSETS=100 with the actual balance-sheet amount. This selector binds each
+    canonical key to its authoritative statement family, marks QC families as direct
+    standalone-quarter sources and removes empty duplicates before mapping.
+    """
+
+    if facts.empty or "field_key" not in facts.columns or "family" not in facts.columns:
+        return facts.iloc[0:0].copy()
+
+    selected = facts.copy()
+    selected["field_key"] = selected["field_key"].fillna("").astype(str).str.upper()
+    selected["family"] = selected["family"].fillna("").astype(str).str.upper()
+    allowed = pd.Series(False, index=selected.index)
+    for key, families in ALLOWED_FAMILIES_BY_KEY.items():
+        if families:
+            allowed |= (selected["field_key"] == key) & selected["family"].isin(families)
+    selected = selected[allowed & _has_source_value(selected)].copy()
+    if selected.empty:
+        return selected
+
+    selected["period_basis"] = selected["family"].map(
+        lambda family: "STANDALONE" if family in STANDALONE_FAMILIES else "CUMULATIVE"
+    )
+    selected["source_priority"] = selected["family"].map(FAMILY_PRIORITY).fillna(0).astype(int)
+
+    dedupe_columns = [
+        column
+        for column in (
+            "security_code",
+            "family",
+            "record_key",
+            "report_date",
+            "available_at",
+            "period_basis",
+            "field_key",
+            "value_num",
+            "value_text",
+            "unit",
+        )
+        if column in selected.columns
+    ]
+    return selected.drop_duplicates(dedupe_columns, keep="last").reset_index(drop=True)
 
 
 def build_canonical_financial_tables(
     facts: pd.DataFrame,
     **kwargs: Any,
 ) -> FinanceExportResult:
-    """Limit the A-SCOPE bridge to source fields used by its canonical schema.
-
-    The base F10 fact store intentionally contains every page field. Feeding all of
-    those facts into the finance mapper creates one availability gap for every
-    unrelated holding, news, governance and event field. Filtering here preserves
-    the complete normalized F10 store while keeping the A-SCOPE export bounded to
-    its declared financial data contract.
-    """
-
-    selected = facts.copy()
-    if "field_key" in selected.columns:
-        keys = selected["field_key"].fillna("").astype(str).str.upper()
-        selected = selected[keys.isin(CANONICAL_SOURCE_KEYS)].copy()
-    return build_financial_tables(selected, **kwargs)
+    return build_financial_tables(select_canonical_source_facts(facts), **kwargs)
 
 
 def canonical_stock_processor(
