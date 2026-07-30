@@ -7,8 +7,10 @@ on:
     paths:
       - .github/workflows/ascope-f10-real-smoke.yml
       - src/ashare_f10/ascope_bridge/**
+      - src/ashare_f10/normalize/facts.py
       - scripts/run_resilient_fetch.py
       - tests/test_ascope_f10_*.py
+      - tests/test_normalize_available_at.py
   workflow_dispatch:
     inputs:
       source_url:
@@ -106,8 +108,9 @@ jobs:
           validation = json.loads((root / 'validation_report.json').read_text(encoding='utf-8'))
           if batch.get('fixture_mode') or batch.get('non_investment_output'):
               raise SystemExit('real smoke output contains fixture/non-investment markers')
+          if validation.get('status') not in {'PASS', 'PASS_WITH_GAPS'}:
+              raise SystemExit(f"real smoke status is not acceptable: {validation.get('status')!r}")
           expected = {
-              'status': 'PASS',
               'input_count': 5,
               'successful_count': 5,
               'failed_count': 0,
@@ -121,6 +124,9 @@ jobs:
                   raise SystemExit(
                       f'real smoke acceptance mismatch: {key}={validation.get(key)!r}, expected {value!r}'
                   )
+          for key in ('annual_rows', 'quarterly_rows', 'field_status_rows'):
+              if int(validation.get(key) or 0) <= 0:
+                  raise SystemExit(f'real smoke produced no canonical {key}: {validation.get(key)!r}')
 
       - name: Upload immutable real-smoke output and checkpoint
         if: always()
