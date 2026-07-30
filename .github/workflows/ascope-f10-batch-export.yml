@@ -40,7 +40,7 @@ on:
         default: '5'
         type: string
       resume_run_id:
-        description: Optional prior run ID whose artifact should be restored
+        description: Optional prior run ID whose matching artifact should be restored
         required: false
         type: string
       force_retry:
@@ -90,7 +90,7 @@ env:
   BATCH_ID: ${{ github.event_name == 'pull_request' && 'B001' || inputs.batch_id }}
   AS_OF_DATE: ${{ github.event_name == 'pull_request' && '2026-07-30' || inputs.as_of_date }}
   SMOKE_COUNT: ${{ github.event_name == 'pull_request' && '5' || inputs.smoke_count }}
-  RESUME_RUN_ID: ${{ inputs.resume_run_id }}
+  RESUME_RUN_ID: ${{ inputs.resume_run_id || github.run_id }}
   FORCE_RETRY: ${{ inputs.force_retry }}
   OUTPUT_ROOT: 09_OUTPUTS/ascope-f10
 
@@ -132,7 +132,7 @@ jobs:
           if [[ -n "$RESUME_RUN_ID" ]]; then
             [[ "$RESUME_RUN_ID" =~ ^[0-9]+$ ]]
           fi
-          echo "artifact_name=ascope-f10-${BATCH_ID}-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=ascope-f10-${BATCH_ID}-s${SMOKE_COUNT}-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
 
       - name: Prepare immutable request source
         shell: bash
@@ -154,10 +154,11 @@ jobs:
 
       - name: Restore compatible prior batch artifact
         if: env.RESUME_RUN_ID != ''
+        continue-on-error: ${{ inputs.resume_run_id == '' }}
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          name: ascope-f10-${{ env.BATCH_ID }}-${{ env.RESUME_RUN_ID }}
-          path: 09_OUTPUTS/ascope-f10
+          name: ascope-f10-${{ env.BATCH_ID }}-s${{ env.SMOKE_COUNT }}-${{ env.RESUME_RUN_ID }}
+          path: 09_OUTPUTS
           run-id: ${{ env.RESUME_RUN_ID }}
           github-token: ${{ github.token }}
 
@@ -224,6 +225,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
           compression-level: 6
+          overwrite: true
 
       - name: Propagate batch result after artifact upload
         if: always()
