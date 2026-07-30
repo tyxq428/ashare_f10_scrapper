@@ -10,10 +10,7 @@ from typing import Any
 
 import pandas as pd
 
-from ashare_f10.ascope_bridge.request_package import (
-    ResolvedRequest,
-    resolve_request_package,
-)
+from ashare_f10.ascope_bridge.request_package import resolve_request_package
 
 ROLLOUT_PHASES = {
     "WAITING_FOR_INPUT",
@@ -28,7 +25,6 @@ ROLLOUT_PHASES = {
     "COMPLETED",
     "BLOCKED",
 }
-TERMINAL_BATCH = {"PASS", "PASS_WITH_GAPS", "FAILED", "DEFERRED"}
 SUCCESS_BATCH = {"PASS", "PASS_WITH_GAPS"}
 REQUIRED_BATCH_FILES = {
     "batch_manifest.json",
@@ -102,7 +98,10 @@ def initialize_rollout(
     max_active_batches: int = 2,
 ) -> dict[str, Any]:
     if max_active_batches != 2:
-        raise RolloutError("ROLLOUT_PARALLELISM_INVALID", "max_active_batches must equal 2")
+        raise RolloutError(
+            "ROLLOUT_PARALLELISM_INVALID",
+            "max_active_batches must equal 2",
+        )
     smoke = resolve_request_package(
         request_source,
         batch_id="B001",
@@ -115,7 +114,8 @@ def initialize_rollout(
             "ROLLOUT_BATCH_SET_MISMATCH",
             f"manifest={batch_ids}, package={sorted(smoke.all_batch_sha256)}",
         )
-    batches: dict[str, Any] = {}
+
+    batches: dict[str, dict[str, Any]] = {}
     total_rows = 0
     for batch_id in batch_ids:
         resolved = resolve_request_package(
@@ -142,7 +142,8 @@ def initialize_rollout(
             "ROLLOUT_REQUEST_CONSERVATION_FAILED",
             f"rows={total_rows}, manifest={smoke.manifest.standard_request_count}",
         )
-    state = {
+
+    state: dict[str, Any] = {
         "schema_version": 1,
         "state_revision": 1,
         "phase": "B001_SMOKE_READY",
@@ -197,20 +198,30 @@ def save_rollout(path: Path, state: Mapping[str, Any]) -> dict[str, Any]:
 def planned_actions(state: Mapping[str, Any]) -> list[dict[str, Any]]:
     phase = str(state.get("phase"))
     if phase == "B001_SMOKE_READY":
-        return [{"batch_id": "B001", "smoke_count": int(state["smoke_count"]), "kind": "SMOKE"}]
+        return [
+            {
+                "batch_id": "B001",
+                "smoke_count": int(state["smoke_count"]),
+                "kind": "SMOKE",
+            }
+        ]
     if phase == "B001_SMOKE_PASS":
         return [{"batch_id": "B001", "smoke_count": 0, "kind": "FULL_BATCH"}]
-    if phase not in {"B001_FULL_PASS", "FULL_ROLLOUT_RUNNING", "FULL_ROLLOUT_PARTIAL"}:
+    valid = {"B001_FULL_PASS", "FULL_ROLLOUT_RUNNING", "FULL_ROLLOUT_PARTIAL"}
+    if phase not in valid:
         return []
+
     active = set(state.get("active_batches") or [])
     available = max(0, int(state["max_active_batches"]) - len(active))
-    actions = []
+    actions: list[dict[str, Any]] = []
     for batch_id, record in state["batches"].items():
         if batch_id == "B001" or batch_id in active:
             continue
         if record.get("status") not in {"PENDING", "FAILED", "DEFERRED"}:
             continue
-        actions.append({"batch_id": batch_id, "smoke_count": 0, "kind": "FULL_BATCH"})
+        actions.append(
+            {"batch_id": batch_id, "smoke_count": 0, "kind": "FULL_BATCH"}
+        )
         if len(actions) >= available:
             break
     return actions
@@ -226,25 +237,43 @@ def mark_running(
     value = json.loads(json.dumps(state))
     if smoke_count:
         if batch_id != "B001" or value["phase"] != "B001_SMOKE_READY":
-            raise RolloutError("ROLLOUT_SMOKE_ORDER_VIOLATION", f"phase={value['phase']}")
+            raise RolloutError(
+                "ROLLOUT_SMOKE_ORDER_VIOLATION",
+                f"phase={value['phase']}",
+            )
         value["phase"] = "B001_SMOKE_RUNNING"
         value["smoke"].update(status="RUNNING", run_id=int(run_id), last_error=None)
         return value
+
+    record = value["batches"].get(batch_id)
+    if record is None:
+        raise RolloutError("ROLLOUT_UNKNOWN_BATCH", batch_id)
+    if record["status"] in SUCCESS_BATCH:
+        raise RolloutError("ROLLOUT_SUCCESS_RESTART_FORBIDDEN", batch_id)
+
     if batch_id == "B001":
         if value["phase"] != "B001_SMOKE_PASS":
-            raise RolloutError("ROLLOUT_B001_ORDER_VIOLATION", f"phase={value['phase']}")
+            raise RolloutError(
+                "ROLLOUT_B001_ORDER_VIOLATION",
+                f"phase={value['phase']}",
+            )
         value["phase"] = "B001_FULL_RUNNING"
-    elif value["phase"] not in {"B001_FULL_PASS", "FULL_ROLLOUT_RUNNING", "FULL_ROLLOUT_PARTIAL"}:
-        raise RolloutError("ROLLOUT_FULL_ORDER_VIOLATION", f"phase={value['phase']}")
+    elif value["phase"] not in {
+        "B001_FULL_PASS",
+        "FULL_ROLLOUT_RUNNING",
+        "FULL_ROLLOUT_PARTIAL",
+    }:
+        raise RolloutError(
+            "ROLLOUT_FULL_ORDER_VIOLATION",
+            f"phase={value['phase']}",
+        )
+
     active = list(value.get("active_batches") or [])
     if batch_id not in active:
         active.append(batch_id)
     if len(active) > int(value["max_active_batches"]):
         raise RolloutError("ROLLOUT_PARALLELISM_EXCEEDED", str(active))
     value["active_batches"] = active
-    record = value["batches"][batch_id]
-    if record["status"] in SUCCESS_BATCH:
-        raise RolloutError("ROLLOUT_SUCCESS_RESTART_FORBIDDEN", batch_id)
     record.update(
         status="RUNNING",
         run_id=int(run_id),
@@ -265,9 +294,15 @@ def _validate_batch_manifest(
     smoke_count: int,
 ) -> None:
     if manifest.get("batch_id") != batch_id:
-        raise RolloutError("ROLLOUT_BATCH_ID_MISMATCH", str(manifest.get("batch_id")))
+        raise RolloutError(
+            "ROLLOUT_BATCH_ID_MISMATCH",
+            str(manifest.get("batch_id")),
+        )
     if manifest.get("as_of_date") != state.get("as_of_date"):
-        raise RolloutError("ROLLOUT_CUTOFF_MISMATCH", str(manifest.get("as_of_date")))
+        raise RolloutError(
+            "ROLLOUT_CUTOFF_MISMATCH",
+            str(manifest.get("as_of_date")),
+        )
     if manifest.get("package_sha256") != state.get("package_sha256"):
         raise RolloutError("ROLLOUT_PACKAGE_HASH_MISMATCH", batch_id)
     expected_hash = (
@@ -277,13 +312,19 @@ def _validate_batch_manifest(
     )
     if manifest.get("selected_batch_sha256") != expected_hash:
         raise RolloutError("ROLLOUT_BATCH_HASH_MISMATCH", batch_id)
+
     fixture = bool(manifest.get("fixture_mode"))
     prohibited = bool(manifest.get("non_investment_output"))
     if bool(state.get("fixture_mode")) != fixture:
         raise RolloutError("ROLLOUT_FIXTURE_CONTAMINATION", batch_id)
     if fixture != prohibited:
         raise RolloutError("ROLLOUT_INVESTMENT_MARKER_INVALID", batch_id)
-    expected_count = int(state["smoke"]["expected_count"] if smoke_count else state["batches"][batch_id]["expected_count"])
+
+    expected_count = int(
+        state["smoke"]["expected_count"]
+        if smoke_count
+        else state["batches"][batch_id]["expected_count"]
+    )
     if int(manifest.get("input_count") or -1) != expected_count:
         raise RolloutError(
             "ROLLOUT_INPUT_COUNT_MISMATCH",
@@ -301,13 +342,22 @@ def record_batch_result(
     artifact_name: str,
     artifact_sha256: str,
 ) -> dict[str, Any]:
-    _validate_batch_manifest(state, manifest, batch_id=batch_id, smoke_count=smoke_count)
+    _validate_batch_manifest(
+        state,
+        manifest,
+        batch_id=batch_id,
+        smoke_count=smoke_count,
+    )
     value = json.loads(json.dumps(state))
     status = str(manifest.get("status") or "").upper()
     success = status in SUCCESS_BATCH
+
     if smoke_count:
         if value["phase"] != "B001_SMOKE_RUNNING":
-            raise RolloutError("ROLLOUT_SMOKE_RESULT_ORDER_VIOLATION", value["phase"])
+            raise RolloutError(
+                "ROLLOUT_SMOKE_RESULT_ORDER_VIOLATION",
+                value["phase"],
+            )
         value["smoke"].update(
             status=status if success else "FAILED",
             run_id=int(run_id),
@@ -318,11 +368,19 @@ def record_batch_result(
         value["phase"] = "B001_SMOKE_PASS" if success else "BLOCKED"
         value["block_reason"] = None if success else "B001_SMOKE_FAILED"
         return value
-    active = [item for item in value.get("active_batches") or [] if item != batch_id]
-    value["active_batches"] = active
+
+    value["active_batches"] = [
+        item for item in value.get("active_batches") or [] if item != batch_id
+    ]
     record = value["batches"][batch_id]
     record.update(
-        status=status if success else ("DEFERRED" if int(manifest.get("deferred_count") or 0) else "FAILED"),
+        status=(
+            status
+            if success
+            else "DEFERRED"
+            if int(manifest.get("deferred_count") or 0)
+            else "FAILED"
+        ),
         run_id=int(run_id),
         artifact_name=artifact_name,
         artifact_sha256=artifact_sha256,
@@ -333,14 +391,19 @@ def record_batch_result(
         value["phase"] = "B001_FULL_PASS" if success else "BLOCKED"
         value["block_reason"] = None if success else "B001_FULL_FAILED"
         return value
+
     remaining = [
         item
         for item, candidate in value["batches"].items()
         if item != "B001" and candidate["status"] not in SUCCESS_BATCH
     ]
+    active = value["active_batches"]
     if not remaining and not active:
         value["phase"] = "FULL_REDUCTION_READY"
-    elif any(value["batches"][item]["status"] in {"FAILED", "DEFERRED"} for item in remaining):
+    elif any(
+        value["batches"][item]["status"] in {"FAILED", "DEFERRED"}
+        for item in remaining
+    ):
         value["phase"] = "FULL_ROLLOUT_PARTIAL"
     else:
         value["phase"] = "FULL_ROLLOUT_RUNNING"
@@ -362,7 +425,10 @@ def _concat(frames: Iterable[pd.DataFrame]) -> pd.DataFrame:
         for column in frame.columns:
             if column not in columns:
                 columns.append(column)
-    return pd.concat([frame.reindex(columns=columns) for frame in values], ignore_index=True)
+    return pd.concat(
+        [frame.reindex(columns=columns) for frame in values],
+        ignore_index=True,
+    )
 
 
 def reduce_full_market(
@@ -395,6 +461,7 @@ def reduce_full_market(
             "FULL_REDUCTION_BATCH_COUNT_MISMATCH",
             f"{len(batch_dirs)} != {first.manifest.batch_count}",
         )
+
     annual_frames: list[pd.DataFrame] = []
     quarterly_frames: list[pd.DataFrame] = []
     status_frames: list[pd.DataFrame] = []
@@ -402,10 +469,16 @@ def reduce_full_market(
     completed_ids: set[str] = set()
     batch_index: list[dict[str, Any]] = []
     seen_batches: set[str] = set()
+
     for batch_dir in batch_dirs:
-        missing = sorted(name for name in REQUIRED_BATCH_FILES if not (batch_dir / name).exists())
+        missing = sorted(
+            name for name in REQUIRED_BATCH_FILES if not (batch_dir / name).exists()
+        )
         if missing:
-            raise RolloutError("FULL_REDUCTION_FILE_MISSING", f"{batch_dir}: {missing}")
+            raise RolloutError(
+                "FULL_REDUCTION_FILE_MISSING",
+                f"{batch_dir}: {missing}",
+            )
         manifest = _read_json(batch_dir / "batch_manifest.json")
         batch_id = str(manifest.get("batch_id") or "")
         if batch_id in seen_batches:
@@ -421,19 +494,26 @@ def reduce_full_market(
             raise RolloutError("FULL_REDUCTION_PACKAGE_HASH_MISMATCH", batch_id)
         if manifest.get("selected_batch_sha256") != expected_hashes[batch_id]:
             raise RolloutError("FULL_REDUCTION_BATCH_HASH_MISMATCH", batch_id)
+
         fixture = bool(manifest.get("fixture_mode"))
         prohibited = bool(manifest.get("non_investment_output"))
         if fixture != bool(fixture_mode) or prohibited != bool(fixture_mode):
             raise RolloutError("FULL_REDUCTION_FIXTURE_CONTAMINATION", batch_id)
+
         failed = _read_csv(batch_dir / "failed_securities.csv")
         deferred = _read_csv(batch_dir / "deferred_securities.csv")
         if not failed.empty or not deferred.empty:
             raise RolloutError("FULL_REDUCTION_NONTERMINAL_SECURITIES", batch_id)
         completed = _read_csv(batch_dir / "completed_securities.csv")
-        ids = set(completed.get("security_id", pd.Series(dtype="string")).dropna().astype(str))
+        ids = set(
+            completed.get("security_id", pd.Series(dtype="string"))
+            .dropna()
+            .astype(str)
+        )
         if completed_ids & ids:
             raise RolloutError("FULL_REDUCTION_DUPLICATE_SECURITY", batch_id)
         completed_ids.update(ids)
+
         annual_frames.append(_read_csv(batch_dir / "financial_annual.csv"))
         quarterly_frames.append(_read_csv(batch_dir / "financial_quarterly.csv"))
         status_frames.append(_read_csv(batch_dir / "financial_field_status.csv"))
@@ -443,10 +523,13 @@ def reduce_full_market(
                 "batch_id": batch_id,
                 "input_count": int(manifest.get("input_count") or 0),
                 "successful_count": int(manifest.get("successful_count") or 0),
-                "batch_manifest_sha256": _sha256(batch_dir / "batch_manifest.json"),
+                "batch_manifest_sha256": _sha256(
+                    batch_dir / "batch_manifest.json"
+                ),
                 "batch_dir": str(batch_dir),
             }
         )
+
     if seen_batches != set(expected_hashes):
         raise RolloutError(
             "FULL_REDUCTION_BATCH_SET_MISMATCH",
@@ -455,22 +538,27 @@ def reduce_full_market(
     if completed_ids != expected_ids:
         raise RolloutError(
             "FULL_REDUCTION_SECURITY_CONSERVATION_FAILED",
-            f"missing={len(expected_ids - completed_ids)}, extra={len(completed_ids - expected_ids)}",
+            (
+                f"missing={len(expected_ids - completed_ids)}, "
+                f"extra={len(completed_ids - expected_ids)}"
+            ),
         )
+
     annual = _concat(annual_frames)
     quarterly = _concat(quarterly_frames)
     field_status = _concat(status_frames)
     data_gaps = _concat(gap_frames)
     for name, frame in (("annual", annual), ("quarterly", quarterly)):
-        if not frame.empty:
-            duplicate = frame.duplicated(["security_id", "report_period"], keep=False)
-            if bool(duplicate.any()):
-                raise RolloutError("FULL_REDUCTION_DUPLICATE_KEY", name)
-            available = pd.to_datetime(frame["available_at"], errors="coerce")
-            if available.isna().any():
-                raise RolloutError("FULL_REDUCTION_AVAILABLE_AT_MISSING", name)
-            if (available > pd.Timestamp(as_of_date)).any():
-                raise RolloutError("FULL_REDUCTION_FUTURE_ROW", name)
+        if frame.empty:
+            continue
+        if bool(frame.duplicated(["security_id", "report_period"], keep=False).any()):
+            raise RolloutError("FULL_REDUCTION_DUPLICATE_KEY", name)
+        available = pd.to_datetime(frame["available_at"], errors="coerce")
+        if available.isna().any():
+            raise RolloutError("FULL_REDUCTION_AVAILABLE_AT_MISSING", name)
+        if (available > pd.Timestamp(as_of_date)).any():
+            raise RolloutError("FULL_REDUCTION_FUTURE_ROW", name)
+
     output_dir.mkdir(parents=True, exist_ok=True)
     outputs = {
         "financial_annual.csv": annual,
@@ -481,6 +569,7 @@ def reduce_full_market(
     }
     for filename, frame in outputs.items():
         frame.to_csv(output_dir / filename, index=False, encoding="utf-8-sig")
+
     report = {
         "schema_version": 1,
         "status": "PASS",
