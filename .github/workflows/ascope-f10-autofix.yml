@@ -66,6 +66,9 @@ jobs:
 
       - name: Validate bridge implementation
         run: |
+          ruff check --fix src/ashare_f10/ascope_bridge/batch.py \
+            src/ashare_f10/ascope_bridge/reducer.py \
+            src/ashare_f10/ascope_bridge/single_stock.py
           ruff check src/ashare_f10/ascope_bridge tests/test_ascope_f10_*.py
           pytest -q tests/test_ascope_f10_request_package.py \
             tests/test_ascope_f10_finance.py \
