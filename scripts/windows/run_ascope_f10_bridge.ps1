@@ -91,7 +91,7 @@ if ($InspectOnly) {
     if (-not (Test-Path -LiteralPath $Checkpoint)) {
         throw "Checkpoint does not exist: $Checkpoint"
     }
-    & $Python -m ashare_f10.ascope_bridge.cli inspect-checkpoint $Checkpoint
+    & $Python -m ashare_f10.ascope_bridge.cli checkpoint $Checkpoint
     exit $LASTEXITCODE
 }
 
