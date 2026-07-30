@@ -78,8 +78,8 @@
       "title": "A-SCOPE F10 batch export bridge",
       "status": "RUNNING",
       "branch": "feature/ascope-f10-export-bridge-v1",
-      "pull_request": null,
-      "current_stage": "W00",
+      "pull_request": 72,
+      "current_stage": "W01",
       "state_path": "docs/implementation/ascope-f10-export-bridge-v1/task_state.yaml"
     }
   ]
