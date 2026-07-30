@@ -83,8 +83,8 @@ def run_batch_command(
         typer.Option("--soft-deadline-seconds", min=0),
     ] = 0,
     heartbeat_seconds: Annotated[
-        float,
-        typer.Option("--heartbeat-seconds", min=0.1),
+        int,
+        typer.Option("--heartbeat-seconds", min=1),
     ] = 30,
     fixture_mode: Annotated[
         bool,
