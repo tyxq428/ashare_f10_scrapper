@@ -9,6 +9,7 @@ from rich.console import Console
 
 from ashare_f10.ascope_bridge.batch import run_batch
 from ashare_f10.ascope_bridge.fixture import fixture_stock_processor
+from ashare_f10.ascope_bridge.production_processor import canonical_stock_processor
 from ashare_f10.ascope_bridge.reducer import reduce_batch
 from ashare_f10.ascope_bridge.request_package import resolve_request_package
 
@@ -106,9 +107,9 @@ def run_batch_command(
         smoke_count=smoke_count,
         output_dir=output_root / batch_id / "request",
     )
-    optional: dict[str, Any] = {}
-    if fixture_mode:
-        optional["processor"] = fixture_stock_processor
+    optional: dict[str, Any] = {
+        "processor": fixture_stock_processor if fixture_mode else canonical_stock_processor
+    }
     result = run_batch(
         resolved,
         data_root=data_root,
