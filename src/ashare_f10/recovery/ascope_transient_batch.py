@@ -263,19 +263,39 @@ def verify_recoverable_batch(batch_dir: Path) -> dict[str, Any]:
 
 
 def verify_transient_quote_502_batch(batch_dir: Path) -> dict[str, Any]:
-    """Preserve the original strict HTTP-502-only verifier contract."""
+    """Compatibility verifier used by the already-merged finalizer workflow.
+
+    The workflow name predates soft-deadline recovery. This entry point now
+    returns the union of two explicitly verified classes: exact quote-group
+    HTTP-502 failures and deterministic soft-deadline deferrals. It remains
+    fail-closed for every other status, error code, message, and data-quality
+    condition through :func:`verify_recoverable_batch`.
+    """
 
     report = verify_recoverable_batch(batch_dir)
-    if int(report["deferred_count"]) != 0:
-        raise TransientBatchVerificationError("deferred securities are present")
-    if int(report["retryable_count"]) == 0:
+    if not report["security_ids"]:
         raise TransientBatchVerificationError(
-            "no FAILED_RETRYABLE securities were found"
+            "no authorized recovery securities were found"
         )
-    root_cause = next(
-        item
-        for item in report["authorized_root_causes"]
-        if item.get("status") == "FAILED_RETRYABLE"
+    quote_root = next(
+        (
+            item
+            for item in report["authorized_root_causes"]
+            if item.get("status") == "FAILED_RETRYABLE"
+        ),
+        None,
+    )
+    compatibility_root = (
+        {
+            key: value
+            for key, value in quote_root.items()
+            if key not in {"status", "security_count"}
+        }
+        if quote_root and int(report["deferred_count"]) == 0
+        else {
+            "error_class": "APPROVED_RECOVERABLE_SET",
+            "root_causes": report["authorized_root_causes"],
+        }
     )
     return {
         "status": report["status"],
@@ -284,21 +304,21 @@ def verify_transient_quote_502_batch(batch_dir: Path) -> dict[str, Any]:
         "input_count": report["input_count"],
         "successful_count": report["successful_count"],
         "retryable_count": report["retryable_count"],
-        "security_ids": report["retryable_security_ids"],
-        "authorized_root_cause": {
-            key: value
-            for key, value in root_cause.items()
-            if key not in {"status", "security_count"}
-        },
-        "evidence": report["evidence"]["quote_http_502"],
+        "deferred_count": report["deferred_count"],
+        "retryable_security_ids": report["retryable_security_ids"],
+        "deferred_security_ids": report["deferred_security_ids"],
+        "security_ids": report["security_ids"],
+        "authorized_root_cause": compatibility_root,
+        "authorized_root_causes": report["authorized_root_causes"],
+        "evidence": report["evidence"],
     }
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Verify an A-SCOPE batch is recoverable only through quote HTTP 502 "
-            "retries."
+            "Verify an A-SCOPE batch is recoverable only through exact quote "
+            "HTTP 502 failures or deterministic soft-deadline deferrals."
         )
     )
     parser.add_argument("batch_dir", type=Path)
