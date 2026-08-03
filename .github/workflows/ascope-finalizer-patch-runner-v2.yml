@@ -1,36 +1,40 @@
-name: A-SCOPE Finalizer Patch Runner v2
+name: A-SCOPE Finalizer Patch Runner v3
 
 on:
-  push:
+  pull_request:
     branches:
       - main
-    paths:
-      - .devflow/ascope-finalizer-patch-activation-v2.json
+    types:
+      - opened
+      - reopened
+      - synchronize
 
 permissions:
   contents: write
-  pull-requests: write
-  issues: write
+  pull-requests: read
 
 concurrency:
-  group: ascope-finalizer-patch-runner-v2
+  group: ascope-finalizer-patch-runner-v3
   cancel-in-progress: false
 
 jobs:
-  prepare_patch:
+  patch_trigger_pr:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'chore/trigger-ascope-finalizer-patch-v3'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
-      PATCH_BRANCH: hotfix/ascope-finalizer-variable-batch-size-v2
+      HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
     steps:
-      - name: Check out exact main
+      - name: Check out exact trigger branch
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          ref: main
+          ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
           persist-credentials: true
 
-      - name: Apply exact source filter and variable-size batch acceptance
+      - name: Apply exact-source and variable-batch finalizer patch
         shell: python
         run: |
           from pathlib import Path
@@ -40,26 +44,25 @@ jobs:
           expression_open = '$' + '{{'
           expression_close = '}}'
           final_marker = "expected_input_count = int(recovery_report['verification']['input_count'])"
-          if final_marker in text:
-              raise SystemExit('target finalizer is already patched')
 
-          old_source = "  source_gate:\n    if: github.event_name != 'pull_request'\n"
-          new_source = (
-              "  source_gate:\n"
-              "    if: >-\n"
-              f"      {expression_open}\n"
-              "        github.event_name == 'workflow_dispatch'\n"
-              "        || (\n"
-              "          github.event_name == 'workflow_run'\n"
-              "          && github.event.workflow_run.id == 30782791016\n"
-              "          && github.event.workflow_run.event == 'push'\n"
-              "          && github.event.workflow_run.head_branch == 'main'\n"
-              "          && github.event.workflow_run.head_sha == 'a47c6ba5eb5a89a8bbdbf2e0ee58cf247b61b4c3'\n"
-              "        )\n"
-              f"      {expression_close}\n"
-          )
+          if final_marker not in text:
+              old_source = "  source_gate:\n    if: github.event_name != 'pull_request'\n"
+              new_source = (
+                  "  source_gate:\n"
+                  "    if: >-\n"
+                  f"      {expression_open}\n"
+                  "        github.event_name == 'workflow_dispatch'\n"
+                  "        || (\n"
+                  "          github.event_name == 'workflow_run'\n"
+                  "          && github.event.workflow_run.id == 30782791016\n"
+                  "          && github.event.workflow_run.event == 'push'\n"
+                  "          && github.event.workflow_run.head_branch == 'main'\n"
+                  "          && github.event.workflow_run.head_sha == 'a47c6ba5eb5a89a8bbdbf2e0ee58cf247b61b4c3'\n"
+                  "        )\n"
+                  f"      {expression_close}\n"
+              )
 
-          old_validation = """          validation = json.loads(
+              old_validation = """          validation = json.loads(
               (root / 'validation_report.json').read_text(encoding='utf-8')
           )
           expected = {
@@ -88,7 +91,7 @@ jobs:
               (root / 'retryable_recovery_report.json').read_text(encoding='utf-8')
           )
 """
-          new_validation = """          validation = json.loads(
+              new_validation = """          validation = json.loads(
               (root / 'validation_report.json').read_text(encoding='utf-8')
           )
           recovery_report = json.loads(
@@ -119,38 +122,39 @@ jobs:
           ]
 """
 
-          old_report = (
-              "  report_interruption:\n"
-              "    if: >-\n"
-              f"      {expression_open}\n"
-              "        always()\n"
-              "        && github.event_name != 'pull_request'\n"
-              "        && needs.reduce_full_market.result != 'success'\n"
-              f"      {expression_close}\n"
-          )
-          new_report = (
-              "  report_interruption:\n"
-              "    if: >-\n"
-              f"      {expression_open}\n"
-              "        always()\n"
-              "        && github.event_name != 'pull_request'\n"
-              "        && needs.source_gate.result != 'skipped'\n"
-              "        && needs.reduce_full_market.result != 'success'\n"
-              f"      {expression_close}\n"
-          )
+              old_report = (
+                  "  report_interruption:\n"
+                  "    if: >-\n"
+                  f"      {expression_open}\n"
+                  "        always()\n"
+                  "        && github.event_name != 'pull_request'\n"
+                  "        && needs.reduce_full_market.result != 'success'\n"
+                  f"      {expression_close}\n"
+              )
+              new_report = (
+                  "  report_interruption:\n"
+                  "    if: >-\n"
+                  f"      {expression_open}\n"
+                  "        always()\n"
+                  "        && github.event_name != 'pull_request'\n"
+                  "        && needs.source_gate.result != 'skipped'\n"
+                  "        && needs.reduce_full_market.result != 'success'\n"
+                  f"      {expression_close}\n"
+              )
 
-          anchors = {
-              'source gate': old_source in text,
-              'variable batch validation': old_validation in text,
-              'interruption filter': old_report in text,
-          }
-          missing = [name for name, present in anchors.items() if not present]
-          if missing:
-              raise SystemExit(f'patch anchors not found: {missing}')
+              anchors = {
+                  'source gate': old_source in text,
+                  'variable batch validation': old_validation in text,
+                  'interruption filter': old_report in text,
+              }
+              missing = [name for name, present in anchors.items() if not present]
+              if missing:
+                  raise SystemExit(f'patch anchors not found: {missing}')
 
-          text = text.replace(old_source, new_source, 1)
-          text = text.replace(old_validation, new_validation, 1)
-          text = text.replace(old_report, new_report, 1)
+              text = text.replace(old_source, new_source, 1)
+              text = text.replace(old_validation, new_validation, 1)
+              text = text.replace(old_report, new_report, 1)
+
           required = [
               'github.event.workflow_run.id == 30782791016',
               final_marker,
@@ -162,38 +166,22 @@ jobs:
               raise SystemExit(f'patched workflow validation failed: {absent}')
           if "'input_count': 200" in text or "'successful_count': 200" in text:
               raise SystemExit('hard-coded corrected-batch size remains')
-          path.write_text(text, encoding='utf-8')
 
-      - name: Create isolated patch branch and pull request
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
+          path.write_text(text, encoding='utf-8')
+          Path('.devflow/ascope-finalizer-patch-pr-trigger-v3.json').unlink(
+              missing_ok=True
+          )
+
+      - name: Commit only the finalizer patch to the existing PR branch
         shell: bash
         run: |
           set -euo pipefail
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git switch -C "$PATCH_BRANCH"
-          git add .github/workflows/ascope-f10-retryable-rollout-recovery.yml
-          git commit -m 'Handle variable final batch in A-SCOPE recovery'
-          git push --force origin "$PATCH_BRANCH"
-
-          existing="$(gh pr list --repo "$REPOSITORY" --head "$PATCH_BRANCH" --state open --json number --jq '.[0].number // empty')"
-          if [[ -z "$existing" ]]; then
-            gh pr create \
-              --repo "$REPOSITORY" \
-              --base main \
-              --head "$PATCH_BRANCH" \
-              --title 'Handle variable B027 size in A-SCOPE finalizer' \
-              --body 'Bind the finalizer to canonical source Run 30782791016, derive corrected batch size from verified input so B027 can correctly pass at 131/131, and suppress false interruption comments for skipped source events. This PR dispatches no production batch and uses no Gmail, Codex, paid probes, broad reruns or automatic trading.'
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'Finalizer patch is already present; no additional commit required.'
+            exit 0
           fi
-
-      - name: Persist safe preparer result
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          gh issue comment 71 --repo "${{ github.repository }}" --body \
-            '## A-SCOPE finalizer variable-batch patch PR prepared
-
-The registered v2 patch runner created or refreshed the isolated finalizer patch branch. The canonical source Run `30782791016` was not cancelled, rerun, or modified. No Gmail connection, Codex, or paid probe was used.'
+          git commit -m 'Handle variable final batch in A-SCOPE recovery'
+          git push origin HEAD:"$HEAD_BRANCH"
