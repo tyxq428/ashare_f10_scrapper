@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from ashare_f10.export.excel_exporter import export_excel, validate_group_records
+from ashare_f10.export.excel_sanitizer import sanitize_excel_payload_in_place
 from ashare_f10.export.json_exporter import export_json
 from ashare_f10.normalize.facts import build_data_store
 
@@ -15,10 +16,21 @@ def build_exports(combined: dict[str, Any], output_dir: Path) -> dict[str, str]:
     validate_group_records(combined)
     store = build_data_store(combined, output_dir)
     json_path = export_json(combined, output_dir, store)
+
+    # Preserve the raw JSON/Parquet/DuckDB values exactly, then sanitize only the
+    # in-memory payload used for XLSX rendering. Excel rejects several valid JSON
+    # control characters (for example U+0000, U+0002 and U+0019).
+    sanitization = sanitize_excel_payload_in_place(combined)
+    sanitization_path = output_dir / "excel_sanitization.json"
+    sanitization_path.write_text(
+        json.dumps(sanitization.to_dict(), ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
     excel_path = export_excel(combined, output_dir)
     artifacts = {
         "json": str(json_path),
         "excel": str(excel_path),
+        "excel_sanitization": str(sanitization_path),
         "parquet": store["parquet"],
         "duckdb": store["duckdb"],
         "fact_count": store["fact_count"],
