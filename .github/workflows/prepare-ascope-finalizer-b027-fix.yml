@@ -229,3 +229,5 @@ jobs:
           )
           with urllib.request.urlopen(request, timeout=60) as response:
               print(response.status)
+
+# activation: registered-workflow-1
