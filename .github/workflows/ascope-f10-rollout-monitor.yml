@@ -23,27 +23,27 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Inspect exact main recovery rollout and persist checkpoint
+      - name: Inspect exact canonical rollout and persist checkpoint
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           ISSUE_NUMBER: '71'
-          WORKFLOW_FILE: ascope-f10-b001-recovery.yml
+          SOURCE_RUN_ID: '30782791016'
+          EXPECTED_HEAD_SHA: a47c6ba5eb5a89a8bbdbf2e0ee58cf247b61b4c3
         shell: python
         run: |
           from __future__ import annotations
 
           import json
           import os
-          import urllib.error
-          import urllib.parse
           import urllib.request
           from datetime import datetime, timezone
 
           token = os.environ['GH_TOKEN']
           repository = os.environ['REPOSITORY']
           issue_number = os.environ['ISSUE_NUMBER']
-          workflow_file = os.environ['WORKFLOW_FILE']
+          source_run_id = int(os.environ['SOURCE_RUN_ID'])
+          expected_head_sha = os.environ['EXPECTED_HEAD_SHA']
           api = 'https://api.github.com'
           headers = {
               'Accept': 'application/vnd.github+json',
@@ -65,81 +65,95 @@ jobs:
               with urllib.request.urlopen(request, timeout=60) as response:
                   return json.loads(response.read().decode('utf-8'))
 
-          query = urllib.parse.urlencode({
-              'branch': 'main',
-              'event': 'push',
-              'per_page': 20,
-          })
-          runs = request_json(
+          run = request_json(
               'GET',
-              f'/repos/{repository}/actions/workflows/{workflow_file}/runs?{query}',
-          ).get('workflow_runs', [])
-          now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
+              f'/repos/{repository}/actions/runs/{source_run_id}',
+          )
+          jobs = request_json(
+              'GET',
+              f'/repos/{repository}/actions/runs/{source_run_id}/jobs?per_page=100',
+          ).get('jobs', [])
+          artifacts = request_json(
+              'GET',
+              f'/repos/{repository}/actions/runs/{source_run_id}/artifacts?per_page=100',
+          ).get('artifacts', [])
 
-          if not runs:
-              body = (
-                  '## A-SCOPE rollout monitor checkpoint\n\n'
-                  f'- observed_at_utc: `{now}`\n'
-                  '- status: `RUN_NOT_FOUND`\n'
-                  f'- workflow: `{workflow_file}`\n'
-                  '- branch/event: `main / push`\n\n'
-                  'No matching exact-main recovery run was returned. This monitor made no mutation to the production workflow.'
+          now = (
+              datetime.now(timezone.utc)
+              .replace(microsecond=0)
+              .isoformat()
+              .replace('+00:00', 'Z')
+          )
+          identity_ok = (
+              int(run.get('id') or 0) == source_run_id
+              and run.get('name') == 'A-SCOPE F10 Recover B001 and Continue Rollout'
+              and run.get('event') == 'push'
+              and run.get('head_branch') == 'main'
+              and run.get('head_sha') == expected_head_sha
+          )
+
+          job_lines = []
+          for job in jobs:
+              steps = job.get('steps') or []
+              active = [
+                  step.get('name')
+                  for step in steps
+                  if step.get('status') == 'in_progress'
+              ]
+              pending = sum(
+                  1 for step in steps if step.get('status') in {'queued', 'pending'}
               )
-          else:
-              run = sorted(runs, key=lambda item: item.get('created_at', ''), reverse=True)[0]
-              run_id = int(run['id'])
-              jobs_payload = request_json(
-                  'GET',
-                  f'/repos/{repository}/actions/runs/{run_id}/jobs?per_page=100',
+              detail = []
+              if active:
+                  detail.append('active=' + ', '.join(str(item) for item in active))
+              if pending:
+                  detail.append(f'pending_steps={pending}')
+              suffix = '; ' + '; '.join(detail) if detail else ''
+              job_lines.append(
+                  f"- `{job.get('name')}`: `{job.get('status')}` / "
+                  f"`{job.get('conclusion') or 'PENDING'}`; "
+                  f"started=`{job.get('started_at') or 'unknown'}`; "
+                  f"completed=`{job.get('completed_at') or 'PENDING'}`{suffix}"
               )
-              artifacts_payload = request_json(
-                  'GET',
-                  f'/repos/{repository}/actions/runs/{run_id}/artifacts?per_page=100',
-              )
-              jobs = jobs_payload.get('jobs', [])
-              artifacts = artifacts_payload.get('artifacts', [])
+          if not job_lines:
+              job_lines.append('- no jobs returned')
 
-              job_lines = []
-              for job in jobs:
-                  job_lines.append(
-                      f"- `{job.get('name')}`: `{job.get('status')}` / "
-                      f"`{job.get('conclusion') or 'PENDING'}`"
-                  )
-              if not job_lines:
-                  job_lines.append('- no jobs returned yet')
+          artifact_lines = [
+              f"- `{artifact.get('name')}` "
+              f"({artifact.get('size_in_bytes', 0)} bytes; "
+              f"created=`{artifact.get('created_at') or 'unknown'}`)"
+              for artifact in artifacts
+          ]
+          if not artifact_lines:
+              artifact_lines.append('- none yet')
 
-              artifact_lines = []
-              for artifact in artifacts:
-                  artifact_lines.append(
-                      f"- `{artifact.get('name')}` ({artifact.get('size_in_bytes', 0)} bytes)"
-                  )
-              if not artifact_lines:
-                  artifact_lines.append('- none yet')
-
-              body = '\n'.join([
-                  '## A-SCOPE rollout monitor checkpoint',
-                  '',
-                  f'- observed_at_utc: `{now}`',
-                  f"- run_id: `{run_id}`",
-                  f"- run_number: `{run.get('run_number')}`",
-                  f"- run_attempt: `{run.get('run_attempt')}`",
-                  f"- status: `{run.get('status')}`",
-                  f"- conclusion: `{run.get('conclusion') or 'PENDING'}`",
-                  f"- head_branch: `{run.get('head_branch')}`",
-                  f"- head_sha: `{run.get('head_sha')}`",
-                  f"- event: `{run.get('event')}`",
-                  f"- created_at: `{run.get('created_at')}`",
-                  f"- updated_at: `{run.get('updated_at')}`",
-                  f"- run_url: {run.get('html_url')}",
-                  '',
-                  '### Jobs',
-                  *job_lines,
-                  '',
-                  '### Artifacts',
-                  *artifact_lines,
-                  '',
-                  'The monitor is read-only for Actions and did not cancel, rerun, or dispatch any production job.',
-              ])
+          body = '\n'.join([
+              '## A-SCOPE exact canonical rollout checkpoint',
+              '',
+              f'- observed_at_utc: `{now}`',
+              f'- identity_gate: `{"PASS" if identity_ok else "FAIL"}`',
+              f'- run_id: `{run.get("id")}`',
+              f'- run_number: `{run.get("run_number")}`',
+              f'- run_attempt: `{run.get("run_attempt")}`',
+              f'- status: `{run.get("status")}`',
+              f'- conclusion: `{run.get("conclusion") or "PENDING"}`',
+              f'- head_branch: `{run.get("head_branch")}`',
+              f'- head_sha: `{run.get("head_sha")}`',
+              f'- event: `{run.get("event")}`',
+              f'- created_at: `{run.get("created_at")}`',
+              f'- updated_at: `{run.get("updated_at")}`',
+              f'- run_url: {run.get("html_url")}',
+              f'- returned_jobs: `{len(jobs)}`',
+              f'- returned_artifacts: `{len(artifacts)}`',
+              '',
+              '### Jobs',
+              *job_lines,
+              '',
+              '### Artifacts',
+              *artifact_lines,
+              '',
+              'The monitor used the exact canonical run ID and was read-only for Actions. It did not cancel, rerun, or dispatch any production job.',
+          ])
 
           request_json(
               'POST',
@@ -147,3 +161,6 @@ jobs:
               {'body': body},
           )
           print(body)
+
+          if not identity_ok:
+              raise SystemExit('canonical source identity gate failed')
