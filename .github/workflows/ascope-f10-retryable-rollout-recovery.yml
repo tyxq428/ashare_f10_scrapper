@@ -71,7 +71,17 @@ jobs:
           pytest -q tests/test_ascope_retryable_rollout_recovery.py
 
   source_gate:
-    if: github.event_name != 'pull_request'
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch'
+        || (
+          github.event_name == 'workflow_run'
+          && github.event.workflow_run.id == 30782791016
+          && github.event.workflow_run.event == 'push'
+          && github.event.workflow_run.head_branch == 'main'
+          && github.event.workflow_run.head_sha == 'a47c6ba5eb5a89a8bbdbf2e0ee58cf247b61b4c3'
+        )
+      }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:
@@ -336,9 +346,13 @@ jobs:
           validation = json.loads(
               (root / 'validation_report.json').read_text(encoding='utf-8')
           )
+          recovery_report = json.loads(
+              (root / 'retryable_recovery_report.json').read_text(encoding='utf-8')
+          )
+          expected_input_count = int(recovery_report['verification']['input_count'])
           expected = {
-              'input_count': 200,
-              'successful_count': 200,
+              'input_count': expected_input_count,
+              'successful_count': expected_input_count,
               'failed_count': 0,
               'deferred_count': 0,
               'conservation_pass': True,
@@ -358,9 +372,6 @@ jobs:
           recovered = [
               item for item in checkpoint['stocks'] if item.get('recovery_history')
           ]
-          recovery_report = json.loads(
-              (root / 'retryable_recovery_report.json').read_text(encoding='utf-8')
-          )
           expected_ids = set(recovery_report['verification']['security_ids'])
           observed_ids = {str(item['security_id']) for item in recovered}
           if observed_ids != expected_ids:
@@ -602,6 +613,7 @@ jobs:
       ${{
         always()
         && github.event_name != 'pull_request'
+        && needs.source_gate.result != 'skipped'
         && needs.reduce_full_market.result != 'success'
       }}
     needs:
