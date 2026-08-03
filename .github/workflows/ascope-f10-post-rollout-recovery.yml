@@ -1,0 +1,452 @@
+name: A-SCOPE F10 Post-Rollout Targeted Recovery
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/ascope-f10-post-rollout-recovery.yml
+      - src/ashare_f10/ops/ascope_retryable_recovery.py
+      - tests/test_ascope_retryable_rollout_recovery.py
+      - docs/implementation/ascope-f10-export-bridge-v1/**
+  workflow_run:
+    workflows:
+      - A-SCOPE F10 Recover B001 and Continue Rollout
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Exact completed rollout run to inspect and recover
+        required: true
+        default: '30782791016'
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: ascope-f10-post-rollout-targeted-recovery-${{ github.event.workflow_run.id || inputs.source_run_id || github.event.pull_request.number }}
+  cancel-in-progress: false
+
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+  PYTHONUNBUFFERED: '1'
+  EXPECTED_SOURCE_RUN_ID: '30782791016'
+  EXPECTED_SOURCE_SHA: a47c6ba5eb5a89a8bbdbf2e0ee58cf247b61b4c3
+  AS_OF_DATE: '2026-07-30'
+  SOURCE_URL: https://github.com/BullbaseGuy/a-scope-reearch/releases/download/ascope-financial-requests-2026-07-30-v1/ascope-financial-requests-2026-07-30-v1.zip
+
+jobs:
+  contract:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install project
+        run: python -m pip install -e '.[dev]'
+
+      - name: Validate targeted recovery contract
+        run: |
+          ruff check \
+            src/ashare_f10/ops/ascope_retryable_recovery.py \
+            tests/test_ascope_retryable_rollout_recovery.py
+          pytest -q tests/test_ascope_retryable_rollout_recovery.py
+
+  source_gate:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      source_run_id: ${{ steps.gate.outputs.source_run_id }}
+    steps:
+      - name: Resolve and verify exact source rollout
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_RUN_ID: ${{ github.event.workflow_run.id }}
+          EVENT_RUN_NAME: ${{ github.event.workflow_run.name }}
+          EVENT_RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          EVENT_RUN_EVENT: ${{ github.event.workflow_run.event }}
+          EVENT_RUN_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          EVENT_RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          MANUAL_RUN_ID: ${{ inputs.source_run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == 'workflow_run' ]]; then
+            run_id="$EVENT_RUN_ID"
+            run_name="$EVENT_RUN_NAME"
+            conclusion="$EVENT_RUN_CONCLUSION"
+            event="$EVENT_RUN_EVENT"
+            branch="$EVENT_RUN_BRANCH"
+            sha="$EVENT_RUN_SHA"
+          else
+            run_id="$MANUAL_RUN_ID"
+            [[ "$run_id" =~ ^[0-9]+$ ]]
+            payload="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}")"
+            run_name="$(python -c 'import json,sys; print(json.load(sys.stdin)["name"])' <<<"$payload")"
+            conclusion="$(python -c 'import json,sys; print(json.load(sys.stdin)["conclusion"])' <<<"$payload")"
+            event="$(python -c 'import json,sys; print(json.load(sys.stdin)["event"])' <<<"$payload")"
+            branch="$(python -c 'import json,sys; print(json.load(sys.stdin)["head_branch"])' <<<"$payload")"
+            sha="$(python -c 'import json,sys; print(json.load(sys.stdin)["head_sha"])' <<<"$payload")"
+          fi
+          [[ "$run_id" == "$EXPECTED_SOURCE_RUN_ID" ]]
+          [[ "$run_name" == 'A-SCOPE F10 Recover B001 and Continue Rollout' ]]
+          [[ "$conclusion" == 'failure' ]]
+          [[ "$event" == 'push' ]]
+          [[ "$branch" == 'main' ]]
+          [[ "$sha" == "$EXPECTED_SOURCE_SHA" ]]
+          echo "source_run_id=$run_id" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "Exact failed rollout accepted for audited recovery: run=${run_id}, sha=${sha}"
+
+  plan:
+    if: github.event_name != 'pull_request' && needs.source_gate.result == 'success'
+    needs:
+      - source_gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    outputs:
+      retry_matrix: ${{ steps.plan.outputs.retry_matrix }}
+      retry_count: ${{ steps.plan.outputs.retry_count }}
+      plan_status: ${{ steps.plan.outputs.plan_status }}
+    steps:
+      - name: Check out fixed main
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install project
+        run: python -m pip install -e '.[dev]'
+
+      - name: Build lightweight exact source inspection tree
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ needs.source_gate.outputs.source_run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf 09_OUTPUTS/source-lite
+          mkdir -p 09_OUTPUTS/source-lite/ascope-f10
+          for index in $(seq 1 27); do
+            batch_id="$(printf 'B%03d' "$index")"
+            temporary="$(mktemp -d)"
+            gh run download "$SOURCE_RUN_ID" \
+              --repo "$GITHUB_REPOSITORY" \
+              --name "ascope-f10-${batch_id}-s0-${SOURCE_RUN_ID}" \
+              --dir "$temporary"
+            python - "$temporary" "$batch_id" <<'PY'
+          import json
+          import shutil
+          import sys
+          from pathlib import Path
+
+          temporary = Path(sys.argv[1])
+          batch_id = sys.argv[2]
+          source = temporary / 'ascope-f10' / batch_id
+          target = Path('09_OUTPUTS/source-lite/ascope-f10') / batch_id
+          target.mkdir(parents=True, exist_ok=True)
+          for filename in ('checkpoint.json', 'validation_report.json'):
+              shutil.copy2(source / filename, target / filename)
+          checkpoint = json.loads((source / 'checkpoint.json').read_text(encoding='utf-8'))
+          for state in checkpoint.get('stocks', []):
+              if state.get('status') in {'COMPLETED', 'COMPLETED_WITH_GAPS'}:
+                  continue
+              security_id = str(state.get('security_id') or '')
+              source_groups = source / '_f10_runs' / security_id / 'groups'
+              target_groups = target / '_f10_runs' / security_id / 'groups'
+              target_groups.mkdir(parents=True, exist_ok=True)
+              for path in source_groups.glob('*.json'):
+                  value = json.loads(path.read_text(encoding='utf-8'))
+                  if not bool(value.get('success')):
+                      shutil.copy2(path, target_groups / path.name)
+          PY
+            rm -rf "$temporary"
+          done
+
+      - name: Classify every batch and build exact retry matrix
+        id: plan
+        run: |
+          python -m ashare_f10.ops.ascope_retryable_recovery plan \
+            09_OUTPUTS/source-lite/ascope-f10 \
+            --expected-batches 27 \
+            --report 09_OUTPUTS/recovery-plan.json \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Upload immutable recovery plan
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ascope-f10-recovery-plan-${{ github.run_id }}
+          path: 09_OUTPUTS/recovery-plan.json
+          if-no-files-found: error
+          retention-days: 30
+
+  retry_batches:
+    if: github.event_name != 'pull_request' && needs.plan.outputs.retry_count != '0'
+    needs:
+      - source_gate
+      - plan
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix: ${{ fromJSON(needs.plan.outputs.retry_matrix) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    steps:
+      - name: Check out fixed main
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install project
+        run: python -m pip install -e '.[dev]'
+
+      - name: Restore exact failed batch artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ascope-f10-${{ matrix.batch_id }}-s0-${{ needs.source_gate.outputs.source_run_id }}
+          path: 09_OUTPUTS/retry
+          run-id: ${{ needs.source_gate.outputs.source_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Reset only verified retryable quote-502 states
+        run: |
+          python -m ashare_f10.ops.ascope_retryable_recovery reset \
+            09_OUTPUTS/retry/ascope-f10/${{ matrix.batch_id }} \
+            --report 09_OUTPUTS/retry/ascope-f10/${{ matrix.batch_id }}/retryable_reset_report.json
+
+      - name: Resume only reset securities and preserve exit code
+        id: execute
+        shell: bash
+        run: |
+          set +e
+          python -m ashare_f10.ascope_bridge.cli run-batch \
+            09_OUTPUTS/retry/ascope-request/request.zip \
+            --batch-id '${{ matrix.batch_id }}' \
+            --as-of-date "$AS_OF_DATE" \
+            --smoke-count 0 \
+            --data-root data \
+            --output-root 09_OUTPUTS/retry/ascope-f10 \
+            --stock-workers 2 \
+            --max-attempts 2 \
+            --soft-deadline-seconds 18000 \
+            --heartbeat-seconds 30
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Validate corrected batch and audited reset set
+        if: always()
+        shell: python
+        run: |
+          import json
+          from pathlib import Path
+
+          root = Path('09_OUTPUTS/retry/ascope-f10/${{ matrix.batch_id }}')
+          validation = json.loads((root / 'validation_report.json').read_text(encoding='utf-8'))
+          reset = json.loads((root / 'retryable_reset_report.json').read_text(encoding='utf-8'))
+          expected = {
+              'input_count': 200,
+              'successful_count': 200,
+              'failed_count': 0,
+              'deferred_count': 0,
+              'conservation_pass': True,
+              'formal_future_rows': 0,
+          }
+          for key, wanted in expected.items():
+              if validation.get(key) != wanted:
+                  raise SystemExit(
+                      f'corrected batch mismatch: {key}={validation.get(key)!r}, expected={wanted!r}'
+                  )
+          if validation.get('status') not in {'PASS', 'PASS_WITH_GAPS'}:
+              raise SystemExit(f'corrected batch is not successful: {validation}')
+          checkpoint = json.loads((root / 'checkpoint.json').read_text(encoding='utf-8'))
+          by_id = {item['security_id']: item for item in checkpoint['stocks']}
+          reset_ids = {item['security_id'] for item in reset['reset_securities']}
+          if not reset_ids:
+              raise SystemExit('audited reset set is empty')
+          for security_id in reset_ids:
+              state = by_id[security_id]
+              if state.get('status') not in {'COMPLETED', 'COMPLETED_WITH_GAPS'}:
+                  raise SystemExit(f'{security_id} did not recover: {state}')
+              if not state.get('recovery_history'):
+                  raise SystemExit(f'{security_id} has no recovery audit history')
+
+      - name: Upload corrected batch output and checkpoint
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ascope-f10-${{ matrix.batch_id }}-s0-${{ github.run_id }}
+          path: |
+            09_OUTPUTS/retry/ascope-request
+            09_OUTPUTS/retry/ascope-f10/${{ matrix.batch_id }}
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6
+          overwrite: true
+
+      - name: Propagate corrected batch result after artifact upload
+        if: always()
+        shell: bash
+        run: |
+          code='${{ steps.execute.outputs.exit_code }}'
+          [[ "$code" =~ ^[0-9]+$ ]]
+          if [[ "$code" != '0' ]]; then
+            echo "Corrected batch returned exit code $code after checkpoint upload." >&2
+            exit "$code"
+          fi
+
+  reduce_full_market:
+    if: >-
+      ${{
+        always()
+        && github.event_name != 'pull_request'
+        && needs.plan.result == 'success'
+        && (needs.retry_batches.result == 'success' || needs.retry_batches.result == 'skipped')
+      }}
+    needs:
+      - source_gate
+      - plan
+      - retry_batches
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out fixed main
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install project
+        run: python -m pip install -e '.[dev]'
+
+      - name: Download the immutable recovery plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download "$GITHUB_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "ascope-f10-recovery-plan-${GITHUB_RUN_ID}" \
+            --dir 09_OUTPUTS/plan
+
+      - name: Assemble exact source or corrected batch artifacts sequentially
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ needs.source_gate.outputs.source_run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf 09_OUTPUTS/merged
+          mkdir -p 09_OUTPUTS/merged/ascope-f10
+          retry_batches="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          value = json.loads(Path('09_OUTPUTS/plan/recovery-plan.json').read_text(encoding='utf-8'))
+          print(' '.join(value['retry_batches']))
+          PY
+          )"
+          for index in $(seq 1 27); do
+            batch_id="$(printf 'B%03d' "$index")"
+            selected_run="$SOURCE_RUN_ID"
+            if [[ " $retry_batches " == *" $batch_id "* ]]; then
+              selected_run="$GITHUB_RUN_ID"
+            fi
+            temporary="$(mktemp -d)"
+            gh run download "$selected_run" \
+              --repo "$GITHUB_REPOSITORY" \
+              --name "ascope-f10-${batch_id}-s0-${selected_run}" \
+              --dir "$temporary"
+            if [[ ! -f 09_OUTPUTS/merged/ascope-request/request.zip ]]; then
+              mkdir -p 09_OUTPUTS/merged/ascope-request
+              cp "$temporary/ascope-request/request.zip" \
+                09_OUTPUTS/merged/ascope-request/request.zip
+            fi
+            test -d "$temporary/ascope-f10/$batch_id"
+            mv "$temporary/ascope-f10/$batch_id" \
+              "09_OUTPUTS/merged/ascope-f10/$batch_id"
+            rm -rf "$temporary"
+          done
+
+      - name: Prove all 27 merged batches are reduction-ready
+        run: |
+          python -m ashare_f10.ops.ascope_retryable_recovery plan \
+            09_OUTPUTS/merged/ascope-f10 \
+            --expected-batches 27 \
+            --report 09_OUTPUTS/final-recovery-plan.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          value = json.loads(Path('09_OUTPUTS/final-recovery-plan.json').read_text(encoding='utf-8'))
+          if value.get('status') != 'READY_FOR_REDUCTION':
+              raise SystemExit(f'full market is not reduction-ready: {value}')
+          PY
+
+      - name: Reduce and validate the full 5,331-security market package
+        run: |
+          python -m ashare_f10.ascope_bridge.rollout_cli reduce-full \
+            09_OUTPUTS/merged/ascope-request/request.zip \
+            09_OUTPUTS/merged/ascope-f10 \
+            --output-dir 09_OUTPUTS/ascope-f10-full-market \
+            --as-of-date "$AS_OF_DATE"
+
+      - name: Enforce final production acceptance
+        shell: python
+        run: |
+          import json
+          from pathlib import Path
+
+          root = Path('09_OUTPUTS/ascope-f10-full-market')
+          value = json.loads((root / 'bundle_manifest.json').read_text(encoding='utf-8'))
+          expected = {
+              'status': 'PASS',
+              'batch_count': 27,
+              'expected_security_count': 5331,
+              'completed_security_count': 5331,
+              'fixture_mode': False,
+              'non_investment_output': False,
+          }
+          for key, wanted in expected.items():
+              if value.get(key) != wanted:
+                  raise SystemExit(
+                      f'full-market acceptance mismatch: {key}={value.get(key)!r}, expected={wanted!r}'
+                  )
+
+      - name: Upload final full-market financial package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ascope-f10-full-market-${{ github.run_id }}
+          path: 09_OUTPUTS/ascope-f10-full-market
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6
