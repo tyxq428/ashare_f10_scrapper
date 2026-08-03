@@ -1,14 +1,17 @@
 name: Apply A-SCOPE Finalizer Variable Batch Patch
 
 on:
-  push:
+  pull_request:
     branches:
-      - hotfix/ascope-finalizer-variable-batch-runtime-v1
-    paths:
-      - .devflow/ascope-finalizer-variable-batch-activation.json
+      - main
+    types:
+      - opened
+      - reopened
+      - synchronize
 
 permissions:
   contents: write
+  pull-requests: read
 
 concurrency:
   group: apply-ascope-finalizer-variable-batch-patch-v1
@@ -16,13 +19,16 @@ concurrency:
 
 jobs:
   patch:
+    if: github.event.pull_request.head.ref == 'hotfix/ascope-finalizer-variable-batch-runtime-v1'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    env:
+      HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
     steps:
-      - name: Check out patch branch
+      - name: Check out exact patch branch
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          ref: hotfix/ascope-finalizer-variable-batch-runtime-v1
+          ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
           persist-credentials: true
 
@@ -157,7 +163,7 @@ jobs:
               raise SystemExit('hard-coded corrected-batch size remains')
           path.write_text(text, encoding='utf-8')
 
-      - name: Remove temporary patch driver and commit reviewed target change
+      - name: Remove temporary files and commit only the reviewed target change
         shell: bash
         run: |
           set -euo pipefail
@@ -171,4 +177,4 @@ jobs:
             exit 1
           }
           git commit -m 'Handle variable final batch in A-SCOPE recovery'
-          git push origin HEAD:hotfix/ascope-finalizer-variable-batch-runtime-v1
+          git push origin HEAD:"$HEAD_BRANCH"
