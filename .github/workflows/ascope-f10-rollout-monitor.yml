@@ -23,19 +23,22 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Inspect exact canonical rollout and persist checkpoint
+      - name: Inspect exact canonical rollout and patch runner
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           ISSUE_NUMBER: '71'
           SOURCE_RUN_ID: '30782791016'
           EXPECTED_HEAD_SHA: a47c6ba5eb5a89a8bbdbf2e0ee58cf247b61b4c3
+          PATCH_BRANCH: hotfix/ascope-deferred-time-budget-recovery-v1
+          PATCH_WORKFLOW_NAME: Apply A-SCOPE Deferred Recovery Patch
         shell: python
         run: |
           from __future__ import annotations
 
           import json
           import os
+          import urllib.parse
           import urllib.request
           from datetime import datetime, timezone
 
@@ -44,6 +47,8 @@ jobs:
           issue_number = os.environ['ISSUE_NUMBER']
           source_run_id = int(os.environ['SOURCE_RUN_ID'])
           expected_head_sha = os.environ['EXPECTED_HEAD_SHA']
+          patch_branch = os.environ['PATCH_BRANCH']
+          patch_workflow_name = os.environ['PATCH_WORKFLOW_NAME']
           api = 'https://api.github.com'
           headers = {
               'Accept': 'application/vnd.github+json',
@@ -65,14 +70,45 @@ jobs:
               with urllib.request.urlopen(request, timeout=60) as response:
                   return json.loads(response.read().decode('utf-8'))
 
+          def job_lines_for(run_id: int) -> list[str]:
+              jobs = request_json(
+                  'GET',
+                  f'/repos/{repository}/actions/runs/{run_id}/jobs?per_page=100',
+              ).get('jobs', [])
+              lines = []
+              for job in jobs:
+                  steps = job.get('steps') or []
+                  active = [
+                      step.get('name')
+                      for step in steps
+                      if step.get('status') == 'in_progress'
+                  ]
+                  pending = sum(
+                      1
+                      for step in steps
+                      if step.get('status') in {'queued', 'pending'}
+                  )
+                  detail = []
+                  if active:
+                      detail.append(
+                          'active=' + ', '.join(str(item) for item in active)
+                      )
+                  if pending:
+                      detail.append(f'pending_steps={pending}')
+                  suffix = '; ' + '; '.join(detail) if detail else ''
+                  lines.append(
+                      f"- `{job.get('name')}`: `{job.get('status')}` / "
+                      f"`{job.get('conclusion') or 'PENDING'}`; "
+                      f"started=`{job.get('started_at') or 'unknown'}`; "
+                      f"completed=`{job.get('completed_at') or 'PENDING'}`{suffix}"
+                  )
+              return lines or ['- no jobs returned']
+
           run = request_json(
               'GET',
               f'/repos/{repository}/actions/runs/{source_run_id}',
           )
-          jobs = request_json(
-              'GET',
-              f'/repos/{repository}/actions/runs/{source_run_id}/jobs?per_page=100',
-          ).get('jobs', [])
+          source_job_lines = job_lines_for(source_run_id)
           artifacts = request_json(
               'GET',
               f'/repos/{repository}/actions/runs/{source_run_id}/artifacts?per_page=100',
@@ -92,40 +128,45 @@ jobs:
               and run.get('head_sha') == expected_head_sha
           )
 
-          job_lines = []
-          for job in jobs:
-              steps = job.get('steps') or []
-              active = [
-                  step.get('name')
-                  for step in steps
-                  if step.get('status') == 'in_progress'
-              ]
-              pending = sum(
-                  1 for step in steps if step.get('status') in {'queued', 'pending'}
-              )
-              detail = []
-              if active:
-                  detail.append('active=' + ', '.join(str(item) for item in active))
-              if pending:
-                  detail.append(f'pending_steps={pending}')
-              suffix = '; ' + '; '.join(detail) if detail else ''
-              job_lines.append(
-                  f"- `{job.get('name')}`: `{job.get('status')}` / "
-                  f"`{job.get('conclusion') or 'PENDING'}`; "
-                  f"started=`{job.get('started_at') or 'unknown'}`; "
-                  f"completed=`{job.get('completed_at') or 'PENDING'}`{suffix}"
-              )
-          if not job_lines:
-              job_lines.append('- no jobs returned')
-
           artifact_lines = [
               f"- `{artifact.get('name')}` "
               f"({artifact.get('size_in_bytes', 0)} bytes; "
               f"created=`{artifact.get('created_at') or 'unknown'}`)"
               for artifact in artifacts
+          ] or ['- none yet']
+
+          query = urllib.parse.urlencode(
+              {
+                  'branch': patch_branch,
+                  'event': 'push',
+                  'per_page': 30,
+              }
+          )
+          patch_runs = request_json(
+              'GET',
+              f'/repos/{repository}/actions/runs?{query}',
+          ).get('workflow_runs', [])
+          matching = [
+              item
+              for item in patch_runs
+              if item.get('name') == patch_workflow_name
           ]
-          if not artifact_lines:
-              artifact_lines.append('- none yet')
+          matching.sort(key=lambda item: item.get('created_at', ''), reverse=True)
+          patch_lines = ['- no matching patch-runner workflow run returned']
+          if matching:
+              patch = matching[0]
+              patch_lines = [
+                  f'- run_id: `{patch.get("id")}`',
+                  f'- status: `{patch.get("status")}`',
+                  f'- conclusion: `{patch.get("conclusion") or "PENDING"}`',
+                  f'- head_sha: `{patch.get("head_sha")}`',
+                  f'- created_at: `{patch.get("created_at")}`',
+                  f'- updated_at: `{patch.get("updated_at")}`',
+                  f'- run_url: {patch.get("html_url")}',
+                  '',
+                  '#### Patch-runner jobs',
+                  *job_lines_for(int(patch['id'])),
+              ]
 
           body = '\n'.join([
               '## A-SCOPE exact canonical rollout checkpoint',
@@ -143,16 +184,18 @@ jobs:
               f'- created_at: `{run.get("created_at")}`',
               f'- updated_at: `{run.get("updated_at")}`',
               f'- run_url: {run.get("html_url")}',
-              f'- returned_jobs: `{len(jobs)}`',
               f'- returned_artifacts: `{len(artifacts)}`',
               '',
-              '### Jobs',
-              *job_lines,
+              '### Canonical jobs',
+              *source_job_lines,
               '',
-              '### Artifacts',
+              '### Canonical artifacts',
               *artifact_lines,
               '',
-              'The monitor used the exact canonical run ID and was read-only for Actions. It did not cancel, rerun, or dispatch any production job.',
+              '### Deferred-recovery patch runner',
+              *patch_lines,
+              '',
+              'The monitor was read-only for Actions. It did not cancel, rerun, or dispatch any production job.',
           ])
 
           request_json(
