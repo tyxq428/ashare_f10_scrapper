@@ -1,36 +1,32 @@
-name: A-SCOPE Deferred Recovery PR Runner
+name: A-SCOPE Deferred Recovery Issue Runner
 
 on:
-  pull_request:
-    branches:
-      - main
+  issues:
     types:
-      - opened
-      - reopened
-      - synchronize
+      - assigned
 
 permissions:
   contents: write
-  pull-requests: read
+  issues: read
 
 concurrency:
-  group: ascope-deferred-recovery-pr-runner
+  group: ascope-deferred-recovery-issue-runner
   cancel-in-progress: false
 
 jobs:
-  patch_trigger_pr:
+  patch_recovery_branch:
     if: >-
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.pull_request.head.ref == 'hotfix/ascope-deferred-time-budget-recovery-v1'
+      github.event.issue.number == 71 &&
+      github.event.assignee.login == 'tyxq428'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
-      HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+      TARGET_BRANCH: hotfix/ascope-deferred-time-budget-recovery-v1
     steps:
-      - name: Check out exact trigger branch
+      - name: Check out exact recovery branch
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          ref: ${{ github.event.pull_request.head.ref }}
+          ref: hotfix/ascope-deferred-time-budget-recovery-v1
           fetch-depth: 0
           persist-credentials: true
 
@@ -155,7 +151,7 @@ jobs:
             tests/test_ascope_retryable_rollout_recovery.py
           pytest -q tests/test_ascope_retryable_rollout_recovery.py
 
-      - name: Commit reviewed target changes to the existing PR branch
+      - name: Commit reviewed target changes to the recovery branch
         shell: bash
         run: |
           set -euo pipefail
@@ -167,4 +163,4 @@ jobs:
             exit 0
           fi
           git commit -m 'Recover audited A-SCOPE soft-deadline deferrals'
-          git push origin HEAD:"$HEAD_BRANCH"
+          git push origin HEAD:"$TARGET_BRANCH"
