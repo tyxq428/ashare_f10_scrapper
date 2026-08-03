@@ -61,6 +61,8 @@ ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
 "src/ashare_f10/api/jobs.py" = ["I001"]
+"src/ashare_f10/recovery/ascope_retryable_checkpoint.py" = ["I001"]
+"src/ashare_f10/recovery/ascope_transient_batch.py" = ["I001"]
 "src/ashare_f10/validation/reconcile/__init__.py" = ["I001"]
 "src/ashare_f10/validation/reconcile/engine.py" = ["I001"]
 "src/ashare_f10/validation/reporting.py" = ["I001"]
