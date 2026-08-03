@@ -23,15 +23,14 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Inspect canonical rollout and deferred-recovery PR runner
+      - name: Inspect canonical rollout and deferred-recovery issue runner
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           ISSUE_NUMBER: '71'
           SOURCE_RUN_ID: '30782791016'
           EXPECTED_SOURCE_SHA: a47c6ba5eb5a89a8bbdbf2e0ee58cf247b61b4c3
-          PATCH_BRANCH: hotfix/ascope-deferred-time-budget-recovery-v1
-          PATCH_WORKFLOW: A-SCOPE Deferred Recovery PR Runner
+          PATCH_WORKFLOW: A-SCOPE Deferred Recovery Issue Runner
         shell: python
         run: |
           from __future__ import annotations
@@ -84,11 +83,7 @@ jobs:
               and source.get('head_sha') == os.environ['EXPECTED_SOURCE_SHA']
           )
 
-          query = urllib.parse.urlencode({
-              'branch': os.environ['PATCH_BRANCH'],
-              'event': 'pull_request',
-              'per_page': 100,
-          })
+          query = urllib.parse.urlencode({'event': 'issues', 'per_page': 100})
           candidates = get(
               f'/repos/{repository}/actions/runs?{query}'
           ).get('workflow_runs', [])
@@ -122,7 +117,7 @@ jobs:
                   f"`{job.get('conclusion') or 'PENDING'}`{suffix}"
               )
 
-          lines.extend(['', '### Deferred-recovery PR runner'])
+          lines.extend(['', '### Deferred-recovery Issue runner'])
           if patch:
               lines.extend([
                   f'- run_id: `{patch.get("id")}`',
@@ -144,7 +139,7 @@ jobs:
                       f"`{job.get('conclusion') or 'PENDING'}`{suffix}"
                   )
           else:
-              lines.append('- no matching PR-runner workflow run returned')
+              lines.append('- no matching Issue-runner workflow run returned')
 
           lines.extend([
               '',
