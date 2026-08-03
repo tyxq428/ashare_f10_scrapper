@@ -1,0 +1,660 @@
+name: A-SCOPE F10 Recover Retryable Batches and Finalize
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/ascope-f10-retryable-rollout-recovery.yml
+      - src/ashare_f10/recovery/ascope_retryable_checkpoint.py
+      - src/ashare_f10/recovery/ascope_transient_batch.py
+      - tests/test_ascope_retryable_rollout_recovery.py
+      - docs/implementation/ascope-f10-export-bridge-v1/**
+  workflow_run:
+    workflows:
+      - A-SCOPE F10 Recover B001 and Continue Rollout
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Exact completed rollout run to inspect and recover
+        required: true
+        default: '30782791016'
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+
+concurrency:
+  group: ascope-f10-retryable-rollout-recovery-${{ github.event_name }}-${{ github.event.workflow_run.id || inputs.source_run_id || github.run_id }}
+  cancel-in-progress: false
+
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+  PYTHONUNBUFFERED: '1'
+  AS_OF_DATE: '2026-07-30'
+  SOURCE_URL: https://github.com/BullbaseGuy/a-scope-reearch/releases/download/ascope-financial-requests-2026-07-30-v1/ascope-financial-requests-2026-07-30-v1.zip
+  EXPECTED_SOURCE_RUN_ID: '30782791016'
+  EXPECTED_SOURCE_HEAD_SHA: a47c6ba5eb5a89a8bbdbf2e0ee58cf247b61b4c3
+  SOURCE_RUN_ID: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || inputs.source_run_id }}
+  ISSUE_NUMBER: '71'
+
+jobs:
+  contract:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install project
+        run: python -m pip install -e '.[dev]'
+
+      - name: Validate bounded recovery implementation
+        run: |
+          ruff check \
+            src/ashare_f10/recovery/ascope_retryable_checkpoint.py \
+            src/ashare_f10/recovery/ascope_transient_batch.py \
+            tests/test_ascope_retryable_rollout_recovery.py
+          pytest -q tests/test_ascope_retryable_rollout_recovery.py
+
+  source_gate:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      source_run_id: ${{ steps.inspect.outputs.source_run_id }}
+      failed_batches_json: ${{ steps.inspect.outputs.failed_batches_json }}
+      failed_count: ${{ steps.inspect.outputs.failed_count }}
+      matrix_json: ${{ steps.inspect.outputs.matrix_json }}
+    steps:
+      - name: Inspect exact completed source rollout
+        id: inspect
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: python
+        run: |
+          from __future__ import annotations
+
+          import json
+          import os
+          import re
+          import urllib.request
+          from pathlib import Path
+
+          repository = os.environ['REPOSITORY']
+          source_run_id = int(os.environ['SOURCE_RUN_ID'])
+          expected_run_id = int(os.environ['EXPECTED_SOURCE_RUN_ID'])
+          expected_sha = os.environ['EXPECTED_SOURCE_HEAD_SHA']
+          token = os.environ['GH_TOKEN']
+          headers = {
+              'Accept': 'application/vnd.github+json',
+              'Authorization': f'Bearer {token}',
+              'X-GitHub-Api-Version': '2022-11-28',
+              'User-Agent': 'ascope-f10-retryable-rollout-recovery',
+          }
+
+          def get_json(path: str):
+              request = urllib.request.Request(
+                  f'https://api.github.com{path}', headers=headers, method='GET'
+              )
+              with urllib.request.urlopen(request, timeout=60) as response:
+                  return json.loads(response.read().decode('utf-8'))
+
+          if source_run_id != expected_run_id:
+              raise SystemExit(
+                  f'source run id mismatch: observed={source_run_id}, expected={expected_run_id}'
+              )
+          run = get_json(f'/repos/{repository}/actions/runs/{source_run_id}')
+          expected = {
+              'name': 'A-SCOPE F10 Recover B001 and Continue Rollout',
+              'event': 'push',
+              'head_branch': 'main',
+              'head_sha': expected_sha,
+              'status': 'completed',
+          }
+          observed = {key: run.get(key) for key in expected}
+          if observed != expected:
+              raise SystemExit(
+                  f'exact source gate failed: observed={observed}, expected={expected}'
+              )
+
+          jobs = get_json(
+              f'/repos/{repository}/actions/runs/{source_run_id}/jobs?per_page=100'
+          ).get('jobs', [])
+          recover = [job for job in jobs if job.get('name') == 'recover_b001']
+          if len(recover) != 1 or recover[0].get('conclusion') != 'success':
+              raise SystemExit(f'recovered B001 is not successful: {recover}')
+
+          pattern = re.compile(r'^remaining_batches \((B\d{3})\) / batch$')
+          batch_jobs = {}
+          for job in jobs:
+              match = pattern.match(str(job.get('name') or ''))
+              if match:
+                  batch_jobs[match.group(1)] = job
+          expected_batches = [f'B{index:03d}' for index in range(2, 28)]
+          missing = sorted(set(expected_batches) - set(batch_jobs))
+          if missing:
+              raise SystemExit(f'source rollout is missing batch jobs: {missing}')
+
+          invalid = {
+              batch_id: job.get('conclusion')
+              for batch_id, job in batch_jobs.items()
+              if job.get('conclusion') not in {'success', 'failure'}
+          }
+          if invalid:
+              raise SystemExit(f'source rollout contains non-final batch outcomes: {invalid}')
+          failed = sorted(
+              batch_id
+              for batch_id, job in batch_jobs.items()
+              if job.get('conclusion') == 'failure'
+          )
+          if not failed:
+              raise SystemExit(
+                  'source rollout has no failed batches; its native reducer should be used instead'
+              )
+
+          artifacts = get_json(
+              f'/repos/{repository}/actions/runs/{source_run_id}/artifacts?per_page=100'
+          ).get('artifacts', [])
+          artifact_names = {str(item.get('name') or '') for item in artifacts}
+          required_artifacts = {
+              f'ascope-f10-B001-s0-{source_run_id}',
+              *(f'ascope-f10-{batch_id}-s0-{source_run_id}' for batch_id in expected_batches),
+          }
+          missing_artifacts = sorted(required_artifacts - artifact_names)
+          if missing_artifacts:
+              raise SystemExit(
+                  f'source rollout is missing durable batch artifacts: {missing_artifacts}'
+              )
+
+          report = {
+              'status': 'PASS',
+              'source_run_id': source_run_id,
+              'source_conclusion': run.get('conclusion'),
+              'source_head_sha': run.get('head_sha'),
+              'successful_batches': sorted(
+                  batch_id
+                  for batch_id, job in batch_jobs.items()
+                  if job.get('conclusion') == 'success'
+              ),
+              'failed_batches': failed,
+              'failed_count': len(failed),
+          }
+          Path('source_gate_report.json').write_text(
+              json.dumps(report, ensure_ascii=False, indent=2) + '\n',
+              encoding='utf-8',
+          )
+          matrix = {'include': [{'batch_id': batch_id} for batch_id in failed]}
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+              output.write(f'source_run_id={source_run_id}\n')
+              output.write(
+                  'failed_batches_json='
+                  + json.dumps(failed, separators=(',', ':'))
+                  + '\n'
+              )
+              output.write(f'failed_count={len(failed)}\n')
+              output.write(
+                  'matrix_json='
+                  + json.dumps(matrix, separators=(',', ':'))
+                  + '\n'
+              )
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+
+      - name: Upload source-gate diagnosis
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ascope-f10-retryable-source-gate-${{ github.run_id }}
+          path: source_gate_report.json
+          if-no-files-found: error
+          retention-days: 30
+
+  recover_batches:
+    if: needs.source_gate.result == 'success' && needs.source_gate.outputs.failed_count != '0'
+    needs:
+      - source_gate
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix: ${{ fromJSON(needs.source_gate.outputs.matrix_json) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    steps:
+      - name: Check out current main recovery code
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+
+      - name: Set up Python with dependency cache
+        uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install project
+        run: python -m pip install -e '.[dev]'
+
+      - name: Restore exact failed batch artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ascope-f10-${{ matrix.batch_id }}-s0-${{ needs.source_gate.outputs.source_run_id }}
+          path: 09_OUTPUTS
+          run-id: ${{ needs.source_gate.outputs.source_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Verify HTTP 502 boundary and reset only exact retryable securities
+        env:
+          BATCH_ID: ${{ matrix.batch_id }}
+        shell: python
+        run: |
+          from __future__ import annotations
+
+          import json
+          import os
+          from pathlib import Path
+
+          from ashare_f10.recovery.ascope_retryable_checkpoint import (
+              reset_retryable_failures,
+          )
+          from ashare_f10.recovery.ascope_transient_batch import (
+              verify_transient_quote_502_batch,
+          )
+
+          batch_id = os.environ['BATCH_ID']
+          root = Path('09_OUTPUTS/ascope-f10') / batch_id
+          verification = verify_transient_quote_502_batch(root)
+          reset = reset_retryable_failures(
+              root / 'checkpoint.json',
+              security_ids=set(verification['security_ids']),
+              expected_error_code='F10_FETCH_FAILED',
+              reason=(
+                  'verified /api/qt/stock/get union_quote_fields outage; '
+                  'HTTP 502 only; post-rollout bounded retry authorized'
+              ),
+          )
+          report = {
+              'status': 'PASS',
+              'source_run_id': int(os.environ['SOURCE_RUN_ID']),
+              'batch_id': batch_id,
+              'verification': verification,
+              'reset': reset,
+          }
+          (root / 'retryable_recovery_report.json').write_text(
+              json.dumps(report, ensure_ascii=False, indent=2) + '\n',
+              encoding='utf-8',
+          )
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+
+      - name: Resume only reset securities and preserve exit code
+        id: execute
+        env:
+          BATCH_ID: ${{ matrix.batch_id }}
+        shell: bash
+        run: |
+          set +e
+          python -m ashare_f10.ascope_bridge.cli run-batch \
+            09_OUTPUTS/ascope-request/request.zip \
+            --batch-id "$BATCH_ID" \
+            --as-of-date "$AS_OF_DATE" \
+            --smoke-count 0 \
+            --data-root data \
+            --output-root 09_OUTPUTS/ascope-f10 \
+            --stock-workers 2 \
+            --max-attempts 2 \
+            --soft-deadline-seconds 18000 \
+            --heartbeat-seconds 30
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Validate corrected batch and preserved checkpoint history
+        if: always()
+        env:
+          BATCH_ID: ${{ matrix.batch_id }}
+        shell: python
+        run: |
+          from __future__ import annotations
+
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path('09_OUTPUTS/ascope-f10') / os.environ['BATCH_ID']
+          validation = json.loads(
+              (root / 'validation_report.json').read_text(encoding='utf-8')
+          )
+          expected = {
+              'input_count': 200,
+              'successful_count': 200,
+              'failed_count': 0,
+              'deferred_count': 0,
+              'conservation_pass': True,
+              'formal_future_rows': 0,
+          }
+          for key, wanted in expected.items():
+              if validation.get(key) != wanted:
+                  raise SystemExit(
+                      f'corrected batch mismatch: {key}={validation.get(key)!r}, '
+                      f'expected={wanted!r}'
+                  )
+          if validation.get('status') not in {'PASS', 'PASS_WITH_GAPS'}:
+              raise SystemExit(f'corrected batch is not acceptable: {validation}')
+          checkpoint = json.loads(
+              (root / 'checkpoint.json').read_text(encoding='utf-8')
+          )
+          recovered = [
+              item for item in checkpoint['stocks'] if item.get('recovery_history')
+          ]
+          recovery_report = json.loads(
+              (root / 'retryable_recovery_report.json').read_text(encoding='utf-8')
+          )
+          expected_ids = set(recovery_report['verification']['security_ids'])
+          observed_ids = {str(item['security_id']) for item in recovered}
+          if observed_ids != expected_ids:
+              raise SystemExit(
+                  f'recovery history mismatch: observed={sorted(observed_ids)}, '
+                  f'expected={sorted(expected_ids)}'
+              )
+          if any(
+              item.get('status') not in {'COMPLETED', 'COMPLETED_WITH_GAPS'}
+              for item in recovered
+          ):
+              raise SystemExit('one or more retryable securities did not complete')
+
+      - name: Upload corrected batch artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ascope-f10-${{ matrix.batch_id }}-s0-${{ github.run_id }}
+          path: |
+            09_OUTPUTS/ascope-request
+            09_OUTPUTS/ascope-f10/${{ matrix.batch_id }}
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6
+          overwrite: true
+
+      - name: Propagate corrected batch result after artifact upload
+        if: always()
+        shell: bash
+        run: |
+          code='${{ steps.execute.outputs.exit_code }}'
+          [[ "$code" =~ ^[0-9]+$ ]]
+          if [[ "$code" != '0' ]]; then
+            echo "Corrected batch returned exit code $code after artifact upload." >&2
+            exit "$code"
+          fi
+
+  reduce_full_market:
+    if: >-
+      ${{
+        always()
+        && github.event_name != 'pull_request'
+        && needs.source_gate.result == 'success'
+        && needs.recover_batches.result == 'success'
+      }}
+    needs:
+      - source_gate
+      - recover_batches
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install project
+        run: python -m pip install -e '.[dev]'
+
+      - name: Download all durable source-run batch artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: ascope-f10-B*-s0-${{ needs.source_gate.outputs.source_run_id }}
+          path: 09_OUTPUTS/source
+          merge-multiple: true
+          run-id: ${{ needs.source_gate.outputs.source_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Download corrected retryable batch artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: ascope-f10-B*-s0-${{ github.run_id }}
+          path: 09_OUTPUTS/recovered
+          merge-multiple: true
+
+      - name: Compose canonical 27-batch root with corrected overlays
+        env:
+          FAILED_BATCHES_JSON: ${{ needs.source_gate.outputs.failed_batches_json }}
+        shell: python
+        run: |
+          from __future__ import annotations
+
+          import json
+          import os
+          import shutil
+          from pathlib import Path
+
+          source = Path('09_OUTPUTS/source/ascope-f10')
+          recovered = Path('09_OUTPUTS/recovered/ascope-f10')
+          canonical = Path('09_OUTPUTS/canonical/ascope-f10')
+          if canonical.exists():
+              shutil.rmtree(canonical)
+          shutil.copytree(source, canonical)
+          failed = json.loads(os.environ['FAILED_BATCHES_JSON'])
+          for batch_id in failed:
+              target = canonical / batch_id
+              if target.exists():
+                  shutil.rmtree(target)
+              correction = recovered / batch_id
+              if not correction.exists():
+                  raise SystemExit(f'corrected batch directory is missing: {correction}')
+              shutil.copytree(correction, target)
+          print(json.dumps({'overlaid_batches': failed}, ensure_ascii=False))
+
+      - name: Verify every canonical batch is successful
+        shell: python
+        run: |
+          from __future__ import annotations
+
+          import json
+          from pathlib import Path
+
+          root = Path('09_OUTPUTS/canonical/ascope-f10')
+          reports = {}
+          for index in range(1, 28):
+              batch_id = f'B{index:03d}'
+              path = root / batch_id / 'validation_report.json'
+              if not path.exists():
+                  raise SystemExit(f'missing canonical batch report: {path}')
+              report = json.loads(path.read_text(encoding='utf-8'))
+              reports[batch_id] = {
+                  'status': report.get('status'),
+                  'input_count': report.get('input_count'),
+                  'successful_count': report.get('successful_count'),
+                  'failed_count': report.get('failed_count'),
+                  'deferred_count': report.get('deferred_count'),
+                  'formal_future_rows': report.get('formal_future_rows'),
+              }
+              if report.get('status') not in {'PASS', 'PASS_WITH_GAPS'}:
+                  raise SystemExit(f'{batch_id} is not successful: {report}')
+              if int(report.get('failed_count') or 0) != 0:
+                  raise SystemExit(f'{batch_id} retains failed securities')
+              if int(report.get('deferred_count') or 0) != 0:
+                  raise SystemExit(f'{batch_id} retains deferred securities')
+              if int(report.get('formal_future_rows') or 0) != 0:
+                  raise SystemExit(f'{batch_id} contains formal future rows')
+          Path('09_OUTPUTS/canonical_batch_validation.json').write_text(
+              json.dumps({'status': 'PASS', 'batches': reports}, ensure_ascii=False, indent=2)
+              + '\n',
+              encoding='utf-8',
+          )
+
+      - name: Reduce and validate all 5,331 securities
+        run: |
+          python -m ashare_f10.ascope_bridge.rollout_cli reduce-full \
+            09_OUTPUTS/source/ascope-request/request.zip \
+            09_OUTPUTS/canonical/ascope-f10 \
+            --output-dir 09_OUTPUTS/ascope-f10-full-market \
+            --as-of-date "$AS_OF_DATE"
+
+      - name: Validate final full-market manifest
+        shell: python
+        run: |
+          import json
+          from pathlib import Path
+
+          root = Path('09_OUTPUTS/ascope-f10-full-market')
+          manifest = json.loads((root / 'bundle_manifest.json').read_text(encoding='utf-8'))
+          expected = {
+              'status': 'PASS',
+              'as_of_date': '2026-07-30',
+              'batch_count': 27,
+              'expected_security_count': 5331,
+              'completed_security_count': 5331,
+              'fixture_mode': False,
+              'non_investment_output': False,
+          }
+          for key, wanted in expected.items():
+              if manifest.get(key) != wanted:
+                  raise SystemExit(
+                      f'full-market manifest mismatch: {key}={manifest.get(key)!r}, '
+                      f'expected={wanted!r}'
+                  )
+
+      - name: Upload final full-market financial package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ascope-f10-full-market-${{ github.run_id }}
+          path: |
+            09_OUTPUTS/ascope-f10-full-market
+            09_OUTPUTS/canonical_batch_validation.json
+            09_OUTPUTS/source_gate_report.json
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 6
+
+      - name: Persist successful completion to Task Control Issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_RUN_ID_VALUE: ${{ needs.source_gate.outputs.source_run_id }}
+          FAILED_BATCHES_JSON: ${{ needs.source_gate.outputs.failed_batches_json }}
+        shell: python
+        run: |
+          import json
+          import os
+          import urllib.request
+
+          recovered = json.loads(os.environ['FAILED_BATCHES_JSON'])
+          body = '\n'.join([
+              '## W10 completion checkpoint — retryable batches recovered and full market reduced',
+              '',
+              f"- source rollout run: `{os.environ['SOURCE_RUN_ID_VALUE']}`",
+              f"- recovery/finalization run: `{os.environ['GITHUB_RUN_ID']}`",
+              f"- recovered batches: `{', '.join(recovered)}`",
+              '- final batch count: `27`',
+              '- completed standard-path securities: `5,331 / 5,331`',
+              '- formal future rows: `0`',
+              '- fixture/non-investment contamination: `false / false`',
+              f"- final artifact: `ascope-f10-full-market-{os.environ['GITHUB_RUN_ID']}`",
+              '',
+              'Only verified retryable HTTP-502 states were reset. Successful securities and successful batches were preserved.',
+              '',
+              'No Gmail, Codex, paid probes, broad reruns, or automatic trading were used.',
+          ])
+          payload = json.dumps({'body': body}).encode('utf-8')
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['REPOSITORY']}/issues/{os.environ['ISSUE_NUMBER']}/comments",
+              data=payload,
+              headers={
+                  'Accept': 'application/vnd.github+json',
+                  'Authorization': f"Bearer {os.environ['GH_TOKEN']}",
+                  'X-GitHub-Api-Version': '2022-11-28',
+                  'User-Agent': 'ascope-f10-retryable-rollout-recovery',
+              },
+              method='POST',
+          )
+          with urllib.request.urlopen(request, timeout=60) as response:
+              print(response.status)
+
+  report_interruption:
+    if: >-
+      ${{
+        always()
+        && github.event_name != 'pull_request'
+        && needs.reduce_full_market.result != 'success'
+      }}
+    needs:
+      - source_gate
+      - recover_batches
+      - reduce_full_market
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Persist bounded interruption guidance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_GATE_RESULT: ${{ needs.source_gate.result }}
+          RECOVERY_RESULT: ${{ needs.recover_batches.result }}
+          REDUCTION_RESULT: ${{ needs.reduce_full_market.result }}
+          FAILED_BATCHES_JSON: ${{ needs.source_gate.outputs.failed_batches_json }}
+        shell: python
+        run: |
+          import os
+          import json
+          import urllib.request
+
+          body = '\n'.join([
+              '## A-SCOPE rollout finalization interrupted — bounded next action',
+              '',
+              f"- source rollout run: `{os.environ.get('SOURCE_RUN_ID', '')}`",
+              f"- recovery run: `{os.environ['GITHUB_RUN_ID']}`",
+              f"- source gate: `{os.environ['SOURCE_GATE_RESULT']}`",
+              f"- retryable-batch recovery: `{os.environ['RECOVERY_RESULT']}`",
+              f"- full-market reduction: `{os.environ['REDUCTION_RESULT']}`",
+              f"- discovered failed batches: `{os.environ.get('FAILED_BATCHES_JSON') or 'unavailable'}`",
+              '',
+              'Do not rerun the complete 27-batch source workflow and do not rerun successful batches.',
+              '',
+              'Next action:',
+              '1. inspect the failed recovery job and its uploaded corrected-batch artifact;',
+              '2. if the cause is a confirmed transient 429/5xx/timeout, rerun only that failed recovery job;',
+              '3. if the verifier reports a different deterministic root cause, repair that exact root cause and reset only the explicitly affected securities;',
+              '4. once corrected batch artifacts pass, rerun only the failed final reducer job.',
+              '',
+              'No Gmail or external email connection is required.',
+          ])
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['REPOSITORY']}/issues/{os.environ['ISSUE_NUMBER']}/comments",
+              data=json.dumps({'body': body}).encode('utf-8'),
+              headers={
+                  'Accept': 'application/vnd.github+json',
+                  'Authorization': f"Bearer {os.environ['GH_TOKEN']}",
+                  'X-GitHub-Api-Version': '2022-11-28',
+                  'User-Agent': 'ascope-f10-retryable-rollout-recovery',
+              },
+              method='POST',
+          )
+          with urllib.request.urlopen(request, timeout=60) as response:
+              print(response.status)

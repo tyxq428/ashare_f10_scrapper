@@ -77,8 +77,8 @@
       "task_id": "ascope-f10-export-bridge-v1",
       "title": "A-SCOPE F10 batch export bridge",
       "status": "RUNNING",
-      "branch": "hotfix/ascope-b001-illegal-char-recovery",
-      "pull_request": 73,
+      "branch": "hotfix/ascope-retryable-rollout-recovery-v1",
+      "pull_request": 74,
       "current_stage": "W09",
       "state_path": "docs/implementation/ascope-f10-export-bridge-v1/task_state.yaml"
     }

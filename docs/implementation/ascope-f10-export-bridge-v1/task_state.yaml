@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "state_revision": 8,
+  "state_revision": 9,
   "task_id": "ascope-f10-export-bridge-v1",
   "title": "A-SCOPE F10 batch export bridge",
   "status": "RUNNING",
@@ -12,21 +12,21 @@
     "details_path": null
   },
   "security_status": "PENDING",
-  "working_branch": "hotfix/ascope-b001-illegal-char-recovery",
-  "pull_request": 73,
-  "base_sha_at_start": "644e56ce6d23709de49f2542b3c857adfe2e61c3",
-  "last_product_commit_sha": "efd5d9b09da9bd8ace8b695505f1a205f2433cae",
+  "working_branch": "hotfix/ascope-retryable-rollout-recovery-v1",
+  "pull_request": 74,
+  "base_sha_at_start": "a47c6ba5eb5a89a8bbdbf2e0ee58cf247b61b4c3",
+  "last_product_commit_sha": "ac1f8fda0c7266c0f020d50d93e361bcf59b804a",
   "last_state_commit_sha": null,
   "current_stage": "W09",
   "last_completed_stage": "W08",
-  "last_successful_step": "W09_full_B001_checkpoint_preserved_196_successes_and_four_deterministic_excel_failures_classified",
-  "next_action": "Validate PR 73, merge the exporter and controlled checkpoint recovery, restore B001 artifact 8767007309, retry only SZSE.000032/SZSE.000403/SZSE.000552/SZSE.000593, require B001 200/200, then continue B002-B027 and full-market reduction.",
+  "last_successful_step": "W09_B001_recovered_200_of_200_B002_passed_B003_27_retryable_HTTP502_failures_classified_without_interrupting_active_rollout",
+  "next_action": "Validate and merge PR 74 before source rollout 30782791016 completes; then automatically recover only failed retryable batches, preserve successful artifacts, and perform the 27-batch 5,331-security reduction.",
   "gate_results": {
     "USER_CONFIRMATION": "PASS:2026-07-30",
     "CONTROL_ISSUE": "PASS:71",
-    "WORKING_BRANCH": "PASS:hotfix/ascope-b001-illegal-char-recovery",
-    "RECOVERY_PR": "PASS:73",
-    "BASE_MAIN_SHA": "644e56ce6d23709de49f2542b3c857adfe2e61c3",
+    "WORKING_BRANCH": "PASS:hotfix/ascope-retryable-rollout-recovery-v1",
+    "RETRYABLE_RECOVERY_PR": "PASS:74",
+    "BASE_MAIN_SHA": "a47c6ba5eb5a89a8bbdbf2e0ee58cf247b61b4c3",
     "W00_BOOTSTRAP": "PASS",
     "W01_LOCAL_FIXTURE": "PASS:8_TESTS",
     "W01_PRODUCTION_REQUEST_PARSE": "PASS:5331_ROWS_27_BATCHES_B001_SMOKE_5",
@@ -58,10 +58,19 @@
     "W09_FULL_B001_OUTPUT": "PASS_PARTIAL:1372_ANNUAL:3332_QUARTERLY:53704_FIELD_STATUS:0_FORMAL_FUTURE:0_DUPLICATE",
     "W09_FAILURE_ROOT_CAUSE": "CLASSIFIED:EXCEL_FORBIDDEN_CONTROL_CHARACTERS_ONLY",
     "W09_FAILURE_SET": "SZSE.000032_U+0002;SZSE.000403_U+0000;SZSE.000552_U+0002;SZSE.000593_U+0019",
-    "W09_RECOVERY_CONTRACT": "PASS:30782269390",
-    "QUOTE_300308_REGRESSION": "PASS_AFTER_BOUNDED_INFRA_RETRY:30547981863",
+    "W09_B001_RECOVERY_PR": "PASS:73:MERGED:a47c6ba5eb5a89a8bbdbf2e0ee58cf247b61b4c3",
+    "W09_ACTIVE_ROLLOUT": "RUNNING:30782791016",
+    "W09_RECOVERED_B001": "PASS:200_OF_200:30782791016",
+    "W09_B002": "PASS:30782791016",
+    "W09_B003": "FAILED_RECOVERABLE:173_SUCCESS:27_FAILED_RETRYABLE:0_TERMINAL:0_DEFERRED",
+    "W09_B003_ROOT_CAUSE": "CLASSIFIED:GROUP_ef08aa02d7e84c00:/api/qt/stock/get:union_quote_fields:HTTP502_ONLY",
+    "W09_B003_ARTIFACT": "PASS:8847147098:SHA256_79ee601d7d9df8c4516ad8808923405302357273ec53e6a9d8f13d9e13a36403",
+    "W09_RETRYABLE_ATTEMPT_BUDGET_DEFECT": "CLASSIFIED:RESTORED_ATTEMPT_COUNT_EQUALS_MAX_ATTEMPTS_REQUIRES_AUDITED_RESET",
+    "W09_RETRYABLE_RECOVERY_CHAIN": "IMPLEMENTED:PENDING_PR_GATES_AND_MERGE",
+    "QUOTE_300308_REGRESSION": "PASS_AFTER_BOUNDED_INFRA_RETRY:30782472443",
     "CODEX_CALLS": "0",
     "RESPONSES_PAID_PROBES": "0",
+    "GMAIL_CALLS": "0",
     "FULL_MARKET_OFFICIAL_PDF_VALIDATION": "DISABLED",
     "STANDARD_ST_PATH": "EXCLUDED"
   },
@@ -80,7 +89,9 @@
   "post_merge": {
     "status": "PENDING",
     "merge_sha": null,
-    "verified_run_ids": []
+    "verified_run_ids": [
+      30782791016
+    ]
   },
   "notification": {
     "generation": 0,
@@ -88,5 +99,5 @@
     "acknowledged": true,
     "control_issue_number": 71
   },
-  "updated_at_utc": "2026-08-03T03:39:49Z"
+  "updated_at_utc": "2026-08-03T07:17:20Z"
 }
