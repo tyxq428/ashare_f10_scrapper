@@ -173,8 +173,14 @@ def test_verify_and_reset_exact_retryable_quote_502_batch(tmp_path: Path) -> Non
     checkpoint = json.loads((batch / "checkpoint.json").read_text(encoding="utf-8"))
     successful, recovered = checkpoint["stocks"]
     assert verification["retryable_count"] == 1
+    assert verification["deferred_count"] == 0
     assert verification["authorized_root_cause"]["error_class"] == "HTTP_502_ONLY"
-    assert verification["evidence"]["SZSE.001213"]["http_502_attempt_count"] == 3
+    assert (
+        verification["evidence"]["quote_http_502"]["SZSE.001213"][
+            "http_502_attempt_count"
+        ]
+        == 3
+    )
     assert report["recovered_count"] == 1
     assert report["unchanged_success_count"] == 1
     assert successful["status"] == "COMPLETED_WITH_GAPS"
@@ -185,28 +191,28 @@ def test_verify_and_reset_exact_retryable_quote_502_batch(tmp_path: Path) -> Non
     assert recovered["recovery_history"][0]["prior_attempt_count"] == 2
 
 
-def test_verify_and_reset_mixed_quote_and_deadline_recovery(tmp_path: Path) -> None:
+def test_existing_finalizer_call_recovers_mixed_quote_and_deadline_set(
+    tmp_path: Path,
+) -> None:
     batch = _mixed_recoverable_fixture(tmp_path)
 
-    verification = verify_recoverable_batch(batch)
-    quote_reset = reset_retryable_failures(
+    verification = verify_transient_quote_502_batch(batch)
+    reset = reset_retryable_failures(
         batch / "checkpoint.json",
-        security_ids=set(verification["retryable_security_ids"]),
+        security_ids=set(verification["security_ids"]),
         expected_error_code="F10_FETCH_FAILED",
-        expected_statuses={"FAILED_RETRYABLE"},
-        reason="verified quote HTTP 502 retry",
-    )
-    deadline_reset = reset_retryable_failures(
-        batch / "checkpoint.json",
-        security_ids=set(verification["deferred_security_ids"]),
-        expected_error_code="TIME_BUDGET_REACHED",
-        expected_statuses={"DEFERRED_TIME_BUDGET"},
-        reason="verified deterministic soft-deadline continuation",
+        reason=(
+            "verified /api/qt/stock/get union_quote_fields outage; "
+            "HTTP 502 only; post-rollout bounded retry authorized"
+        ),
     )
 
     assert verification["retryable_count"] == 1
     assert verification["deferred_count"] == 1
     assert verification["security_ids"] == ["SZSE.001213", "SZSE.001214"]
+    assert verification["authorized_root_cause"]["error_class"] == (
+        "APPROVED_RECOVERABLE_SET"
+    )
     assert verification["authorized_root_causes"] == [
         {
             "status": "FAILED_RETRYABLE",
@@ -223,25 +229,30 @@ def test_verify_and_reset_mixed_quote_and_deadline_recovery(tmp_path: Path) -> N
             "security_count": 1,
         },
     ]
-    assert quote_reset["recovered_count"] == 1
-    assert deadline_reset["recovered_count"] == 1
+    assert reset["recovered_count"] == 2
+    assert reset["unchanged_success_count"] == 1
 
     checkpoint = json.loads((batch / "checkpoint.json").read_text(encoding="utf-8"))
     states = {item["security_id"]: item for item in checkpoint["stocks"]}
     assert states["SZSE.001212"]["status"] == "COMPLETED_WITH_GAPS"
     assert states["SZSE.001213"]["status"] == "PENDING"
     assert states["SZSE.001214"]["status"] == "PENDING"
-    assert (
-        states["SZSE.001214"]["recovery_history"][0]["prior_error_code"]
-        == "TIME_BUDGET_REACHED"
-    )
+    deferred_history = states["SZSE.001214"]["recovery_history"][0]
+    assert deferred_history["prior_error_code"] == "TIME_BUDGET_REACHED"
+    assert "soft-deadline deferral" in deferred_history["reason"]
+    assert "HTTP 502 only" not in deferred_history["reason"]
 
 
-def test_strict_quote_verifier_rejects_deferred_state(tmp_path: Path) -> None:
+def test_explicit_recoverable_verifier_reports_mixed_root_causes(
+    tmp_path: Path,
+) -> None:
     batch = _mixed_recoverable_fixture(tmp_path)
 
-    with pytest.raises(TransientBatchVerificationError, match="deferred securities"):
-        verify_transient_quote_502_batch(batch)
+    verification = verify_recoverable_batch(batch)
+
+    assert verification["retryable_security_ids"] == ["SZSE.001213"]
+    assert verification["deferred_security_ids"] == ["SZSE.001214"]
+    assert verification["security_ids"] == ["SZSE.001213", "SZSE.001214"]
 
 
 def test_recoverable_verifier_rejects_unapproved_deferred_state(
@@ -257,7 +268,7 @@ def test_recoverable_verifier_rejects_unapproved_deferred_state(
         TransientBatchVerificationError,
         match="unexpected error_code",
     ):
-        verify_recoverable_batch(batch)
+        verify_transient_quote_502_batch(batch)
 
 
 def test_verifier_rejects_non_502_or_terminal_failure(tmp_path: Path) -> None:
