@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "state_revision": 9,
+  "state_revision": 10,
   "task_id": "ascope-f10-export-bridge-v1",
   "title": "A-SCOPE F10 batch export bridge",
   "status": "RUNNING",
@@ -12,20 +12,20 @@
     "details_path": null
   },
   "security_status": "PENDING",
-  "working_branch": "hotfix/ascope-retryable-rollout-recovery-v1",
+  "working_branch": "main",
   "pull_request": 74,
   "base_sha_at_start": "a47c6ba5eb5a89a8bbdbf2e0ee58cf247b61b4c3",
-  "last_product_commit_sha": "ac1f8fda0c7266c0f020d50d93e361bcf59b804a",
+  "last_product_commit_sha": "efce99f80448fe7f4e1521120880a0067d790b2b",
   "last_state_commit_sha": null,
   "current_stage": "W09",
   "last_completed_stage": "W08",
-  "last_successful_step": "W09_B001_recovered_200_of_200_B002_passed_B003_27_retryable_HTTP502_failures_classified_without_interrupting_active_rollout",
-  "next_action": "Validate and merge PR 74 before source rollout 30782791016 completes; then automatically recover only failed retryable batches, preserve successful artifacts, and perform the 27-batch 5,331-security reduction.",
+  "last_successful_step": "W09_retryable_recovery_chain_merged_duplicate_rollout_cancelled_and_canonical_source_run_30782791016_preserved",
+  "next_action": "Let canonical source Run 30782791016 finish B004-B027. Its exact workflow_run completion will invoke the merged finalizer, recover only verified retryable failed batches, preserve all successful artifacts, and attempt the 27-batch 5,331-security reduction.",
   "gate_results": {
     "USER_CONFIRMATION": "PASS:2026-07-30",
     "CONTROL_ISSUE": "PASS:71",
-    "WORKING_BRANCH": "PASS:hotfix/ascope-retryable-rollout-recovery-v1",
-    "RETRYABLE_RECOVERY_PR": "PASS:74",
+    "WORKING_BRANCH": "PASS:main",
+    "RETRYABLE_RECOVERY_PR": "PASS:74:MERGED:efce99f80448fe7f4e1521120880a0067d790b2b",
     "BASE_MAIN_SHA": "a47c6ba5eb5a89a8bbdbf2e0ee58cf247b61b4c3",
     "W00_BOOTSTRAP": "PASS",
     "W01_LOCAL_FIXTURE": "PASS:8_TESTS",
@@ -59,14 +59,22 @@
     "W09_FAILURE_ROOT_CAUSE": "CLASSIFIED:EXCEL_FORBIDDEN_CONTROL_CHARACTERS_ONLY",
     "W09_FAILURE_SET": "SZSE.000032_U+0002;SZSE.000403_U+0000;SZSE.000552_U+0002;SZSE.000593_U+0019",
     "W09_B001_RECOVERY_PR": "PASS:73:MERGED:a47c6ba5eb5a89a8bbdbf2e0ee58cf247b61b4c3",
-    "W09_ACTIVE_ROLLOUT": "RUNNING:30782791016",
+    "W09_ACTIVE_ROLLOUT": "RUNNING:30782791016:HEAD_a47c6ba5eb5a89a8bbdbf2e0ee58cf247b61b4c3",
     "W09_RECOVERED_B001": "PASS:200_OF_200:30782791016",
     "W09_B002": "PASS:30782791016",
     "W09_B003": "FAILED_RECOVERABLE:173_SUCCESS:27_FAILED_RETRYABLE:0_TERMINAL:0_DEFERRED",
     "W09_B003_ROOT_CAUSE": "CLASSIFIED:GROUP_ef08aa02d7e84c00:/api/qt/stock/get:union_quote_fields:HTTP502_ONLY",
     "W09_B003_ARTIFACT": "PASS:8847147098:SHA256_79ee601d7d9df8c4516ad8808923405302357273ec53e6a9d8f13d9e13a36403",
     "W09_RETRYABLE_ATTEMPT_BUDGET_DEFECT": "CLASSIFIED:RESTORED_ATTEMPT_COUNT_EQUALS_MAX_ATTEMPTS_REQUIRES_AUDITED_RESET",
-    "W09_RETRYABLE_RECOVERY_CHAIN": "IMPLEMENTED:PENDING_PR_GATES_AND_MERGE",
+    "W09_RETRYABLE_RECOVERY_CHAIN": "PASS:IMPLEMENTED_AND_MERGED:PR74:efce99f80448fe7f4e1521120880a0067d790b2b",
+    "W09_RETRYABLE_RECOVERY_TEST": "PASS:30793607199",
+    "W09_RETRYABLE_RECOVERY_STATE_GATE": "PASS:30793607626",
+    "W09_RETRYABLE_RECOVERY_CONTRACT": "PASS:30793607283",
+    "W09_RETRYABLE_RECOVERY_BATCH_CONTRACT": "PASS:30793607100",
+    "W09_RETRYABLE_RECOVERY_ROLLOUT_CONTRACT": "PASS:30793607350",
+    "W09_RETRYABLE_RECOVERY_E2E": "PASS:30793607310",
+    "W09_DUPLICATE_ROLLOUT_GUARD": "PASS:30794078905_CANCELLED:30782791016_PRESERVED",
+    "W09_DUPLICATE_FINALIZER_EVENT": "REJECTED_AS_DESIGNED:30794178188:NO_DATA_MUTATION",
     "QUOTE_300308_REGRESSION": "PASS_AFTER_BOUNDED_INFRA_RETRY:30782472443",
     "CODEX_CALLS": "0",
     "RESPONSES_PAID_PROBES": "0",
@@ -87,10 +95,12 @@
     "resume_from": null
   },
   "post_merge": {
-    "status": "PENDING",
-    "merge_sha": null,
+    "status": "RUNNING",
+    "merge_sha": "efce99f80448fe7f4e1521120880a0067d790b2b",
     "verified_run_ids": [
-      30782791016
+      30782791016,
+      30794078905,
+      30794178188
     ]
   },
   "notification": {
@@ -99,5 +109,5 @@
     "acknowledged": true,
     "control_issue_number": 71
   },
-  "updated_at_utc": "2026-08-03T07:17:20Z"
+  "updated_at_utc": "2026-08-03T07:45:27Z"
 }
